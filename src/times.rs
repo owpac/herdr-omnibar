@@ -37,6 +37,16 @@ impl Times {
 
     /// Ask for the panes that the thread did not read.
     pub fn ask(&mut self, panes: impl IntoIterator<Item = String>) {
+        // The demo gives its times: herdr and ps know only the real panes.
+        if let Some(times) = crate::demo::times() {
+            let now = SystemTime::now();
+            if let Ok(mut starts) = self.starts.lock() {
+                for (pane, seconds) in times {
+                    starts.insert(pane, now - Duration::from_secs(seconds));
+                }
+            }
+            return;
+        }
         let new: Vec<String> = panes
             .into_iter()
             .filter(|pane| self.asked.insert(pane.clone()))

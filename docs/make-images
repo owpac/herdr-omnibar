@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+# Make the images of the README: docs/open.png, docs/new.gif and docs/worktrees.png.
+#
+# The script makes a demo folder: 2 git projects with worktrees, a herdr snapshot with agents and
+# tabs of example, the screens of their panes, the actions of the plugins and the running times.
+# With OMNIBAR_DEMO, the omnibar reads them in this folder: it asks nothing to herdr, and the images
+# show no real project. Then VHS (brew install vhs) records the popup, with the theme Dracula.
+#
+#   docs/make-images [<binary>]   default: target/release/herdr-omnibar
+set -euo pipefail
+
+root=$(cd -- "$(dirname -- "$0")/.." && pwd)
+binary=${1:-$root/target/release/herdr-omnibar}
+[ -x "$binary" ] || { echo "no binary at $binary: run cargo build --release" >&2; exit 1; }
+binary=$(realpath "$binary")
+command -v vhs >/dev/null || { echo "VHS is necessary: brew install vhs" >&2; exit 1; }
+
+demo=$(mktemp -d "${TMPDIR:-/tmp}/herdr-omnibar-demo.XXXXXX")
+demo=$(realpath "$demo")
+
+# Remove the demo folder at the end. The guard removes only a folder that mktemp made for this
+# script: never an empty path, and never another folder.
+remove_demo() {
+  case "${demo:?}" in
+    */herdr-omnibar-demo.??????) [ -d "$demo" ] && rm -rf -- "$demo" ;;
+    *) echo "not removed: $demo is not a demo folder" >&2 ;;
+  esac
+}
+# KEEP_DEMO=1 keeps the demo folder and the tapes, to debug.
+[ -n "${KEEP_DEMO:-}" ] || trap remove_demo EXIT
+mkdir -p "$demo/projects" "$demo/panes" "$demo/config" "$demo/state" "$demo/tapes"
+
+# git without the config of the user (a signature with an agent, for example).
+g() { GIT_CONFIG_GLOBAL=/dev/null git -c user.name=Demo -c user.email=demo@example.com "$@"; }
+
+# A date some minutes before now, for git.
+minutes_ago() { date -v-"$1"M +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -d "$1 minutes ago" +%Y-%m-%dT%H:%M:%S; }
+
+# Commit in the folder $1, $2 minutes ago, with the message $3.
+commit() {
+  local date
+  date=$(minutes_ago "$2")
+  GIT_AUTHOR_DATE=$date GIT_COMMITTER_DATE=$date g -C "$1" commit -q -m "$3"
+}
+
+# The project shop: its main checkout, 2 worktrees and a branch without worktree.
+shop="$demo/projects/shop"
+mkdir -p "$shop/src"
+g -C "$shop" init -q -b main
+printf '# Shop\n' > "$shop/README.md"
+printf 'def total(cart):\n    return sum(cart)\n' > "$shop/src/cart.py"
+g -C "$shop" add .
+commit "$shop" 4000 "Start the shop"
+printf 'def search(query):\n    return []\n' > "$shop/src/search.py"
+g -C "$shop" add .
+commit "$shop" 300 "Search the products"
+
+checkout="$demo/projects/shop.feat-checkout"
+g -C "$shop" worktree add -q -b feat/checkout "$checkout" main
+printf 'def pay(card, amount):\n    return card.charge(amount)\n' > "$checkout/src/checkout.py"
+g -C "$checkout" add .
+commit "$checkout" 95 "Pay with a card"
+printf 'def receipt(order):\n    return order.lines\n' > "$checkout/src/receipt.py"
+g -C "$checkout" add .
+commit "$checkout" 38 "Send a receipt after the payment"
+
+cart="$demo/projects/shop.fix-cart-total"
+g -C "$shop" worktree add -q -b fix/cart-total "$cart" main
+printf 'def total(cart):\n    return round(sum(cart), 2)\n' > "$cart/src/cart.py"
+
+g -C "$shop" branch -q docs/api main
+
+# The project blog, and a folder outside git.
+blog="$demo/projects/blog"
+mkdir -p "$blog"
+g -C "$blog" init -q -b main
+printf '# Blog\n' > "$blog/README.md"
+g -C "$blog" add .
+commit "$blog" 2900 "Start the blog"
+mkdir -p "$demo/projects/notes"
+
+# The herdr snapshot: 4 workspaces, their tabs and their panes.
+cat > "$demo/snapshot.json" <<EOF
+{
+  "focused_workspace_id": "w1",
+  "focused_tab_id": "w1:t2",
+  "workspaces": [
+    {"workspace_id": "w1", "label": "shop", "agent_status": "done"},
+    {"workspace_id": "w2", "label": "shop.feat-checkout", "agent_status": "working"},
+    {"workspace_id": "w3", "label": "shop.fix-cart-total", "agent_status": "blocked"},
+    {"workspace_id": "w4", "label": "blog", "agent_status": "idle"}
+  ],
+  "tabs": [
+    {"tab_id": "w1:t1", "workspace_id": "w1", "label": "1", "number": 1},
+    {"tab_id": "w1:t2", "workspace_id": "w1", "label": "logs", "number": 2},
+    {"tab_id": "w1:t3", "workspace_id": "w1", "label": "3", "number": 3},
+    {"tab_id": "w2:t1", "workspace_id": "w2", "label": "1", "number": 1},
+    {"tab_id": "w3:t1", "workspace_id": "w3", "label": "1", "number": 1},
+    {"tab_id": "w4:t1", "workspace_id": "w4", "label": "1", "number": 1},
+    {"tab_id": "w4:t2", "workspace_id": "w4", "label": "2", "number": 2}
+  ],
+  "panes": [
+    {"pane_id": "w1:p1", "tab_id": "w1:t1", "workspace_id": "w1", "cwd": "$shop", "agent": "claude", "agent_status": "done", "terminal_title_stripped": "Release notes"},
+    {"pane_id": "w1:p2", "tab_id": "w1:t2", "workspace_id": "w1", "cwd": "$shop", "terminal_title_stripped": "tail -f server.log"},
+    {"pane_id": "w1:p3", "tab_id": "w1:t3", "workspace_id": "w1", "cwd": "$shop", "agent": "opencode", "agent_status": "idle", "terminal_title_stripped": "Review the search"},
+    {"pane_id": "w2:p1", "tab_id": "w2:t1", "workspace_id": "w2", "cwd": "$checkout", "agent": "claude", "agent_status": "working", "terminal_title_stripped": "Pay with a card"},
+    {"pane_id": "w3:p1", "tab_id": "w3:t1", "workspace_id": "w3", "cwd": "$cart", "agent": "codex", "agent_status": "blocked", "terminal_title_stripped": "Fix the cart total"},
+    {"pane_id": "w4:p1", "tab_id": "w4:t1", "workspace_id": "w4", "cwd": "$blog", "agent": "claude", "agent_status": "idle", "terminal_title_stripped": "Write the API docs"},
+    {"pane_id": "w4:p2", "tab_id": "w4:t2", "workspace_id": "w4", "cwd": "$blog", "terminal_title_stripped": "demo@laptop:~/projects/blog"}
+  ]
+}
+EOF
+
+# The screens of the panes, for the preview.
+cat > "$demo/panes/w3:p1.txt" <<'EOF'
+• Ran pytest tests/test_cart.py
+  └ 1 failed: test_total_rounds_to_cents
+
+• The total keeps 3 decimals: 19.999 in place of 20.00.
+  The fix rounds the sum to 2 decimals in src/cart.py.
+
+  Edit src/cart.py?
+  › 1. Yes, apply the change
+    2. Yes, and do not ask again for this file
+    3. No, tell me what to do
+
+  Press enter to confirm or esc to cancel
+EOF
+cat > "$demo/panes/w2:p1.txt" <<'EOF'
+⏺ Read src/checkout.py (2 lines)
+
+⏺ The payment works. Next: a receipt after each payment.
+
+⏺ Write src/receipt.py
+  ⎿  Wrote 2 lines to src/receipt.py
+
+⏺ Bash(pytest tests/test_checkout.py)
+  ⎿  4 passed in 0.31s
+
+✻ Writing the tests of the receipt… (38s · esc to interrupt)
+EOF
+cat > "$demo/panes/w1:p1.txt" <<'EOF'
+⏺ The release notes of 1.4 are in CHANGELOG.md:
+
+  - Search the products
+  - Pay with a card
+  - The total of the cart rounds to cents
+
+  Do you want a short version for the blog?
+EOF
+cat > "$demo/panes/w1:p2.txt" <<'EOF'
+12:04:18 GET  /products?query=lamp  200  18 ms
+12:04:21 POST /cart/items           201  22 ms
+12:04:23 GET  /cart                 200  11 ms
+12:04:30 POST /checkout             200  94 ms
+12:04:31 POST /receipts             201  15 ms
+EOF
+printf '> Review the search\n\nThe search reads all the products for each query.\n' > "$demo/panes/w1:p3.txt"
+printf '⏺ The API docs list 12 endpoints. Ready for a review.\n' > "$demo/panes/w4:p1.txt"
+
+# The running time of each pane, in seconds.
+cat > "$demo/times.json" <<'EOF'
+{"w1:p1": 2520, "w1:p2": 10800, "w1:p3": 360, "w2:p1": 4320, "w3:p1": 240, "w4:p1": 172800}
+EOF
+
+# The actions of the plugins, for the filter Actions.
+cat > "$demo/actions.json" <<'EOF'
+[
+  {"plugin_id": "herdr-worktrunk", "action_id": "clean", "title": "Worktree: clean the worktrees", "description": "List the linked worktrees of the repositories of the workspaces, with a verdict for each one."},
+  {"plugin_id": "herdr-worktrunk", "action_id": "restore", "title": "Worktree: restore a removed worktree", "description": "Bring back a removed worktree, with its branch, its workspace and its agents."},
+  {"plugin_id": "herdr-fork", "action_id": "tab", "title": "Fork the agent into a new tab", "description": "Fork the Claude Code or Codex session of the focused pane into a new tab."}
+]
+EOF
+
+# The last use of the tabs: the tab before the current tab comes first.
+now=$(date +%s)
+cat > "$demo/state/recent.json" <<EOF
+{"w3:t1": $((now - 60)), "w2:t1": $((now - 600)), "w1:t1": $((now - 1800)), "w4:t1": $((now - 7200)), "w1:t2": $now}
+EOF
+
+# The config of the omnibar and of herdr.
+cat > "$demo/config/config.toml" <<EOF
+roots = ["$demo/projects"]
+pills = "square"
+features = ["mouse", "rename_tab", "recent_first", "running_time", "pane_rows"]
+EOF
+printf '[theme]\nname = "dracula"\n' > "$demo/herdr.toml"
+
+# The command that runs the popup in the demo, on a filter.
+cat > "$demo/run" <<EOF
+#!/bin/sh
+export OMNIBAR_DEMO='$demo'
+# No herdr: a call to herdr that the demo does not replace fails, and reads no real data.
+export HERDR_SOCKET_PATH='$demo/no-herdr.sock'
+# The home folder of the demo: the folders show as ~/projects/…, and git reads no config of the
+# user.
+export HOME='$demo'
+export HERDR_PLUGIN_CONFIG_DIR='$demo/config'
+export HERDR_PLUGIN_STATE_DIR='$demo/state'
+export HERDR_CONFIG_PATH='$demo/herdr.toml'
+export OMNIBAR_FILTER="\$1"
+export OMNIBAR_CONTEXT='{"workspace_id":"w1","tab_id":"w1:t2","focused_pane_id":"w1:p2","focused_pane_cwd":"$shop","workspace_cwd":"$shop"}'
+cd '$shop'
+clear
+exec '$binary' run
+EOF
+chmod +x "$demo/run"
+
+# A tape: the popup on a filter ($2), the steps of VHS ($3), then a screenshot or a GIF ($1).
+tape() {
+  local output=$1 filter=$2 steps=$3
+  local file
+  file="$demo/tapes/$(basename "$output").tape"
+  {
+    if [[ $output == *.gif ]]; then
+      echo "Output \"$output\""
+    else
+      echo "Output \"$demo/tapes/unused.gif\""
+    fi
+    echo 'Set Shell "bash"'
+    echo 'Set FontFamily "JetBrainsMono Nerd Font"'
+    echo 'Set FontSize 14'
+    echo 'Set Width 1260'
+    echo 'Set Height 700'
+    echo 'Set Padding 0'
+    echo 'Set Theme "Dracula"'
+    echo 'Set TypingSpeed 90ms'
+    echo 'Hide'
+    echo "Type \"$demo/run $filter\""
+    echo 'Enter'
+    echo 'Sleep 2s'
+    echo 'Show'
+    printf '%s\n' "$steps"
+    if [[ $output != *.gif ]]; then
+      echo 'Sleep 500ms'
+      echo "Screenshot \"$output\""
+      # VHS can end before it writes the screenshot.
+      echo 'Sleep 1s'
+    fi
+  } > "$file"
+  vhs "$file" >/dev/null
+  echo "made $output"
+}
+
+tape "$root/docs/open.png" all 'Sleep 1s'
+tape "$root/docs/worktrees.png" worktrees 'Down
+Down
+Sleep 1s'
+tape "$root/docs/new.gif" new 'Sleep 1500ms
+Enter
+Sleep 1s
+Type "feat/search"
+Sleep 2s
+Down
+Sleep 1500ms
+Down
+Sleep 1500ms
+Up
+Up
+Sleep 2s'

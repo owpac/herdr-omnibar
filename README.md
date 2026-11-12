@@ -1,6 +1,8 @@
 # herdr-omnibar
 
-**One bar to go to an agent, a tab or a workspace of [herdr](https://herdr.dev), and to create a tab or a worktree.**
+**One bar to go to an agent, a tab or a workspace of [herdr](https://herdr.dev), and to create a tab, a split or a worktree.**
+
+![The omnibar: the agents that need you first, the other agents, the tabs, the worktrees of the current project, and the screen of the selected agent](docs/open.png)
 
 ## Installation
 
@@ -22,6 +24,11 @@ The install downloads the release binary for your machine, and checks it with th
 The typed text is a filter in the step "where", and a name in the step "what". It is never both. A worktree always gets its own workspace, under its project: `herdr-worktrunk ▸ fix-login`.
 
 After `↵`, the popup closes at once. A detached process creates the tab, the workspace or the worktree, then starts the agent. If the creation fails, a herdr notification gives the error.
+
+
+![The creation: the current place, then a name, then a new worktree, a new tab or a new split](docs/new.gif)
+
+![The filter Worktrees: the branches of the current project, the git state of their worktrees, and the diff of the selected branch](docs/worktrees.png)
 
 ## Actions
 
@@ -158,6 +165,8 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 shellcheck scripts/*.sh
 ```
+
+`docs/make-images` makes the images of this README with VHS (`brew install vhs`): a demo folder with 2 git projects, a herdr snapshot of example and the screens of its panes. With `OMNIBAR_DEMO=<folder>`, the omnibar reads them, and asks nothing to herdr.
 
 `herdr-omnibar list` prints the workspaces, the agents and the tabs, as the popup sees them. `herdr-omnibar titles` prints the renames of the watcher of the titles.
 

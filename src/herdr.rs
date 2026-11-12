@@ -90,6 +90,10 @@ fn field(value: &serde_json::Value, pointer: &str, arguments: &[&str]) -> Result
 
 /// The herdr snapshot: the workspaces, the tabs, the panes and the agents.
 pub fn snapshot() -> Result<crate::model::Snapshot, Error> {
+    if let Some(text) = crate::demo::read("snapshot.json") {
+        return serde_json::from_str(&text)
+            .map_err(|error| Error::new(format!("demo snapshot.json: {error}")));
+    }
     let text = run(&["api", "snapshot"])?;
     let mut value: serde_json::Value = serde_json::from_str(&text)
         .map_err(|error| Error::new(format!("herdr api snapshot: {error}")))?;
@@ -114,6 +118,9 @@ pub fn focus_workspace(workspace_id: &str) -> Result<(), Error> {
 
 /// The last lines of the text of a pane.
 pub fn read_pane(pane_id: &str, lines: usize) -> Result<String, Error> {
+    if let Some(text) = crate::demo::read(&format!("panes/{pane_id}.txt")) {
+        return Ok(text);
+    }
     let lines = lines.to_string();
     run(&[
         "pane", "read", pane_id, "--lines", &lines, "--source", "visible",
@@ -190,6 +197,10 @@ pub struct PluginAction {
 
 /// The actions of all the herdr plugins.
 pub fn plugin_actions() -> Result<Vec<PluginAction>, Error> {
+    if let Some(text) = crate::demo::read("actions.json") {
+        return serde_json::from_str(&text)
+            .map_err(|error| Error::new(format!("demo actions.json: {error}")));
+    }
     let arguments = ["plugin", "action", "list"];
     let result = run_json(&arguments)?;
     serde_json::from_value(result["actions"].clone())
@@ -220,6 +231,10 @@ pub fn close_workspace(workspace_id: &str) -> Result<(), Error> {
 
 /// The installed plugins.
 pub fn plugins() -> Result<Vec<Plugin>, Error> {
+    // The demo has no plugin.
+    if crate::demo::active() {
+        return Ok(Vec::new());
+    }
     let arguments = ["plugin", "list", "--json"];
     let result = run_json(&arguments)?;
     serde_json::from_value(result["plugins"].clone())

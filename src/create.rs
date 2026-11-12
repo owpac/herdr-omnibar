@@ -187,6 +187,12 @@ pub fn plan(
 
 /// The agents on the PATH, then "shell".
 pub fn installed_agents() -> Vec<String> {
+    // The demo shows the 3 agents, on any machine.
+    if crate::demo::active() {
+        return ["claude", "codex", "opencode", "shell"]
+            .map(String::from)
+            .to_vec();
+    }
     let path = env::var_os("PATH").unwrap_or_default();
     let mut agents: Vec<String> = ["claude", "codex", "opencode"]
         .into_iter()

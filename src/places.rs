@@ -204,6 +204,10 @@ pub fn subfolders(folder: &Path) -> Vec<PathBuf> {
 
 /// The folders of zoxide, the most used first. Empty without zoxide.
 fn zoxide() -> Vec<PathBuf> {
+    // The folders of zoxide are real folders of the machine.
+    if crate::demo::active() {
+        return Vec::new();
+    }
     let Ok(output) = Command::new("zoxide").args(["query", "--list"]).output() else {
         return Vec::new();
     };

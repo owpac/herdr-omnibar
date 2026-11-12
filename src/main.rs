@@ -10,6 +10,7 @@ mod changes;
 mod config;
 mod context;
 mod create;
+mod demo;
 mod filter;
 mod fuzzy;
 mod herdr;

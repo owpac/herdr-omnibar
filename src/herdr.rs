@@ -234,6 +234,45 @@ pub fn invoke_action(plugin_id: &str, action_id: &str) -> Result<(), Error> {
     .map(|_| ())
 }
 
+/// Split a pane: a new pane to the right of a wide pane, below a tall pane. A cell is about 2
+/// times higher than wide. The new pane gets the focus. Return its id.
+pub fn split_pane(pane_id: &str, folder: &Path) -> Result<String, Error> {
+    let layout = run_json(&["pane", "layout", "--pane", pane_id])?;
+    let rect = layout["layout"]["panes"]
+        .as_array()
+        .and_then(|panes| panes.iter().find(|pane| pane["pane_id"] == pane_id))
+        .map(|pane| pane["rect"].clone())
+        .unwrap_or_default();
+    let width = rect["width"].as_f64().unwrap_or(0.0);
+    let height = rect["height"].as_f64().unwrap_or(0.0);
+    let direction = if width >= height * 2.2 {
+        "right"
+    } else {
+        "down"
+    };
+    let folder = folder.to_string_lossy();
+    let result = run_json(&[
+        "pane",
+        "split",
+        pane_id,
+        "--direction",
+        direction,
+        "--cwd",
+        &folder,
+        "--focus",
+    ])?;
+    result["pane"]["pane_id"]
+        .as_str()
+        .or_else(|| result["pane_id"].as_str())
+        .map(str::to_string)
+        .ok_or_else(|| Error::new("herdr pane split gave no pane id".to_string()))
+}
+
+/// Rename a pane.
+pub fn rename_pane(pane_id: &str, label: &str) -> Result<(), Error> {
+    run(&["pane", "rename", pane_id, label]).map(|_| ())
+}
+
 /// Close a pane.
 pub fn close_pane(pane_id: &str) -> Result<(), Error> {
     run(&["pane", "close", pane_id]).map(|_| ())

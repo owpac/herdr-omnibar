@@ -209,6 +209,14 @@ fn choice_lines(app: &App, choice: &Choice, width: usize) -> Vec<Line<'static>> 
             lines.push(Line::from(round(vec![pill_span(true, &place.label)], app)));
             lines.extend(tab_lines(&place.tabs, width, Some((tab_name, &agent))));
         }
+        (Choice::NewSplit { .. }, Some(place)) => {
+            lines.push(Line::from(round(vec![pill_span(true, &place.label)], app)));
+            let text = format!(
+                "A new pane next to the current pane, with {agent}: to the right of a wide pane, \
+                 below a tall pane."
+            );
+            lines.extend(wrap(&text, width).into_iter().map(muted));
+        }
         (Choice::NewWorkspace, Some(place)) => {
             lines.push(Line::from(round(vec![pill_span(false, &place.label)], app)));
             lines.push(muted(fit(&rows::home(&place.folder), width)));

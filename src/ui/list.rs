@@ -296,7 +296,12 @@ fn name_style(item: &Item) -> Style {
         {
             Style::new().fg(red_color())
         }
-        Item::Choice(Choice::NewWorktree { .. } | Choice::NewTab | Choice::NewWorkspace)
+        Item::Choice(
+            Choice::NewWorktree { .. }
+            | Choice::NewTab
+            | Choice::NewSplit { .. }
+            | Choice::NewWorkspace,
+        )
         | Item::Create(_) => Style::new().fg(green_color()),
         _ => Style::new(),
     }
@@ -307,6 +312,9 @@ fn display_name(item: &Item, app: &App) -> String {
     let name = app.create.name.trim();
     match item {
         Item::Choice(Choice::NewTab) if !name.is_empty() => format!("new tab “{name}”"),
+        Item::Choice(Choice::NewSplit { .. }) if !name.is_empty() => {
+            format!("new split “{name}”")
+        }
         Item::Choice(Choice::NewWorkspace) if !name.is_empty() => {
             format!("new workspace “{name}”")
         }
@@ -366,6 +374,7 @@ fn context_of(item: &Item, app: &App) -> String {
             } => "open its worktree".into(),
             Choice::Existing { .. } => "create its worktree".into(),
             Choice::NewTab => format!("{}in {}", auto_name(app), target_label(app)),
+            Choice::NewSplit { .. } => "next to the current pane".into(),
             Choice::NewWorkspace => {
                 format!("{}in a new workspace {}", auto_name(app), target_label(app))
             }

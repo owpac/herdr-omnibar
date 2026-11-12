@@ -45,6 +45,7 @@ impl Item {
                 Choice::NewWorktree { branch } => format!("new worktree {branch}"),
                 Choice::Existing { branch, .. } => branch.clone(),
                 Choice::NewTab => "new tab".into(),
+                Choice::NewSplit { .. } => "new split".into(),
                 Choice::NewWorkspace => "new workspace".into(),
                 Choice::AnotherPlace => "another place…".into(),
             },

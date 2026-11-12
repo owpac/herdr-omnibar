@@ -31,6 +31,8 @@ pub enum Choice {
     },
     /// A new tab in the workspace of the place.
     NewTab,
+    /// A new pane next to the focused pane of the current workspace: a split.
+    NewSplit { pane_id: String },
     /// A new workspace for a place without one, with its first tab.
     NewWorkspace,
     /// Go back to the step "where".
@@ -52,7 +54,15 @@ pub fn is_branch_name(name: &str) -> bool {
 }
 
 /// The choices for a place and a name. In a git project, the worktree comes first.
-pub fn choices(place: &Place, name: &str, branches: &[Branch], open: &[Place]) -> Vec<Choice> {
+/// The choices of the step "what" for a place. `split` is the focused pane of the current
+/// workspace, if the place is this workspace: a split goes next to it.
+pub fn choices(
+    place: &Place,
+    name: &str,
+    branches: &[Branch],
+    open: &[Place],
+    split: Option<&str>,
+) -> Vec<Choice> {
     let mut out = Vec::new();
     if place.main.is_some() {
         let name = name.trim();
@@ -79,6 +89,11 @@ pub fn choices(place: &Place, name: &str, branches: &[Branch], open: &[Place]) -
     } else {
         Choice::NewWorkspace
     });
+    if let (Some(_), Some(pane_id)) = (&place.workspace_id, split) {
+        out.push(Choice::NewSplit {
+            pane_id: pane_id.to_string(),
+        });
+    }
     out.push(Choice::AnotherPlace);
     out
 }
@@ -88,6 +103,11 @@ pub fn choices(place: &Place, name: &str, branches: &[Branch], open: &[Place]) -
 pub enum Action {
     NewTab {
         workspace_id: String,
+        folder: PathBuf,
+    },
+    /// A new pane next to a pane: to the right of a wide pane, below a tall pane.
+    NewSplit {
+        pane_id: String,
         folder: PathBuf,
     },
     NewWorkspace {
@@ -142,6 +162,10 @@ pub fn plan(
             main: place.main.clone()?,
             branch: branch.clone(),
             create: false,
+        },
+        Choice::NewSplit { pane_id } => Action::NewSplit {
+            pane_id: pane_id.clone(),
+            folder: place.folder.clone(),
         },
         Choice::NewTab => Action::NewTab {
             workspace_id: place.workspace_id.clone()?,
@@ -281,6 +305,13 @@ pub fn execute(plan: &Plan) -> Result<(), String> {
         } => {
             let label = (!plan.name.is_empty()).then_some(plan.name.as_str());
             herdr::create_tab(workspace_id, folder, label).map_err(text)?
+        }
+        Action::NewSplit { pane_id, folder } => {
+            let pane = herdr::split_pane(pane_id, folder).map_err(text)?;
+            if !plan.name.is_empty() {
+                herdr::rename_pane(&pane, &plan.name).map_err(text)?;
+            }
+            pane
         }
         Action::NewWorkspace { folder, label } => {
             let (tab, pane) = herdr::create_workspace(folder, label).map_err(text)?;
@@ -473,7 +504,7 @@ mod tests {
     fn in_a_project_the_worktree_comes_first_then_the_tab() {
         let atlas = workspace("atlas", "/work/atlas", "w1", Some("/work/atlas"));
         assert_eq!(
-            choices(&atlas, "notes", &branches(), &[]),
+            choices(&atlas, "notes", &branches(), &[], None),
             [
                 Choice::NewWorktree {
                     branch: "notes".into()
@@ -493,7 +524,13 @@ mod tests {
             "w2",
             Some("/work/atlas"),
         );
-        let choice = &choices(&atlas, "fix-login", &branches(), &[atlas.clone(), fix])[0];
+        let choice = &choices(
+            &atlas,
+            "fix-login",
+            &branches(),
+            &[atlas.clone(), fix],
+            None,
+        )[0];
         assert_eq!(
             choice,
             &Choice::Existing {
@@ -514,7 +551,7 @@ mod tests {
     #[test]
     fn a_branch_without_worktree_opens_it_with_wt() {
         let atlas = workspace("atlas", "/work/atlas", "w1", Some("/work/atlas"));
-        let choice = &choices(&atlas, "old", &branches(), &[])[0];
+        let choice = &choices(&atlas, "old", &branches(), &[], None)[0];
         let plan = plan(&atlas, choice, "old", "codex", false).unwrap();
         assert_eq!(
             plan.action,
@@ -538,8 +575,40 @@ mod tests {
             tabs: Vec::new(),
         };
         assert_eq!(
-            choices(&notes, "draft", &[], &[]),
+            choices(&notes, "draft", &[], &[], None),
             [Choice::NewWorkspace, Choice::AnotherPlace]
+        );
+    }
+
+    #[test]
+    fn the_current_workspace_also_offers_a_split_of_its_focused_pane() {
+        let notes = workspace("notes", "/notes", "w1", None);
+        assert_eq!(
+            choices(&notes, "", &[], &[], Some("w1:p2")),
+            [
+                Choice::NewTab,
+                Choice::NewSplit {
+                    pane_id: "w1:p2".into()
+                },
+                Choice::AnotherPlace
+            ]
+        );
+        let plan = plan(
+            &notes,
+            &Choice::NewSplit {
+                pane_id: "w1:p2".into(),
+            },
+            "logs",
+            "shell",
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            plan.action,
+            Action::NewSplit {
+                pane_id: "w1:p2".into(),
+                folder: "/notes".into()
+            }
         );
     }
 

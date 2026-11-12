@@ -69,6 +69,7 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
     );
     app.recent = recent;
     app.current_tab = context.tab_id.clone();
+    app.focused_pane = context.focused_pane_id.clone();
     if app.config.has("running_time") {
         app.times = Some(Times::start());
         app.ask_times();

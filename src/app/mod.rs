@@ -152,6 +152,8 @@ pub struct App {
     pub changes: Changes,
     /// Show the logos of the agents: the feature agent_logos, and the font is installed.
     pub logos: bool,
+    /// The focused pane of the current workspace, when the popup opens: a split goes next to it.
+    pub focused_pane: Option<String>,
     /// The times of use of the tabs, and the tab of the popup (feature recent_first).
     pub recent: Recent,
     pub current_tab: Option<String>,
@@ -225,6 +227,7 @@ impl App {
             remembered: HashMap::new(),
             recent: Recent::new(),
             current_tab: None,
+            focused_pane: None,
         };
         app.rebuild(None);
         app
@@ -329,7 +332,13 @@ impl App {
             (Filter::New, Step::What) => match &self.create.place {
                 Some(place) => rows::what_lines(
                     place,
-                    create::choices(place, &self.create.name, &self.create.branches, &self.open),
+                    create::choices(
+                        place,
+                        &self.create.name,
+                        &self.create.branches,
+                        &self.open,
+                        self.split_pane(place),
+                    ),
                 ),
                 None => Vec::new(),
             },
@@ -421,6 +430,13 @@ impl App {
     }
 
     /// Take a new model: the snapshot changed.
+    /// The pane that a split of this place divides: the focused pane, if the place is the current
+    /// workspace.
+    fn split_pane(&self, place: &Place) -> Option<&str> {
+        let current = place.workspace_id.is_some() && place.workspace_id == self.current;
+        self.focused_pane.as_deref().filter(|_| current)
+    }
+
     /// Sort the rows of a model by their use (feature recent_first).
     pub fn order(&self, model: &mut Model) {
         if self.config.has("recent_first") {

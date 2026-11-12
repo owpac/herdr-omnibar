@@ -242,6 +242,10 @@ fn choice_action(app: &App, choice: &Choice) -> Action {
             pill_span(false, &worktree_label(place, branch)),
         ),
         Choice::NewTab => Action::create(tab, pill_span(true, place_label)),
+        Choice::NewSplit { .. } => Action::create(
+            tab.replacen("new tab", "new split", 1),
+            pill_span(true, place_label),
+        ),
         Choice::NewWorkspace => Action::create(tab, pill_span(false, place_label)),
         Choice::AnotherPlace => Action::bare("choose another place"),
     }

@@ -1,6 +1,7 @@
-//! The popup: its state, its keys and its loop.
+//! The popup: its state, and the queries that the drawing and the keys use.
 //!
-//! The loop draws the popup, waits for a key, and reads the herdr snapshot again every 1.5 s. Enter
+//! input.rs handles the keys, the mouse and Enter. run.rs starts the popup and runs its loop: the
+//! loop draws the popup, waits for a key, and reads the herdr snapshot again every 1.5 s. Enter
 //! closes the popup, then goes to the selected row, or runs the creation.
 //!
 //! The filter New is the creation, in 2 steps. The step "where" chooses a place: the text is a
@@ -8,36 +9,25 @@
 //! branch. The text is never both.
 
 use std::collections::HashMap;
-use std::io;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use ratatui::crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-    KeyModifiers, MouseButton, MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
-};
-use ratatui::crossterm::{execute, terminal};
 use ratatui::layout::Rect;
 
 use crate::changes::Changes;
-use crate::config::{self, Config, Preview};
-use crate::context::Context;
+use crate::config::{Config, Preview};
 use crate::create::{self, Choice, Plan};
 use crate::filter::Filter;
 use crate::herdr::{self, PluginAction};
-use crate::model::{self, AgentRow, Checkout, Model, Status};
+use crate::model::Model;
 use crate::places::{self, Branch, Place};
-use crate::remove;
 use crate::rows::{self, Item, Line};
 use crate::times::{self, Times};
-use crate::ui;
 
-/// The time between 2 reads of the herdr snapshot.
-const REFRESH: Duration = Duration::from_millis(1500);
-/// The time between 2 drawings without a key: the threads of the running times and of the git
-/// states give their results in the background.
-const REDRAW: Duration = Duration::from_millis(250);
+mod input;
+mod run;
+
+pub use run::run;
 
 /// The step of a creation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -541,65 +531,6 @@ impl App {
         create::plan(place, choice, name, &self.agent(), self.create.no_prompts)
     }
 
-    /// Enter on the selected row.
-    fn enter(&mut self) -> Outcome {
-        let Some(item) = self.selected_item().cloned() else {
-            return Outcome::Continue;
-        };
-        match (self.filter, item) {
-            (_, Item::Place(place)) => {
-                if self.filter != Filter::New {
-                    self.filter = Filter::New;
-                    self.create = Create::new();
-                }
-                self.choose_place(place);
-                Outcome::Continue
-            }
-            (Filter::New, Item::Choice(Choice::AnotherPlace)) => {
-                self.back_to_where();
-                Outcome::Continue
-            }
-            (Filter::New, Item::Choice(choice)) => {
-                let Some(place) = self.create.place.clone() else {
-                    return Outcome::Continue;
-                };
-                match self.plan(&place, &choice, &self.create.name.clone()) {
-                    Some(plan) => Outcome::Create(plan),
-                    None => Outcome::Continue,
-                }
-            }
-            (_, Item::Choice(choice)) => {
-                // The filter Worktrees: the place is the current workspace.
-                let Some(place) = self.current_place().cloned() else {
-                    return Outcome::Continue;
-                };
-                let name = match &choice {
-                    Choice::NewWorktree { branch } | Choice::Existing { branch, .. } => {
-                        branch.clone()
-                    }
-                    _ => String::new(),
-                };
-                match self.plan(&place, &choice, &name) {
-                    Some(plan) => Outcome::Create(plan),
-                    None => Outcome::Continue,
-                }
-            }
-            (_, Item::Action(action)) => Outcome::Invoke(action),
-            (_, Item::Create(name)) => {
-                // The step "what" in the current place, with the query as the name.
-                self.filter = Filter::New;
-                self.create = Create::new();
-                self.create.name = name;
-                match self.current_place().cloned() {
-                    Some(place) => self.choose_place(place),
-                    None => self.rebuild(None),
-                }
-                Outcome::Continue
-            }
-            (_, item) => Outcome::Go(item),
-        }
-    }
-
     /// The text of a view of the preview of a branch of the current project: the diff since the
     /// default branch, the log, or the changes not committed. With preview = "summary", one view
     /// gives all.
@@ -703,18 +634,6 @@ impl App {
         self.filter != Filter::New && self.place_of_selected().is_some()
     }
 
-    /// ctrl+Enter: a new tab, with its agent, next to the selected row.
-    fn new_tab_here(&mut self) -> Outcome {
-        let Some(place) = self.place_of_selected() else {
-            return Outcome::Continue;
-        };
-        let agent = self.agent_for(Some(place));
-        match create::plan(place, &Choice::NewTab, "", &agent, false) {
-            Some(plan) => Outcome::Create(plan),
-            None => Outcome::Continue,
-        }
-    }
-
     /// The tab of the selected agent or tab: its id and its name.
     fn selected_tab(&self) -> Option<(String, String)> {
         match self.selected_item()? {
@@ -742,253 +661,6 @@ impl App {
         }
     }
 
-    /// ctrl+Backspace: ask before the close of the selected tab, or before the removal of the
-    /// selected worktree.
-    fn ask_close(&mut self) {
-        if let Some((tab_id, name)) = self.selected_tab() {
-            self.confirm = Some(Confirm::CloseTab { tab_id, name });
-            return;
-        }
-        let Some(Item::Choice(Choice::Existing {
-            branch,
-            worktree,
-            workspace_id,
-        })) = self.selected_item().cloned()
-        else {
-            return;
-        };
-        let Some(folder) = worktree else {
-            self.message = Some(format!("the branch {branch} has no worktree to remove"));
-            return;
-        };
-        if self.project_main().as_ref() == Some(&folder) {
-            self.message = Some(format!(
-                "{branch} is the main checkout of the project: it stays"
-            ));
-            return;
-        }
-        // The agents of the worktree: in its workspace, or in its folder. herdr-worktrunk
-        // closes the idle agents, and refuses an agent that works or waits for an answer.
-        let agents: Vec<&AgentRow> = self
-            .model
-            .agents
-            .iter()
-            .filter(|agent| {
-                workspace_id.as_ref() == Some(&agent.workspace_id)
-                    || agent
-                        .cwd
-                        .as_ref()
-                        .is_some_and(|cwd| cwd.starts_with(&folder))
-            })
-            .collect();
-        if agents
-            .iter()
-            .any(|agent| !matches!(agent.status, Status::Idle | Status::Done))
-        {
-            self.message = Some(format!(
-                "an agent works in the worktree {branch}, or waits for you: stop it first"
-            ));
-            return;
-        }
-        if !agents.is_empty() && remove::worktrunk_remover().is_none() {
-            self.message = Some(
-                "only herdr-worktrunk 2026.11.33 or later closes the agents of a worktree: \
-                 update it, or stop the agents first"
-                    .to_string(),
-            );
-            return;
-        }
-        self.confirm = Some(Confirm::RemoveWorktree {
-            folder,
-            branch,
-            agents: agents.len(),
-        });
-    }
-
-    fn on_confirm_key(&mut self, key: KeyEvent) -> Outcome {
-        let Some(confirm) = self.confirm.take() else {
-            return Outcome::Continue;
-        };
-        if key.code != KeyCode::Enter {
-            return Outcome::Continue;
-        }
-        match confirm {
-            Confirm::CloseTab { tab_id, name } => {
-                self.message = Some(match herdr::close_tab(&tab_id) {
-                    Ok(()) => format!("closed the tab {name}"),
-                    Err(error) => format!("cannot close the tab {name}: {error}"),
-                });
-                self.reload = true;
-            }
-            // The removal can close the workspace of the popup: it runs after the popup closes.
-            Confirm::RemoveWorktree { folder, .. } => return Outcome::Remove(folder),
-        }
-        Outcome::Continue
-    }
-
-    /// ctrl+R: rename the tab of the selected row, in the search line.
-    fn start_rename(&mut self) {
-        if let Some((tab_id, name)) = self.selected_tab() {
-            self.rename = Some(Rename {
-                tab_id,
-                old: name.clone(),
-                text: name,
-            });
-        }
-    }
-
-    fn finish_rename(&mut self, save: bool) {
-        let Some(rename) = self.rename.take() else {
-            return;
-        };
-        let text = rename.text.trim();
-        if save && !text.is_empty() && text != rename.old {
-            self.message = Some(match herdr::rename_tab(&rename.tab_id, text) {
-                Ok(()) => format!("renamed the tab {} to {text}", rename.old),
-                Err(error) => format!("cannot rename the tab: {error}"),
-            });
-            self.reload = true;
-        }
-    }
-
-    /// A click selects a row, a double click runs it, the wheel moves the selection.
-    pub fn on_mouse(&mut self, mouse: MouseEvent) -> Outcome {
-        match mouse.kind {
-            MouseEventKind::ScrollDown => self.move_by(1),
-            MouseEventKind::ScrollUp => self.move_by(-1),
-            MouseEventKind::Down(MouseButton::Left) => {
-                let at = |area: &Rect| {
-                    mouse.row >= area.y
-                        && mouse.row < area.y + area.height
-                        && mouse.column >= area.x
-                        && mouse.column < area.x + area.width
-                };
-                // A key of the footer runs, as if the user pressed it.
-                if let Some(key) = self
-                    .hint_areas
-                    .iter()
-                    .find(|(area, _)| at(area))
-                    .and_then(|(_, key)| key_of_hint(key))
-                {
-                    return self.on_key(key);
-                }
-                // A chip opens its filter.
-                if let Some(filter) = self
-                    .chip_areas
-                    .iter()
-                    .find(|(area, _)| at(area))
-                    .map(|(_, filter)| *filter)
-                {
-                    if self.confirm.is_none() && self.rename.is_none() {
-                        self.set_filter(filter);
-                    }
-                    return Outcome::Continue;
-                }
-                let area = self.list_area;
-                let inside = mouse.row >= area.y
-                    && mouse.row < area.y + area.height
-                    && mouse.column >= area.x
-                    && mouse.column < area.x + area.width;
-                if !inside || self.confirm.is_some() || self.rename.is_some() {
-                    return Outcome::Continue;
-                }
-                let index = self.list_offset + (mouse.row - area.y) as usize;
-                if matches!(self.lines.get(index), Some(Line::Row { .. })) {
-                    let double = self.last_click.is_some_and(|(line, time)| {
-                        line == index && time.elapsed() < Duration::from_millis(400)
-                    });
-                    self.selected = Some(index);
-                    self.last_click = Some((index, Instant::now()));
-                    if double {
-                        return self.enter();
-                    }
-                }
-            }
-            _ => {}
-        }
-        Outcome::Continue
-    }
-
-    pub fn on_key(&mut self, key: KeyEvent) -> Outcome {
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        let alt = key.modifiers.contains(KeyModifiers::ALT);
-        let creating = self.filter == Filter::New;
-        let what = creating && self.create.step == Step::What;
-        if self.help {
-            self.help = false;
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?') | KeyCode::F(1)) {
-                return Outcome::Continue;
-            }
-        }
-        if self.confirm.is_some() {
-            return self.on_confirm_key(key);
-        }
-        self.message = None;
-        let renaming = self.rename.is_some();
-        if renaming && matches!(key.code, KeyCode::Enter | KeyCode::Esc) {
-            self.finish_rename(key.code == KeyCode::Enter);
-            return Outcome::Continue;
-        }
-        match key.code {
-            KeyCode::Left if ctrl => self.view = (self.view + 2) % 3,
-            KeyCode::Right if ctrl => self.view = (self.view + 1) % 3,
-            KeyCode::Enter if ctrl && !creating => return self.new_tab_here(),
-            KeyCode::Backspace if ctrl && !renaming => self.ask_close(),
-            KeyCode::Char('r') if ctrl && !creating && self.config.has("rename_tab") => {
-                self.start_rename()
-            }
-            KeyCode::Esc if what => self.back_to_where(),
-            KeyCode::Esc => return Outcome::Quit,
-            KeyCode::Char('a') if ctrl && self.opens_worktree() => self.cycle_agent(),
-            KeyCode::Char('c' | 'g') if ctrl => return Outcome::Quit,
-            KeyCode::Enter => return self.enter(),
-            KeyCode::Up => self.move_by(-1),
-            KeyCode::Down => self.move_by(1),
-            KeyCode::Char('p' | 'k') if ctrl => self.move_by(-1),
-            KeyCode::Char('n' | 'j') if ctrl => self.move_by(1),
-            KeyCode::PageUp => self.move_by(-8),
-            KeyCode::PageDown => self.move_by(8),
-            KeyCode::Left if what && self.create.name.is_empty() => self.back_to_where(),
-            KeyCode::Tab if what => self.cycle_agent(),
-            KeyCode::Tab if creating && rows::is_path(&self.create.filter) => {
-                if let Some(completed) = rows::complete_path(&self.create.filter, &self.lines) {
-                    self.create.filter = completed;
-                    self.rebuild(None);
-                }
-            }
-            KeyCode::Tab => self.cycle_filter(1),
-            KeyCode::BackTab => self.cycle_filter(-1),
-            KeyCode::Char('y') if ctrl && what => self.create.no_prompts = !self.create.no_prompts,
-            KeyCode::Char('o') if ctrl => self.preview = !self.preview,
-            KeyCode::Char('u') if ctrl => self.edit(String::clear),
-            KeyCode::Char('w') if ctrl => self.edit(delete_word),
-            KeyCode::Backspace => self.edit(|text| {
-                text.pop();
-            }),
-            KeyCode::F(1) => self.help = true,
-            KeyCode::Char(character) if !ctrl && !alt => {
-                // On an empty text, a shortcut opens its filter from any filter, also from the
-                // creation. The shortcut of the current filter goes back to All.
-                let shortcut =
-                    Filter::of_shortcut(character).filter(|filter| self.filters.contains(filter));
-                let empty = self.text().is_empty() && !renaming;
-                if empty && character == '?' {
-                    self.help = true;
-                } else if let (true, Some(filter)) = (empty, shortcut) {
-                    if filter == self.filter {
-                        self.set_filter(Filter::All);
-                    } else {
-                        self.set_filter(filter);
-                    }
-                } else {
-                    self.edit(|text| text.push(character));
-                }
-            }
-            _ => {}
-        }
-        Outcome::Continue
-    }
-
     /// The text of the pane of the selected row, for the preview. herdr reads it one time for each
     /// pane and each snapshot.
     pub fn preview_text(&mut self, lines: usize) -> Option<String> {
@@ -1005,158 +677,15 @@ impl App {
     }
 }
 
-/// The key event of a key of the footer.
-fn key_of_hint(hint: &str) -> Option<KeyEvent> {
-    let (code, modifiers) = match hint {
-        "↵" => (KeyCode::Enter, KeyModifiers::NONE),
-        "⌃↵" => (KeyCode::Enter, KeyModifiers::CONTROL),
-        "⇥" => (KeyCode::Tab, KeyModifiers::NONE),
-        "⌃⌫" => (KeyCode::Backspace, KeyModifiers::CONTROL),
-        "esc" => (KeyCode::Esc, KeyModifiers::NONE),
-        "?" => (KeyCode::F(1), KeyModifiers::NONE),
-        _ => {
-            // ⌃A, ⌃O, ⌃Y: ctrl and a letter.
-            let letter = hint.strip_prefix('⌃')?.chars().next()?;
-            (
-                KeyCode::Char(letter.to_ascii_lowercase()),
-                KeyModifiers::CONTROL,
-            )
-        }
-    };
-    Some(KeyEvent::new(code, modifiers))
-}
-
-/// Delete the last word of a text, and the spaces after it.
-fn delete_word(text: &mut String) {
-    let trimmed = text.trim_end().len();
-    let start = text[..trimmed]
-        .rfind(char::is_whitespace)
-        .map(|index| index + 1)
-        .unwrap_or(0);
-    text.truncate(start);
-}
-
-/// Run the popup on a filter, in the context of the action.
-pub fn run(filter: Filter, context: Context) -> Result<(), String> {
-    let config: Config = config::current();
-    let mut cache: HashMap<PathBuf, Option<Checkout>> = HashMap::new();
-    let model = model::load_cached(&mut cache).map_err(|error| error.to_string())?;
-    let open = places::workspaces(&model);
-    let others = places::others(&config.roots, &open);
-    let current = context
-        .workspace_id
-        .clone()
-        .or(model.focused_workspace_id.clone());
-    let mouse = config.has("mouse");
-    let mut app = App::new(
-        model,
-        filter,
-        others,
-        current,
-        create::installed_agents(),
-        config,
-    );
-    if app.config.has("running_time") {
-        app.times = Some(Times::start());
-        app.ask_times();
-    }
-    app.logos = app.config.has("agent_logos") && crate::icons::font_installed();
-    app.remembered = create::remembered_agents();
-    let mut terminal = ratatui::init();
-    let enhanced = terminal::supports_keyboard_enhancement().unwrap_or(false);
-    if enhanced {
-        let _ = execute!(
-            io::stdout(),
-            PushKeyboardEnhancementFlags(crate::keys::flags())
-        );
-    }
-    if mouse {
-        let _ = execute!(io::stdout(), EnableMouseCapture);
-    }
-    let outcome = event_loop(&mut terminal, &mut app, &mut cache);
-    if mouse {
-        let _ = execute!(io::stdout(), DisableMouseCapture);
-    }
-    if enhanced {
-        let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
-    }
-    ratatui::restore();
-    match outcome? {
-        Outcome::Go(item) => go(&item).map_err(|error| error.to_string()),
-        Outcome::Create(plan) => create::execute_detached(&plan),
-        Outcome::Invoke(action) => {
-            create::spawn_detached(&["invoke", &action.plugin_id, &action.action_id], &[])
-        }
-        Outcome::Remove(folder) => {
-            create::spawn_detached(&["remove", &folder.to_string_lossy()], &[])
-        }
-        Outcome::Quit | Outcome::Continue => Ok(()),
-    }
-}
-
-fn event_loop(
-    terminal: &mut ratatui::DefaultTerminal,
-    app: &mut App,
-    cache: &mut HashMap<PathBuf, Option<Checkout>>,
-) -> Result<Outcome, String> {
-    let mut last_read = Instant::now();
-    loop {
-        terminal
-            .draw(|frame| ui::draw(frame, app))
-            .map_err(|error| error.to_string())?;
-        let timeout = REFRESH.saturating_sub(last_read.elapsed()).min(REDRAW);
-        if event::poll(timeout).map_err(|error| error.to_string())? {
-            let outcome = match event::read().map_err(|error| error.to_string())? {
-                Event::Key(key) if key.kind != KeyEventKind::Release => app.on_key(key),
-                Event::Mouse(mouse) => app.on_mouse(mouse),
-                _ => Outcome::Continue,
-            };
-            if !matches!(outcome, Outcome::Continue) {
-                return Ok(outcome);
-            }
-            // A command changed herdr: read the snapshot now.
-            if app.reload {
-                app.reload = false;
-                if let Ok(model) = model::load_cached(cache) {
-                    app.update_model(model);
-                }
-            }
-        } else if last_read.elapsed() >= REFRESH {
-            if let Ok(model) = model::load_cached(cache) {
-                app.update_model(model);
-            }
-            last_read = Instant::now();
-        }
-    }
-}
-
-/// Go to a row: focus its agent, its tab or its workspace.
-fn go(item: &Item) -> Result<(), herdr::Error> {
-    match item {
-        Item::Agent(agent) => {
-            herdr::focus_tab(&agent.tab_id)?;
-            herdr::focus_agent(&agent.pane_id)
-        }
-        Item::Tab(tab) => herdr::focus_tab(&tab.tab_id),
-        Item::Workspace(space) => herdr::focus_workspace(&space.workspace.workspace_id),
-        // herdr has no focus of a pane by its id: agent focus works for an agent pane. Another
-        // pane gets the focus of its tab.
-        Item::Pane(pane) => {
-            herdr::focus_tab(&pane.tab_id)?;
-            if pane.agent.is_some() {
-                herdr::focus_agent(&pane.pane_id)?;
-            }
-            Ok(())
-        }
-        Item::Place(_) | Item::Choice(_) | Item::Action(_) | Item::Create(_) => Ok(()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use super::input::{delete_word, key_of_hint};
     use super::*;
     use crate::model::{AgentRow, Status};
     use crate::places::Kind;
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
 
     fn place(label: &str, workspace: Option<&str>, main: Option<&str>) -> Place {
         Place {

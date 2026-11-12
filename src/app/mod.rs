@@ -455,7 +455,6 @@ impl App {
         }
     }
 
-    /// Take a new model: the snapshot changed.
     /// The pane that a split of this place divides: the focused pane, if the place is the current
     /// workspace.
     fn split_pane(&self, place: &Place) -> Option<&str> {
@@ -470,6 +469,7 @@ impl App {
         }
     }
 
+    /// Take a new model: the snapshot changed.
     pub fn update_model(&mut self, mut model: Model) {
         let key = self.selected_item().map(Item::key);
         self.order(&mut model);

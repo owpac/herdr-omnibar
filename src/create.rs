@@ -53,9 +53,9 @@ pub fn is_branch_name(name: &str) -> bool {
         && !name.ends_with(".lock")
 }
 
-/// The choices for a place and a name. In a git project, the worktree comes first.
-/// The choices of the step "what" for a place. `split` is the focused pane of the current
-/// workspace, if the place is this workspace: a split goes next to it.
+/// The choices of the step "what" for a place and a name. In a git project, the worktree comes
+/// first. `split` is the focused pane of the current workspace, if the place is this workspace: a
+/// split goes next to it.
 pub fn choices(
     place: &Place,
     name: &str,

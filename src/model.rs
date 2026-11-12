@@ -137,14 +137,23 @@ impl Checkout {
         self.common == self.root.join(".git")
     }
 
+    /// The folder of the main checkout: the parent of the common git folder. A bare repository
+    /// has no main checkout: its common folder stands for it.
+    pub fn main(&self) -> PathBuf {
+        if self.is_main() {
+            return self.root.clone();
+        }
+        match self.common.parent() {
+            Some(parent) if self.common.file_name().is_some_and(|name| name == ".git") => {
+                parent.to_path_buf()
+            }
+            _ => self.common.clone(),
+        }
+    }
+
     /// The name of the project: the folder of the main checkout.
     pub fn project(&self) -> String {
-        let main = if self.common.file_name().is_some_and(|name| name == ".git") {
-            self.common.parent().unwrap_or(&self.common)
-        } else {
-            self.common.as_path()
-        };
-        let name = file_name(main);
+        let name = file_name(&self.main());
         name.strip_suffix(".git").unwrap_or(&name).to_string()
     }
 }
@@ -634,6 +643,23 @@ mod tests {
         };
         assert_eq!(checkout.project(), "atlas");
         assert!(!checkout.is_main());
+    }
+
+    #[test]
+    fn a_linked_worktree_gives_the_folder_of_its_main_checkout() {
+        let worktree = Checkout {
+            root: PathBuf::from("/work/atlas.fix-login"),
+            common: PathBuf::from("/work/atlas/.git"),
+            branch: Some("fix-login".into()),
+        };
+        assert_eq!(worktree.main(), PathBuf::from("/work/atlas"));
+        assert_eq!(worktree.project(), "atlas");
+        let main = Checkout {
+            root: PathBuf::from("/work/atlas"),
+            common: PathBuf::from("/work/atlas/.git"),
+            branch: Some("main".into()),
+        };
+        assert_eq!(main.main(), PathBuf::from("/work/atlas"));
     }
 
     #[test]

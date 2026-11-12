@@ -96,13 +96,7 @@ fn remove_with_wt(folder: &Path) -> Result<String, String> {
         }
     }
     let main = model::checkout_of(folder)
-        .map(|checkout| {
-            checkout
-                .common
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or(checkout.root)
-        })
+        .map(|checkout| checkout.main())
         .ok_or_else(|| format!("{} is not a git checkout", folder.display()))?;
     let output = Command::new("wt")
         .arg("-C")

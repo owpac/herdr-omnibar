@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::model::{Model, TabSummary};
+use crate::model::{Checkout, Model, TabSummary};
 
 /// The kind of a place.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,17 +61,7 @@ pub fn workspaces(model: &Model) -> Vec<Place> {
                 kind: Kind::Workspace,
                 label: space.label(),
                 project: space.project(),
-                main: space.checkout.as_ref().map(|checkout| {
-                    if checkout.is_main() {
-                        checkout.root.clone()
-                    } else {
-                        checkout
-                            .common
-                            .parent()
-                            .map(Path::to_path_buf)
-                            .unwrap_or_else(|| checkout.root.clone())
-                    }
-                }),
+                main: space.checkout.as_ref().map(Checkout::main),
                 folder,
                 workspace_id: Some(space.workspace.workspace_id.clone()),
                 tabs: model

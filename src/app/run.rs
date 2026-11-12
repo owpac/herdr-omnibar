@@ -103,6 +103,9 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
         Outcome::Remove(folder) => {
             create::spawn_detached(&["remove", &folder.to_string_lossy()], &[])
         }
+        Outcome::Fork { tab_id, pane_id } => {
+            create::spawn_detached(&["fork", &tab_id, &pane_id], &[])
+        }
         Outcome::Quit | Outcome::Continue => Ok(()),
     }
 }

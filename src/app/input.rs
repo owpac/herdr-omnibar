@@ -88,6 +88,36 @@ impl App {
         }
     }
 
+    /// ctrl+F: fork the session of the selected agent into a new tab, with herdr-fork. herdr-fork
+    /// forks only Claude Code and Codex.
+    fn fork(&mut self) -> Outcome {
+        let (tab_id, pane_id, kind) = match self.selected_item() {
+            Some(Item::Agent(agent)) => (&agent.tab_id, &agent.pane_id, agent.kind.as_str()),
+            Some(Item::Pane(pane)) => match &pane.agent {
+                Some(kind) => (&pane.tab_id, &pane.pane_id, kind.as_str()),
+                None => return Outcome::Continue,
+            },
+            _ => return Outcome::Continue,
+        };
+        if !matches!(kind, "claude" | "codex") {
+            self.message = Some(format!(
+                "herdr-fork forks only Claude Code and Codex, not {kind}"
+            ));
+            return Outcome::Continue;
+        }
+        let (tab_id, pane_id) = (tab_id.clone(), pane_id.clone());
+        let installed = herdr::plugins().is_ok_and(|plugins| {
+            plugins
+                .iter()
+                .any(|plugin| plugin.plugin_id == create::FORK_PLUGIN && plugin.enabled)
+        });
+        if !installed {
+            self.message = Some("install herdr-fork to fork an agent".to_string());
+            return Outcome::Continue;
+        }
+        Outcome::Fork { tab_id, pane_id }
+    }
+
     /// ctrl+Backspace: ask before the close of the selected tab, or before the removal of the
     /// selected worktree.
     fn ask_close(&mut self) {
@@ -286,6 +316,7 @@ impl App {
             KeyCode::Esc if what => self.back_to_where(),
             KeyCode::Esc => return Outcome::Quit,
             KeyCode::Char('a') if ctrl && self.opens_worktree() => self.cycle_agent(),
+            KeyCode::Char('f') if ctrl && !creating => return self.fork(),
             KeyCode::Char('c' | 'g') if ctrl => return Outcome::Quit,
             KeyCode::Enter => return self.enter(),
             KeyCode::Up => self.move_by(-1),

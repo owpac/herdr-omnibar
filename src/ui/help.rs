@@ -29,6 +29,10 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         ),
         ("⌃A", "On a row that opens a worktree: the next agent."),
         (
+            "⌃F",
+            "Fork the session of the selected agent into a new tab (herdr-fork).",
+        ),
+        (
             "⌃Y",
             "In the step what: start the agent without its permission prompts.",
         ),

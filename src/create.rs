@@ -213,6 +213,31 @@ pub fn spawn_detached(arguments: &[&str], environment: &[(&str, &str)]) -> Resul
 /// The detached process `invoke`: wait until the popup closes (its process ends), then run the
 /// action. herdr refuses a popup while another popup is open.
 pub fn invoke_later(plugin_id: &str, action_id: &str) -> Result<(), String> {
+    wait_for_popup();
+    herdr::invoke_action(plugin_id, action_id).map_err(|error| notify_failure(&error.to_string()))
+}
+
+/// The plugin that forks the session of an agent, and its action that forks into a new tab.
+pub const FORK_PLUGIN: &str = "herdr-fork";
+const FORK_ACTION: &str = "tab";
+
+/// The detached process `fork`: wait until the popup closes, focus the agent, then fork its
+/// session into a new tab with herdr-fork. herdr-fork forks the agent of the focused pane.
+pub fn fork_later(tab_id: &str, pane_id: &str) -> Result<(), String> {
+    wait_for_popup();
+    herdr::focus_tab(tab_id)
+        .and_then(|()| herdr::focus_agent(pane_id))
+        .and_then(|()| {
+            // herdr gives the new focus to the context of the next action.
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            herdr::invoke_action(FORK_PLUGIN, FORK_ACTION)
+        })
+        .map_err(|error| notify_failure(&error.to_string()))
+}
+
+/// Wait until the popup closes: its process ends, and this detached process gets a new parent.
+/// herdr refuses a popup or a focus change while the popup is open.
+fn wait_for_popup() {
     use std::os::unix::process::parent_id;
     use std::thread::sleep;
     use std::time::Duration;
@@ -224,11 +249,12 @@ pub fn invoke_later(plugin_id: &str, action_id: &str) -> Result<(), String> {
         sleep(Duration::from_millis(50));
     }
     sleep(Duration::from_millis(150));
-    herdr::invoke_action(plugin_id, action_id).map_err(|error| {
-        let message = error.to_string();
-        let _ = herdr::show_notification("herdr-omnibar: the action failed", &message);
-        message
-    })
+}
+
+/// Show a failure in a herdr notification, and give its message back.
+fn notify_failure(message: &str) -> String {
+    let _ = herdr::show_notification("herdr-omnibar: the action failed", message);
+    message.to_string()
 }
 
 /// The detached process `execute`: run the plan of OMNIBAR_PLAN. The popup is closed: an error

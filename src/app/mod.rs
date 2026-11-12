@@ -169,6 +169,11 @@ pub enum Outcome {
     Invoke(PluginAction),
     /// Remove the worktree of this folder, after the popup closes.
     Remove(PathBuf),
+    /// Fork the agent of this pane with herdr-fork, after the popup closes.
+    Fork {
+        tab_id: String,
+        pane_id: String,
+    },
 }
 
 impl App {
@@ -1006,6 +1011,20 @@ mod tests {
             Outcome::Remove(folder) => assert_eq!(folder, PathBuf::from("/work/atlas.fix-login")),
             outcome => panic!("unexpected outcome {outcome:?}"),
         }
+    }
+
+    #[test]
+    fn ctrl_f_forks_only_claude_code_and_codex() {
+        let mut app = app(Filter::Agents);
+        app.model.agents[0].kind = "opencode".into();
+        app.rebuild(None);
+        let outcome = app.on_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL));
+        assert!(matches!(outcome, Outcome::Continue));
+        assert!(app
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("not opencode"));
     }
 
     #[test]

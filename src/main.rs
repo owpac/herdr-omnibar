@@ -30,7 +30,7 @@ use std::process::ExitCode;
 
 use filter::Filter;
 
-const USAGE: &str = "usage: herdr-omnibar open <filter> | run | execute | invoke <plugin> <action> | keys | list | watch [--run] | titles | remove <worktree> | --version
+const USAGE: &str = "usage: herdr-omnibar open <filter> | run | execute | invoke <plugin> <action> | fork <tab> <pane> | keys | list | watch [--run] | titles | remove <worktree> | --version
 filters: all, new, agents, tabs, worktrees, folders, actions, keys";
 
 /// The variable that gives the filter of the popup.
@@ -57,6 +57,10 @@ fn main() -> ExitCode {
         Some("execute") => create::execute_from_environment(),
         Some("invoke") => match (arguments.get(1), arguments.get(2)) {
             (Some(plugin), Some(action)) => create::invoke_later(plugin, action),
+            _ => Err(USAGE.to_string()),
+        },
+        Some("fork") => match (arguments.get(1), arguments.get(2)) {
+            (Some(tab), Some(pane)) => create::fork_later(tab, pane),
             _ => Err(USAGE.to_string()),
         },
         Some("--version") => {

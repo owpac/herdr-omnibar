@@ -4,12 +4,16 @@
 //! The actions of herdr-plugin.toml run `open <filter>`: it reads the context of the action, then
 //! opens the popup. The popup runs `run`. `keys` shows the keys that the popup receives.
 
+mod app;
 mod config;
 mod context;
 mod filter;
+mod fuzzy;
 mod herdr;
 mod keys;
 mod model;
+mod rows;
+mod ui;
 
 use std::env;
 use std::process::ExitCode;
@@ -118,8 +122,5 @@ fn run() -> Result<(), String> {
         .ok()
         .and_then(|name| Filter::parse(&name))
         .unwrap_or(Filter::All);
-    Err(format!(
-        "the popup ({}) comes in the next commit",
-        filter.name()
-    ))
+    app::run(filter)
 }

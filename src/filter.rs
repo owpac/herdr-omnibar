@@ -29,6 +29,19 @@ impl Filter {
         }
     }
 
+    /// The label of the filter in the popup.
+    pub fn label(self) -> &'static str {
+        match self {
+            Filter::All => "All",
+            Filter::New => "New",
+            Filter::Agents => "Agents",
+            Filter::Tabs => "Tabs",
+            Filter::Worktrees => "Worktrees",
+            Filter::Folders => "Folders",
+            Filter::Actions => "Actions",
+        }
+    }
+
     /// The name of the filter, for the actions and the variable OMNIBAR_FILTER.
     pub fn name(self) -> &'static str {
         match self {

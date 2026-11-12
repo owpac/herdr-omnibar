@@ -10,12 +10,13 @@ license = "MIT"
 publish = false
 
 # The stack: ratatui and its crossterm backend for the popup, serde_json for the JSON of herdr,
-# toml for config.toml. No other dependency without a reason.
+# toml for config.toml, unicode-width for the columns. No other dependency without a reason.
 [dependencies]
 ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
+unicode-width = "0.2"
 
 [profile.release]
 opt-level = 3

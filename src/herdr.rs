@@ -53,6 +53,29 @@ pub fn snapshot() -> Result<crate::model::Snapshot, Error> {
         .map_err(|error| Error(format!("herdr api snapshot: {error}")))
 }
 
+/// Focus a tab, and its workspace.
+pub fn focus_tab(tab_id: &str) -> Result<(), Error> {
+    run(&["tab", "focus", tab_id]).map(|_| ())
+}
+
+/// Focus the pane of an agent.
+pub fn focus_agent(pane_id: &str) -> Result<(), Error> {
+    run(&["agent", "focus", pane_id]).map(|_| ())
+}
+
+/// Focus a workspace, on its active tab.
+pub fn focus_workspace(workspace_id: &str) -> Result<(), Error> {
+    run(&["workspace", "focus", workspace_id]).map(|_| ())
+}
+
+/// The last lines of the text of a pane.
+pub fn read_pane(pane_id: &str, lines: usize) -> Result<String, Error> {
+    let lines = lines.to_string();
+    run(&[
+        "pane", "read", pane_id, "--lines", &lines, "--source", "visible",
+    ])
+}
+
 /// Open a pane of herdr-plugin.toml in the folder of the context, with these environment
 /// variables. The manifest gives the placement of the pane: a popup.
 pub fn open_plugin_pane(

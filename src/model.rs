@@ -248,6 +248,17 @@ pub struct TabRow {
     /// The title of the terminal of the first pane: often the command that runs.
     pub command: String,
     pub place: String,
+    /// The first pane of the tab: the preview reads it.
+    pub pane_id: Option<String>,
+}
+
+/// A tab of a workspace, for the preview of the workspace.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TabSummary {
+    pub name: String,
+    /// The kind of the agent of the tab, if the tab has an agent.
+    pub agent: Option<String>,
+    pub status: Status,
 }
 
 /// All the data of the popup.
@@ -257,6 +268,8 @@ pub struct Model {
     pub agents: Vec<AgentRow>,
     pub tabs: Vec<TabRow>,
     pub focused_workspace_id: Option<String>,
+    /// The tabs of each workspace, by workspace id, in their order.
+    pub workspace_tabs: HashMap<String, Vec<TabSummary>>,
 }
 
 impl Model {
@@ -285,7 +298,8 @@ impl Model {
                 .unwrap_or_default()
         };
         // The name of a tab. herdr names a new tab with its number: then the title of the terminal
-        // is a better name, because an agent writes its task there.
+        // is a better name, because an agent writes its task there. The title of an idle shell
+        // is its prompt (user@host:folder): the name is then "shell".
         let label_of = |tab_id: &str, title: Option<&str>| {
             let label = snapshot
                 .tabs
@@ -295,6 +309,7 @@ impl Model {
                 .unwrap_or_default();
             let numbered = label.is_empty() || label.chars().all(|c| c.is_ascii_digit());
             match title.map(str::trim).filter(|title| !title.is_empty()) {
+                Some(title) if numbered && is_prompt_title(title) => "shell".to_string(),
                 Some(title) if numbered => title.to_string(),
                 _ => label,
             }
@@ -326,35 +341,80 @@ impl Model {
                     .any(|pane| pane.tab_id == tab.tab_id && pane.agent.is_some())
             })
             .map(|tab| {
-                let command = snapshot
-                    .panes
-                    .iter()
-                    .find(|pane| pane.tab_id == tab.tab_id)
+                let first = snapshot.panes.iter().find(|pane| pane.tab_id == tab.tab_id);
+                let title = first
                     .and_then(|pane| pane.terminal_title_stripped.clone())
                     .unwrap_or_default();
+                // The title of a shell that waits is its prompt: no command runs.
+                let command = if is_prompt_title(&title) {
+                    String::new()
+                } else {
+                    title.clone()
+                };
                 TabRow {
                     tab_id: tab.tab_id.clone(),
                     workspace_id: tab.workspace_id.clone(),
-                    name: label_of(&tab.tab_id, Some(&command)),
+                    name: label_of(&tab.tab_id, Some(&title)),
                     command,
                     place: place_of(&tab.workspace_id),
+                    pane_id: first.map(|pane| pane.pane_id.clone()),
                 }
             })
             .collect();
+        let mut workspace_tabs: HashMap<String, Vec<TabSummary>> = HashMap::new();
+        for tab in &snapshot.tabs {
+            let agent_pane = snapshot
+                .panes
+                .iter()
+                .find(|pane| pane.tab_id == tab.tab_id && pane.agent.is_some());
+            let title = snapshot
+                .panes
+                .iter()
+                .find(|pane| pane.tab_id == tab.tab_id)
+                .and_then(|pane| pane.terminal_title_stripped.as_deref());
+            workspace_tabs
+                .entry(tab.workspace_id.clone())
+                .or_default()
+                .push(TabSummary {
+                    name: label_of(&tab.tab_id, title),
+                    agent: agent_pane.and_then(|pane| pane.agent.clone()),
+                    status: agent_pane.map(|pane| pane.agent_status).unwrap_or_default(),
+                });
+        }
         Model {
             spaces,
             agents,
             tabs,
             focused_workspace_id: snapshot.focused_workspace_id.clone(),
+            workspace_tabs,
         }
     }
 }
 
+/// True for the title that a shell gives to its terminal while it waits: `user@host:folder`.
+fn is_prompt_title(title: &str) -> bool {
+    title
+        .split_once(':')
+        .is_some_and(|(head, _)| head.contains('@') && !head.contains(char::is_whitespace))
+}
+
 /// The model of the running herdr: its snapshot, and the checkout of each folder.
 pub fn load() -> Result<Model, crate::herdr::Error> {
+    load_cached(&mut HashMap::new())
+}
+
+/// The model of the running herdr. The cache keeps the checkout of each folder: git runs only for
+/// the new folders.
+pub fn load_cached(
+    cache: &mut HashMap<PathBuf, Option<Checkout>>,
+) -> Result<Model, crate::herdr::Error> {
     let snapshot = crate::herdr::snapshot()?;
-    let checkouts = checkouts_of(&folders(&snapshot));
-    Ok(Model::build(&snapshot, &checkouts))
+    let missing: Vec<PathBuf> = folders(&snapshot)
+        .into_iter()
+        .filter(|folder| !cache.contains_key(folder))
+        .collect();
+    cache.extend(checkouts_of(&missing));
+    Ok(Model::build(&snapshot, cache))
 }
 
 /// The folders of the workspaces of a snapshot, without duplicates.
@@ -480,6 +540,14 @@ mod tests {
                 ("shell", "", "my notes")
             ]
         );
+    }
+
+    #[test]
+    fn the_prompt_of_a_shell_is_not_a_name() {
+        assert!(is_prompt_title("thomas@mbp:~/Workspace/atlas"));
+        assert!(!is_prompt_title("tail -f observer.log"));
+        assert!(!is_prompt_title("Fix: the login"));
+        assert!(!is_prompt_title("mail me@host: later"));
     }
 
     #[test]

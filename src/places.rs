@@ -309,23 +309,56 @@ mod tests {
     }
 
     #[test]
-    fn this_repository_is_a_project_with_its_branch_main() {
-        // The tests also run in a linked worktree: the project is the main checkout.
-        let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let common = git(
-            &here,
-            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-        );
-        let main = PathBuf::from(common.trim())
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap();
-        assert!(is_project(&main));
-        let branches = branches(&main);
-        let branch = branches.iter().find(|branch| branch.name == "main");
+    fn each_branch_of_a_project_has_its_worktree_and_main_comes_first() {
+        // A new repository: the checkout of the CI can be a detached HEAD, without a branch main.
+        // The real path: on macOS, the temporary folder is a symbolic link, and git gives real
+        // paths.
+        let folder = fs::canonicalize(env::temp_dir())
+            .unwrap()
+            .join(format!("omnibar-places-{}", std::process::id()));
+        let main = folder.join("main");
+        let linked = folder.join("linked");
+        fs::create_dir_all(&main).unwrap();
+        // The git config of the user can sign the commits or run hooks: the test turns them off.
+        let run = |arguments: &[&str]| {
+            let options = [
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+            ];
+            git(&main, &[&options[..], arguments].concat());
+        };
+        run(&["init", "--quiet", "--initial-branch", "main"]);
+        run(&[
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "--message",
+            "start",
+        ]);
+        let linked_text = linked.to_str().unwrap();
+        run(&["worktree", "add", "--quiet", "-b", "feature", linked_text]);
+        run(&["branch", "other"]);
+        let found = branches(&main);
+        let (main_is_project, linked_is_project) = (is_project(&main), is_project(&linked));
+        let _ = fs::remove_dir_all(&folder);
+        assert!(main_is_project && !linked_is_project);
+        let worktrees: Vec<(&str, Option<&Path>)> = found
+            .iter()
+            .map(|branch| (branch.name.as_str(), branch.worktree.as_deref()))
+            .collect();
         assert_eq!(
-            branch.and_then(|branch| branch.worktree.clone()),
-            Some(main)
+            worktrees,
+            [
+                ("main", Some(main.as_path())),
+                ("feature", Some(linked.as_path())),
+                ("other", None)
+            ]
         );
     }
 

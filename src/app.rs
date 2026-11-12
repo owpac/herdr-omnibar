@@ -237,13 +237,24 @@ impl App {
                 if self.filter == Filter::Actions && self.actions.is_none() {
                     self.actions = Some(herdr::plugin_actions().unwrap_or_default());
                 }
-                rows::build(
-                    &self.model,
-                    &self.others,
-                    self.actions.as_deref().unwrap_or_default(),
-                    self.filter,
-                    &self.query,
-                )
+                let branches = if self.filter == Filter::All {
+                    self.current_branches()
+                } else {
+                    Vec::new()
+                };
+                let project = self
+                    .current_place()
+                    .map(|place| place.project.clone())
+                    .unwrap_or_default();
+                let sources = rows::Sources {
+                    model: &self.model,
+                    others: &self.others,
+                    actions: self.actions.as_deref().unwrap_or_default(),
+                    open: &self.open,
+                    project: &project,
+                    branches: &branches,
+                };
+                rows::build(&sources, self.filter, &self.query)
             }
         };
         let rows = self.row_indices();
@@ -448,6 +459,17 @@ impl App {
                 }
             }
             (_, Item::Action(action)) => Outcome::Invoke(action),
+            (_, Item::Create(name)) => {
+                // The step "what" in the current place, with the query as the name.
+                self.filter = Filter::New;
+                self.create = Create::new();
+                self.create.name = name;
+                match self.current_place().cloned() {
+                    Some(place) => self.choose_place(place),
+                    None => self.rebuild(None),
+                }
+                Outcome::Continue
+            }
             (_, item) => Outcome::Go(item),
         }
     }
@@ -505,6 +527,19 @@ impl App {
         };
         self.views.insert(key, text.clone());
         text
+    }
+
+    /// True if ↵ on the selected row opens a worktree outside the creation: ⌃A then changes its
+    /// agent.
+    pub fn opens_worktree(&self) -> bool {
+        if self.filter == Filter::New {
+            return false;
+        }
+        match self.selected_item() {
+            Some(Item::Choice(Choice::NewWorktree { branch })) => create::is_branch_name(branch),
+            Some(Item::Choice(Choice::Existing { workspace_id, .. })) => workspace_id.is_none(),
+            _ => false,
+        }
     }
 
     /// The workspace of the selected agent, tab or workspace, as a place.
@@ -653,6 +688,7 @@ impl App {
             }
             KeyCode::Esc if what => self.back_to_where(),
             KeyCode::Esc => return Outcome::Quit,
+            KeyCode::Char('a') if ctrl && self.opens_worktree() => self.cycle_agent(),
             KeyCode::Char('c' | 'g') if ctrl => return Outcome::Quit,
             KeyCode::Enter => return self.enter(),
             KeyCode::Up => self.move_by(-1),
@@ -819,7 +855,7 @@ fn go(item: &Item) -> Result<(), herdr::Error> {
         }
         Item::Tab(tab) => herdr::focus_tab(&tab.tab_id),
         Item::Workspace(space) => herdr::focus_workspace(&space.workspace.workspace_id),
-        Item::Place(_) | Item::Choice(_) | Item::Action(_) => Ok(()),
+        Item::Place(_) | Item::Choice(_) | Item::Action(_) | Item::Create(_) => Ok(()),
     }
 }
 
@@ -911,6 +947,46 @@ mod tests {
         assert!(
             matches!(press(&mut app, KeyCode::Enter), Outcome::Go(Item::Agent(agent)) if agent.name == "release notes")
         );
+    }
+
+    #[test]
+    fn the_create_row_goes_to_the_step_what_in_the_current_place() {
+        let mut app = app(Filter::All);
+        type_text(&mut app, "zzz");
+        assert_eq!(selected_name(&app), "create “zzz”…");
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.filter, Filter::New);
+        assert_eq!(app.create.step, Step::What);
+        assert_eq!(app.create.name, "zzz");
+        assert_eq!(
+            app.create.place.as_ref().map(|place| place.label.as_str()),
+            Some("atlas")
+        );
+        assert_eq!(selected_name(&app), "new tab");
+    }
+
+    #[test]
+    fn ctrl_a_changes_the_agent_of_a_row_that_opens_a_worktree() {
+        let mut app = app(Filter::All);
+        app.open[0].main = Some("/work/atlas".into());
+        app.current_branches = Some(vec![Branch {
+            name: "fix-login".into(),
+            worktree: None,
+        }]);
+        app.rebuild(None);
+        type_text(&mut app, "fix-l");
+        assert_eq!(selected_name(&app), "fix-login");
+        assert!(app.opens_worktree());
+        assert_eq!(app.agent(), "claude");
+        app.on_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        assert_eq!(app.agent(), "codex");
+        match press(&mut app, KeyCode::Enter) {
+            Outcome::Create(plan) => {
+                assert_eq!(plan.agent, "codex");
+                assert_eq!(plan.name, "fix-login");
+            }
+            outcome => panic!("unexpected outcome {outcome:?}"),
+        }
     }
 
     #[test]

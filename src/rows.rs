@@ -26,6 +26,8 @@ pub enum Item {
     Choice(Choice),
     /// An action of a herdr plugin.
     Action(PluginAction),
+    /// The creation of a tab or a worktree with the query as its name: ↵ goes to the step "what".
+    Create(String),
 }
 
 impl Item {
@@ -46,6 +48,7 @@ impl Item {
             },
             Item::Action(action) if action.title.is_empty() => action.action_id.clone(),
             Item::Action(action) => action.title.clone(),
+            Item::Create(name) => format!("create “{name}”…"),
         }
     }
 
@@ -56,8 +59,14 @@ impl Item {
             Item::Tab(tab) => tab.place.clone(),
             Item::Workspace(space) => space.folder.as_deref().map(home).unwrap_or_default(),
             Item::Place(place) => home(&place.folder),
+            // The folder of a worktree: a query with the name of the project finds it.
+            Item::Choice(Choice::Existing {
+                worktree: Some(folder),
+                ..
+            }) => home(folder),
             Item::Choice(_) => String::new(),
             Item::Action(action) => action.plugin_id.clone(),
+            Item::Create(_) => String::new(),
         }
     }
 
@@ -70,6 +79,7 @@ impl Item {
             Item::Place(place) => format!("place:{}", place.key()),
             Item::Choice(choice) => format!("choice:{choice:?}"),
             Item::Action(action) => format!("action:{}:{}", action.plugin_id, action.action_id),
+            Item::Create(_) => "create".to_string(),
         }
     }
 
@@ -103,14 +113,22 @@ pub const FILTERS: [Filter; 7] = [
     Filter::Actions,
 ];
 
+/// The sources of the lines of the filters that go somewhere.
+pub struct Sources<'a> {
+    pub model: &'a Model,
+    /// The places without a workspace: projects and folders.
+    pub others: &'a [Place],
+    pub actions: &'a [PluginAction],
+    /// The open workspaces, as places.
+    pub open: &'a [Place],
+    /// The name of the current project, and its local branches.
+    pub project: &'a str,
+    pub branches: &'a [Branch],
+}
+
 /// The lines of the filters that go somewhere (all the filters but New).
-pub fn build(
-    model: &Model,
-    others: &[Place],
-    actions: &[PluginAction],
-    filter: Filter,
-    query: &str,
-) -> Vec<Line> {
+pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
+    let model = sources.model;
     let mut lines = Vec::new();
     let query = query.trim();
     if matches!(filter, Filter::All | Filter::Agents) {
@@ -129,11 +147,36 @@ pub fn build(
         group(&mut lines, "Tabs", matches(tabs, query));
     }
     if filter == Filter::All {
-        let spaces = model.spaces.iter().cloned().map(Item::Workspace).collect();
+        // The worktrees of the current project have their own group: their workspaces are not
+        // in the group Workspaces.
+        let worktrees = existing(sources.branches, sources.open);
+        let in_worktrees: Vec<String> = worktrees
+            .iter()
+            .filter_map(|item| match item {
+                Item::Choice(Choice::Existing {
+                    workspace_id: Some(id),
+                    ..
+                }) => Some(id.clone()),
+                _ => None,
+            })
+            .collect();
+        group(
+            &mut lines,
+            &format!("Worktrees of {}", sources.project),
+            matches(worktrees, query),
+        );
+        let spaces = model
+            .spaces
+            .iter()
+            .filter(|space| !in_worktrees.contains(&space.workspace.workspace_id))
+            .cloned()
+            .map(Item::Workspace)
+            .collect();
         group(&mut lines, "Workspaces", matches(spaces, query));
     }
     if matches!(filter, Filter::All | Filter::Folders) {
-        let (projects, folders): (Vec<_>, Vec<_>) = others
+        let (projects, folders): (Vec<_>, Vec<_>) = sources
+            .others
             .iter()
             .cloned()
             .partition(|place| place.kind == Kind::Project);
@@ -145,22 +188,22 @@ pub fn build(
         }
     }
     if filter == Filter::Actions {
-        let actions = actions.iter().cloned().map(Item::Action).collect();
+        let actions = sources.actions.iter().cloned().map(Item::Action).collect();
         group(&mut lines, "Actions", matches(actions, query));
+    }
+    if filter == Filter::All && !query.is_empty() {
+        group(
+            &mut lines,
+            "Create",
+            vec![(Item::Create(query.to_string()), Vec::new())],
+        );
     }
     lines
 }
 
-/// The lines of the filter Worktrees: the branches of the current project, and a new worktree when
-/// the query is a new branch name.
-pub fn worktree_lines(
-    branches: &[Branch],
-    open: &[Place],
-    project: &str,
-    query: &str,
-) -> Vec<Line> {
-    let query = query.trim();
-    let items: Vec<Item> = branches
+/// The branches of a project as rows, with the open workspace of their worktrees.
+fn existing(branches: &[Branch], open: &[Place]) -> Vec<Item> {
+    branches
         .iter()
         .map(|branch| {
             Item::Choice(Choice::Existing {
@@ -173,8 +216,19 @@ pub fn worktree_lines(
                 }),
             })
         })
-        .collect();
-    let mut rows = matches(items, query);
+        .collect()
+}
+
+/// The lines of the filter Worktrees: the branches of the current project, and a new worktree when
+/// the query is a new branch name.
+pub fn worktree_lines(
+    branches: &[Branch],
+    open: &[Place],
+    project: &str,
+    query: &str,
+) -> Vec<Line> {
+    let query = query.trim();
+    let mut rows = matches(existing(branches, open), query);
     let exists = branches.iter().any(|branch| branch.name == query);
     if create::is_branch_name(query) && !exists {
         rows.insert(
@@ -420,6 +474,24 @@ mod tests {
         }
     }
 
+    fn lines_of(
+        model: &Model,
+        others: &[Place],
+        actions: &[PluginAction],
+        filter: Filter,
+        query: &str,
+    ) -> Vec<Line> {
+        let sources = Sources {
+            model,
+            others,
+            actions,
+            open: &[],
+            project: "atlas",
+            branches: &[],
+        };
+        build(&sources, filter, query)
+    }
+
     fn titles(lines: &[Line]) -> Vec<String> {
         lines
             .iter()
@@ -434,7 +506,7 @@ mod tests {
     fn the_filter_all_shows_the_groups_in_the_order_of_urgency() {
         let others = [place(Kind::Project, "pac", None)];
         assert_eq!(
-            titles(&build(&model(), &others, &[], Filter::All, "")),
+            titles(&lines_of(&model(), &others, &[], Filter::All, "")),
             [
                 "# Needs you",
                 "fix the login",
@@ -453,15 +525,53 @@ mod tests {
     #[test]
     fn a_query_keeps_only_the_matches() {
         assert_eq!(
-            titles(&build(&model(), &[], &[], Filter::All, "omni")),
-            ["# Agents", "omnibar design"]
+            titles(&lines_of(&model(), &[], &[], Filter::All, "omni")),
+            ["# Agents", "omnibar design", "# Create", "create “omni”…"]
         );
+    }
+
+    #[test]
+    fn the_filter_all_shows_the_worktrees_of_the_current_project_once() {
+        let model = model();
+        let open = [place(Kind::Workspace, "atlas", Some("w1"))];
+        let branches = [
+            Branch {
+                name: "main".into(),
+                worktree: Some("/work/atlas".into()),
+            },
+            Branch {
+                name: "fix-login".into(),
+                worktree: None,
+            },
+        ];
+        let sources = Sources {
+            model: &model,
+            others: &[],
+            actions: &[],
+            open: &open,
+            project: "atlas",
+            branches: &branches,
+        };
+        let lines = build(&sources, Filter::All, "");
+        assert_eq!(
+            titles(&lines)[4..],
+            [
+                "# Tabs",
+                "logs",
+                "# Worktrees of atlas",
+                "main",
+                "fix-login"
+            ]
+        );
+        // The query finds a worktree by the name of its project, in its folder.
+        let lines = build(&sources, Filter::All, "atlas");
+        assert!(titles(&lines).contains(&"main".to_string()));
     }
 
     #[test]
     fn the_filter_tabs_shows_only_the_tabs() {
         assert_eq!(
-            titles(&build(&model(), &[], &[], Filter::Tabs, "")),
+            titles(&lines_of(&model(), &[], &[], Filter::Tabs, "")),
             ["# Tabs", "logs"]
         );
     }
@@ -475,7 +585,7 @@ mod tests {
             description: String::new(),
         }];
         assert_eq!(
-            titles(&build(&model(), &[], &actions, Filter::Actions, "clean")),
+            titles(&lines_of(&model(), &[], &actions, Filter::Actions, "clean")),
             ["# Actions", "Worktree: clean the worktrees"]
         );
     }

@@ -215,7 +215,7 @@ fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
             vec![Span::styled(tabs_text(count), Style::new().fg(DIM))]
         }
         Item::Place(place) => place_right(place, app),
-        Item::Action(_) => Vec::new(),
+        Item::Action(_) | Item::Create(_) => Vec::new(),
         Item::Choice(choice) => match choice {
             Choice::Existing {
                 workspace_id,
@@ -277,6 +277,7 @@ fn glyph(item: &Item) -> Span<'static> {
         Item::Tab(_) => Span::styled("▪", Style::new().fg(DIM)),
         Item::Workspace(_) => Span::styled("▣", Style::new().fg(ACCENT)),
         Item::Action(_) => Span::styled("›", Style::new().fg(ACCENT)),
+        Item::Create(_) => Span::styled("+", Style::new().fg(GREEN)),
         Item::Place(place) => match place.kind {
             Kind::Workspace => Span::styled("▣", Style::new().fg(ACCENT)),
             Kind::Project => Span::styled("□", Style::new().fg(MUTED)),
@@ -298,9 +299,8 @@ fn name_style(item: &Item) -> Style {
         {
             Style::new().fg(RED)
         }
-        Item::Choice(Choice::NewWorktree { .. } | Choice::NewTab | Choice::NewWorkspace) => {
-            Style::new().fg(GREEN)
-        }
+        Item::Choice(Choice::NewWorktree { .. } | Choice::NewTab | Choice::NewWorkspace)
+        | Item::Create(_) => Style::new().fg(GREEN),
         _ => Style::new(),
     }
 }
@@ -334,6 +334,7 @@ fn context_of(item: &Item, app: &App) -> String {
             Choice::NewWorkspace => format!("with the tab {}", named("(auto name)")),
             Choice::AnotherPlace => "a project, a workspace or a folder".into(),
         },
+        Item::Create(_) => "a tab or a worktree: choose in the next step".into(),
         _ => item.context(),
     }
 }
@@ -552,6 +553,28 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
             let text = app.branch_view(branch, worktree.as_ref());
             for text_line in text.lines().take(height.saturating_sub(1)) {
                 lines.push(muted(fit(text_line, width)));
+            }
+        }
+        Item::Create(name) => {
+            lines.push(title("CREATE"));
+            match app.current_place() {
+                Some(place) => {
+                    lines.push(Line::from(pill_span(true, &place.label)));
+                    lines.push(Line::raw(""));
+                    let text = format!(
+                        "↵ creates “{name}” in the current place. Then choose a new worktree, \
+                         a new tab, or another place."
+                    );
+                    for part in wrap(&text, width) {
+                        lines.push(Line::from(Span::styled(part, Style::new().fg(DIM))));
+                    }
+                }
+                None => {
+                    let text = format!("↵ creates “{name}”. Then choose its place.");
+                    for part in wrap(&text, width) {
+                        lines.push(Line::from(Span::styled(part, Style::new().fg(DIM))));
+                    }
+                }
             }
         }
         Item::Place(place) => {
@@ -801,6 +824,12 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
             false,
             false,
         ),
+        Item::Create(name) => (
+            format!("create “{name}”: choose a tab or a worktree"),
+            place.as_ref().map(|place| pill_span(true, &place.label)),
+            false,
+            false,
+        ),
         Item::Choice(choice) => match choice {
             Choice::NewWorktree { branch } if branch.is_empty() => (
                 "type the branch name of the new worktree".into(),
@@ -831,12 +860,28 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
             ),
             Choice::Existing {
                 branch,
-                workspace_id: Some(_),
+                workspace_id: Some(id),
                 ..
-            } => (format!("go to the worktree {branch}"), None, false, false),
-            Choice::Existing { branch, .. } => {
-                (format!("open the worktree {branch}"), None, true, false)
+            } => {
+                let label = app
+                    .open
+                    .iter()
+                    .find(|open| open.workspace_id.as_deref() == Some(id.as_str()))
+                    .map(|open| open.label.clone())
+                    .unwrap_or_else(|| worktree_label(place.as_ref(), branch));
+                (
+                    format!("go to the worktree {branch}"),
+                    Some(pill_span(true, &label)),
+                    false,
+                    false,
+                )
             }
+            Choice::Existing { branch, .. } => (
+                format!("open the worktree {branch}"),
+                Some(pill_span(false, &worktree_label(place.as_ref(), branch))),
+                true,
+                false,
+            ),
             Choice::NewTab => (tab, Some(pill_span(true, &place_label)), true, false),
             Choice::NewWorkspace => (tab, Some(pill_span(false, &place_label)), true, false),
             Choice::AnotherPlace => ("choose another place".into(), None, false, false),
@@ -866,9 +911,8 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
                 Style::new().fg(agent_color(&agent)).bg(PILL),
             ),
         ];
-        if creating(app) {
-            field.push(Span::styled(" ⇥", Style::new().fg(MATCH)));
-        }
+        let key = if creating(app) { " ⇥" } else { " ⌃A" };
+        field.push(Span::styled(key, Style::new().fg(MATCH)));
         if app.create.no_prompts && agent != "shell" {
             field.push(Span::styled("  prompts off", Style::new().fg(RED)));
         }
@@ -879,6 +923,14 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
         spans.extend(field);
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// The label of the workspace of a worktree: "project ▸ branch".
+fn worktree_label(place: Option<&Place>, branch: &str) -> String {
+    match place {
+        Some(place) => format!("{} ▸ {branch}", place.project),
+        None => branch.to_string(),
+    }
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
@@ -936,15 +988,25 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
                 let primary = match selected {
                     Some(Item::Place(_)) => "create in",
                     Some(Item::Action(_)) => "run",
+                    Some(Item::Create(_)) => "create…",
+                    Some(Item::Choice(Choice::Existing {
+                        workspace_id: Some(_),
+                        ..
+                    })) => "go",
+                    Some(Item::Choice(Choice::NewWorktree { .. })) => "create",
                     Some(Item::Choice(_)) => "open",
                     _ => "go",
                 };
-                vec![
-                    ("↵", primary.to_string()),
+                let mut hints = vec![("↵", primary.to_string())];
+                if app.opens_worktree() {
+                    hints.push(("⌃A", "agent".to_string()));
+                }
+                hints.extend([
                     ("⇥", "filter".to_string()),
                     ("⌃O", "preview".to_string()),
                     ("esc", "close".to_string()),
-                ]
+                ]);
+                hints
             }
         }
     };
@@ -984,6 +1046,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
             "~  /",
             "In the step where: the folders of the disk. ⇥ completes.",
         ),
+        ("⌃A", "On a row that opens a worktree: the next agent."),
         (
             "⌃Y",
             "In the step what: start the agent without its permission prompts.",

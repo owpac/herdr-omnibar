@@ -64,7 +64,7 @@ The omnibar remembers the last agent of each folder, in `agents.json` of its sta
 
 ## Automatic titles of the tabs
 
-A tab with one agent takes the title that the agent gives to its terminal: Claude Code and Codex write their task there. The omnibar renames only a tab with the name that herdr gives (its number), or with the last title that the omnibar wrote. A name that you give stays: after `⌃R` or `herdr tab rename`, the tab keeps your name until it closes. A tab with 2 agents keeps its name. A title that tells nothing (a prompt, the name of the agent, the name of the folder) does not replace a name. When the agent stops, the tab keeps its last title.
+A tab with one agent takes the title that the agent gives to its terminal: Claude Code and Codex write their task there. The omnibar renames only a tab with the name that herdr gives (its number), or with the last title that the omnibar wrote. A name that you give stays: after `⌃R` or `herdr tab rename`, the tab keeps your name until it closes. A tab with 2 agents keeps its name. A title that tells nothing (a prompt, the kind of the agent such as `claude`, `codex` or `opencode`, the name of the folder) does not replace a name. The name of a herdr agent (`herdr agent start <name>`) is a title: it replaces the number of the tab, and a later task title of the agent replaces it. When the agent stops, the tab keeps its last title.
 
 One watcher runs for each herdr server. herdr starts it at its start and when it detects an agent. Each opening of the popup starts it again, if it stopped. The watcher reads the snapshot every 2 s. It stops when herdr stops, when you remove `auto_titles` from `features`, or when you disable the plugin. It runs its binary again after a rebuild or an update of the plugin.
 

@@ -105,12 +105,7 @@ pub fn useful_title(title: &str, agent: &str, folder: Option<&Path>) -> Option<S
 /// The reason to wait, if another plugin writes the titles of the tabs: herdr-bar is enabled, and
 /// its config.json does not set `"auto_titles": false`.
 fn other_writer(plugins: &[Plugin], bar_config: Option<&str>) -> Option<String> {
-    let bar_enabled = plugins
-        .iter()
-        .any(|plugin| plugin.plugin_id == HERDR_BAR && plugin.enabled);
-    if !bar_enabled {
-        return None;
-    }
+    herdr::enabled(plugins, HERDR_BAR)?;
     let bar_titles = bar_config
         .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
         .and_then(|config| config["auto_titles"].as_bool())
@@ -177,10 +172,7 @@ pub fn run() -> Result<(), String> {
             plugins_read = Some(Instant::now());
             let reason = match herdr::plugins() {
                 Ok(plugins) => {
-                    let enabled = plugins
-                        .iter()
-                        .any(|plugin| plugin.plugin_id == PLUGIN_ID && plugin.enabled);
-                    if !enabled {
+                    if herdr::enabled(&plugins, PLUGIN_ID).is_none() {
                         log.write("the plugin is disabled: watcher stopped");
                         return Ok(());
                     }

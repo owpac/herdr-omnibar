@@ -226,6 +226,18 @@ pub fn plugins() -> Result<Vec<Plugin>, Error> {
         .map_err(|error| Error::new(format!("herdr plugin list: {error}")))
 }
 
+/// The plugin with this id in a list of plugins, if it is enabled.
+pub fn enabled<'a>(plugins: &'a [Plugin], plugin_id: &str) -> Option<&'a Plugin> {
+    plugins
+        .iter()
+        .find(|plugin| plugin.plugin_id == plugin_id && plugin.enabled)
+}
+
+/// The installed plugin with this id, if it is enabled. None if herdr does not answer.
+pub fn enabled_plugin(plugin_id: &str) -> Option<Plugin> {
+    enabled(&plugins().ok()?, plugin_id).cloned()
+}
+
 /// Run an action of a herdr plugin.
 pub fn invoke_action(plugin_id: &str, action_id: &str) -> Result<(), Error> {
     run(&[

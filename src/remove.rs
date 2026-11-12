@@ -57,10 +57,7 @@ fn remove(folder: &Path) -> Result<String, String> {
 /// The binary of herdr-worktrunk, if the plugin is installed and enabled, and if it has the
 /// command `remove --path` (version 2026.11.33 or later). Its usage names this command.
 pub fn worktrunk_remover() -> Option<PathBuf> {
-    let plugins = herdr::plugins().ok()?;
-    let plugin = plugins
-        .into_iter()
-        .find(|plugin| plugin.plugin_id == WORKTRUNK && plugin.enabled)?;
+    let plugin = herdr::enabled_plugin(WORKTRUNK)?;
     let binary = plugin.plugin_root?.join("bin").join(WORKTRUNK);
     if !binary.is_file() {
         return None;

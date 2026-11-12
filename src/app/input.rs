@@ -106,12 +106,7 @@ impl App {
             return Outcome::Continue;
         }
         let (tab_id, pane_id) = (tab_id.clone(), pane_id.clone());
-        let installed = herdr::plugins().is_ok_and(|plugins| {
-            plugins
-                .iter()
-                .any(|plugin| plugin.plugin_id == create::FORK_PLUGIN && plugin.enabled)
-        });
-        if !installed {
+        if herdr::enabled_plugin(create::FORK_PLUGIN).is_none() {
             self.message = Some("install herdr-fork to fork an agent".to_string());
             return Outcome::Continue;
         }

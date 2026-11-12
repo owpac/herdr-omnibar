@@ -4,7 +4,7 @@
 
 ## The 2 doors
 
-- **`open`** goes to what exists. The list has the agents that need you first, then the other agents, the tabs without an agent, the worktrees of the current project, the other workspaces and the git projects. `↵` goes to the selected row. If you type a text, the last row is `create “<text>”…`: `↵` on it starts the creation in the current place, with this text as the name.
+- **`open`** goes to what exists. The list has the agents that need you first, then the other agents, the tabs without an agent, the worktrees of the current project, the other workspaces and the git projects. `↵` goes to the selected row. If you type a text, the last row is `create “<text>”…`: `↵` on it starts the creation in the current place, with this text as the name. A branch of the current project shows the state of its worktree: `▣` an open workspace, `□` a worktree without a workspace, `○` no worktree.
 - **`new`** creates a tab or a worktree, in 2 steps:
   1. **Where:** the current place first, then the open workspaces, the git projects without a workspace and the other folders. Type `~` or `/` for any folder of the disk: `⇥` completes it.
   2. **What:** type the name. In a git project, `new worktree <name>` comes first: wt creates the branch, its worktree and its own workspace. `new tab` adds a tab to the workspace of the place. A name that is not a branch name selects `new tab`.
@@ -46,9 +46,9 @@ command = "herdr-omnibar.new"
 |-----|--------|
 | `↵` | Go to the selected row, choose a place, create, or run an action. |
 | `⇥`, `⇧⇥` | The next or the previous filter. In the step "what": the next agent (claude, codex, opencode, shell). In a path: complete the folder. |
-| `@`, `+` | On an empty search: the agents, the creation. |
+| `@`, `+`, `>` | On an empty search: the agents, the creation, the actions. |
 | `⌃A` | On a row of `open` that opens a worktree: the next agent. |
-| `⌃↵` | A new tab, with its agent, in the workspace of the selected row. |
+| `⌃↵` | A new tab, with its agent, in the open workspace of the selected row: an agent, a tab, a workspace or a worktree. |
 | `⌃⌫` | Close the tab of the selected row, or remove the worktree of the selected branch, after a question on the action line. The main checkout stays. See [Remove a worktree](#remove-a-worktree). |
 | `⌃R` | Rename the tab of the selected row. `↵` saves, `esc` keeps the old name. |
 | `⌃Y` | In the step "what": start the agent without its permission prompts, for this tab only. |

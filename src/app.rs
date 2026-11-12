@@ -557,18 +557,29 @@ impl App {
         }
     }
 
-    /// The workspace of the selected agent, tab or workspace, as a place.
+    /// The workspace of the selected row, as a place: the workspace of an agent or of a tab, a
+    /// workspace, the open workspace of a worktree, or an open place.
     fn place_of_selected(&self) -> Option<Place> {
         let workspace_id = match self.selected_item()? {
             Item::Agent(agent) => agent.workspace_id.clone(),
             Item::Tab(tab) => tab.workspace_id.clone(),
             Item::Workspace(space) => space.workspace.workspace_id.clone(),
+            Item::Choice(Choice::Existing {
+                workspace_id: Some(id),
+                ..
+            }) => id.clone(),
+            Item::Place(place) => place.workspace_id.clone()?,
             _ => return None,
         };
         self.open
             .iter()
             .find(|place| place.workspace_id.as_deref() == Some(workspace_id.as_str()))
             .cloned()
+    }
+
+    /// True if ctrl+Enter adds a tab next to the selected row: the row has an open workspace.
+    pub fn adds_tab_here(&self) -> bool {
+        self.filter != Filter::New && self.place_of_selected().is_some()
     }
 
     /// ctrl+Enter: a new tab, with its agent, next to the selected row.
@@ -1199,6 +1210,33 @@ mod tests {
     #[test]
     fn ctrl_enter_creates_a_tab_next_to_the_agent() {
         let mut app = app(Filter::All);
+        match app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL)) {
+            Outcome::Create(plan) => assert_eq!(
+                plan.action,
+                create::Action::NewTab {
+                    workspace_id: "w1".into(),
+                    folder: "/work/atlas".into()
+                }
+            ),
+            other => panic!("no plan: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ctrl_enter_creates_a_tab_in_the_open_workspace_of_a_worktree() {
+        let mut app = app(Filter::All);
+        app.open[0].main = Some("/work/atlas".into());
+        app.current_branches = Some(vec![Branch {
+            name: "main".into(),
+            worktree: Some("/work/atlas".into()),
+        }]);
+        app.rebuild(None);
+        // The 3 agents, then the group of the worktrees.
+        for _ in 0..3 {
+            press(&mut app, KeyCode::Down);
+        }
+        assert_eq!(selected_name(&app), "main");
+        assert!(app.adds_tab_here());
         match app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL)) {
             Outcome::Create(plan) => assert_eq!(
                 plan.action,

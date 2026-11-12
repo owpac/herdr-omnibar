@@ -69,7 +69,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     };
     // The mouse needs the place of the list and its first visible line.
     app.list_area = list;
-    app.list_offset = scroll_offset(app.selected, list.height);
+    app.list_offset = scroll_offset(app.list_offset, app.selected, &app.lines, list.height);
     draw_list(frame, list, app);
     if let Some(preview) = preview {
         draw_preview(frame, preview, app);
@@ -94,16 +94,42 @@ fn creating(app: &App) -> bool {
     app.filter == Filter::New
 }
 
-/// The first visible line of the list: the selected row stays visible.
-fn scroll_offset(selected: Option<usize>, height: u16) -> usize {
-    selected
-        .unwrap_or(0)
-        .saturating_sub((height as usize).saturating_sub(1))
+/// The first visible line of the list. The list moves only when the selected row leaves the
+/// view. The title of the group of the first visible row stays visible.
+fn scroll_offset(
+    previous: usize,
+    selected: Option<usize>,
+    lines: &[ListLine],
+    height: u16,
+) -> usize {
+    let height = (height as usize).max(1);
+    let Some(selected) = selected else {
+        return 0;
+    };
+    let mut offset = previous;
+    if selected < offset {
+        offset = selected;
+    } else if selected >= offset + height {
+        offset = selected + 1 - height;
+    }
+    let group_above = selected > 0 && matches!(lines.get(selected - 1), Some(ListLine::Group(_)));
+    if offset == selected && group_above && height > 1 {
+        offset -= 1;
+    }
+    // No empty lines at the end of the list while lines above it are hidden.
+    offset.min(lines.len().saturating_sub(height))
 }
 
 fn draw_search(frame: &mut Frame, area: Rect, app: &App) {
+    // A narrow popup shows only the chip of the current filter.
+    let all_width: u16 = FILTERS
+        .iter()
+        .map(|filter| filter.label().len() as u16 + 3)
+        .sum();
+    let all_fit = area.width > all_width + 30;
     let chips: Vec<Span> = FILTERS
         .iter()
+        .filter(|filter| all_fit || **filter == app.filter)
         .flat_map(|filter| {
             let style = if *filter == app.filter {
                 Style::new()
@@ -150,7 +176,18 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) {
             spans.push(crumb(Some(&place)));
             ("name ❯ ", "tab or branch name")
         }
-        _ => ("❯ ", "search · @ agents · + new"),
+        // Each filter tells what its text finds.
+        _ => (
+            "❯ ",
+            match app.filter {
+                Filter::Agents => "agent or workspace",
+                Filter::Tabs => "tab or workspace",
+                Filter::Worktrees => "branch: go to it, or type a new name to create it",
+                Filter::Folders => "project or folder",
+                Filter::Actions => "action or plugin",
+                _ => "search · @ agents · + new · > actions",
+            },
+        ),
     };
     spans.push(Span::styled(
         prompt,
@@ -222,12 +259,12 @@ fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
                 worktree,
                 ..
             } => {
-                let text = match (workspace_id, worktree) {
-                    (Some(_), _) => "workspace",
-                    (None, Some(_)) => "no workspace",
-                    (None, None) => "no worktree",
+                let (text, color) = match (workspace_id, worktree) {
+                    (Some(_), _) => ("workspace", ACCENT),
+                    (None, Some(_)) => ("no workspace", DIM),
+                    (None, None) => ("no worktree", DIM),
                 };
-                vec![Span::styled(text, Style::new().fg(DIM))]
+                vec![Span::styled(text, Style::new().fg(color))]
             }
             Choice::AnotherPlace => Vec::new(),
             _ => {
@@ -291,6 +328,23 @@ fn glyph(item: &Item) -> Span<'static> {
     }
 }
 
+/// The glyph of a row of the list. Outside the creation, a branch shows the state of its
+/// worktree: ▣ an open workspace, □ a worktree without a workspace, ○ no worktree.
+fn row_glyph(item: &Item, app: &App) -> Span<'static> {
+    match item {
+        Item::Choice(Choice::Existing {
+            workspace_id,
+            worktree,
+            ..
+        }) if !creating(app) => match (workspace_id, worktree) {
+            (Some(_), _) => Span::styled("▣", Style::new().fg(ACCENT)),
+            (None, Some(_)) => Span::styled("□", Style::new().fg(MUTED)),
+            (None, None) => Span::styled("○", Style::new().fg(DIM)),
+        },
+        _ => glyph(item),
+    }
+}
+
 /// The style of the name of a row: green for a creation, red for a wrong branch name.
 fn name_style(item: &Item) -> Style {
     match item {
@@ -316,6 +370,21 @@ fn context_of(item: &Item, app: &App) -> String {
         }
     };
     match item {
+        // Outside the creation, a branch tells where its worktree is.
+        Item::Choice(Choice::Existing {
+            branch,
+            worktree,
+            workspace_id,
+        }) if !creating(app) => match (workspace_id, worktree) {
+            (Some(id), _) => app
+                .open
+                .iter()
+                .find(|place| place.workspace_id.as_deref() == Some(id.as_str()))
+                .map(|place| place.label.clone())
+                .unwrap_or_else(|| branch.clone()),
+            (None, Some(folder)) => rows::home(folder),
+            (None, None) => "branch without worktree".into(),
+        },
         Item::Choice(choice) => match choice {
             Choice::NewWorktree { branch } if branch.is_empty() => "type its branch name".into(),
             Choice::NewWorktree { branch } if !create::is_branch_name(branch) => {
@@ -377,7 +446,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
         .min(room * 3 / 5)
         .max(8.min(room));
     let context_width = room.saturating_sub(name_width);
-    let offset = scroll_offset(app.selected, area.height);
+    let offset = app.list_offset;
     let lines: Vec<Line> = app
         .lines
         .iter()
@@ -397,7 +466,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
                     } else {
                         Span::raw(" ")
                     },
-                    glyph(item),
+                    row_glyph(item, app),
                     Span::raw(" "),
                 ];
                 spans.extend(highlighted(
@@ -1008,13 +1077,17 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
                     _ => "go",
                 };
                 let mut hints = vec![("↵", primary.to_string())];
+                if app.adds_tab_here() {
+                    hints.push(("⌃↵", "new tab here".to_string()));
+                }
                 if app.opens_worktree() {
                     hints.push(("⌃A", "agent".to_string()));
                 }
                 hints.push(("⇥", "filter".to_string()));
+                // A short footer: ⌃O shows only when the row has no ⌃↵, no ⌃A and no ⌃⌫.
                 if app.can_remove_worktree() {
                     hints.push(("⌃⌫", "remove".to_string()));
-                } else {
+                } else if hints.len() < 3 {
                     hints.push(("⌃O", "preview".to_string()));
                 }
                 hints.push(("esc", "close".to_string()));
@@ -1053,7 +1126,10 @@ fn draw_help(frame: &mut Frame, area: Rect) {
             "⇥ ⇧⇥",
             "The next or the previous filter. In the step what: the next agent.",
         ),
-        ("@  +", "On an empty search: the agents, the creation."),
+        (
+            "@  +  >",
+            "On an empty search: the agents, the creation, the actions.",
+        ),
         (
             "~  /",
             "In the step where: the folders of the disk. ⇥ completes.",
@@ -1065,7 +1141,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         ),
         (
             "⌃↵",
-            "A new tab, with its agent, in the workspace of the selected row.",
+            "A new tab, with its agent, in the open workspace of the selected row.",
         ),
         (
             "⌃⌫",
@@ -1079,8 +1155,16 @@ fn draw_help(frame: &mut Frame, area: Rect) {
             "mouse",
             "A click selects a row, a double click runs it, the wheel moves.",
         ),
+        (
+            "⌃← ⌃→",
+            "The view of the preview of a worktree: diff, log, changes.",
+        ),
         ("⌃O", "Show or hide the preview."),
         ("⌃U  ⌃W", "Clear the text, or delete its last word."),
+        (
+            "▣ □ ○",
+            "A branch: open workspace, worktree without a workspace, no worktree.",
+        ),
         ("esc", "Close, or go back to the step where."),
         ("? F1", "This help."),
     ];
@@ -1249,6 +1333,35 @@ mod tests {
             wrap("open the cleaner of the worktrees", 16),
             ["open the cleaner", "of the worktrees"]
         );
+    }
+
+    /// A list with a group for each number, and this number of rows in the group.
+    fn list(groups: &[usize]) -> Vec<ListLine> {
+        let mut lines = Vec::new();
+        for (index, rows) in groups.iter().enumerate() {
+            lines.push(ListLine::Group(format!("group {index}")));
+            for row in 0..*rows {
+                lines.push(ListLine::Row {
+                    item: Item::Create(format!("row {row}")),
+                    positions: Vec::new(),
+                });
+            }
+        }
+        lines
+    }
+
+    #[test]
+    fn the_list_moves_only_when_the_selected_row_leaves_the_view() {
+        // The lines: group 0, rows 1 to 10, group 11, rows 12 to 21.
+        let lines = list(&[10, 10]);
+        assert_eq!(scroll_offset(0, Some(1), &lines, 5), 0);
+        assert_eq!(scroll_offset(0, Some(7), &lines, 5), 3);
+        // Up in the view: the list stays.
+        assert_eq!(scroll_offset(3, Some(5), &lines, 5), 3);
+        // Up out of the view, to the first row of a group: the title of the group shows.
+        assert_eq!(scroll_offset(14, Some(12), &lines, 5), 11);
+        // A new short list starts at its top.
+        assert_eq!(scroll_offset(15, Some(1), &list(&[3]), 5), 0);
     }
 
     #[test]

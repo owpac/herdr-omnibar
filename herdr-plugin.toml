@@ -1,0 +1,99 @@
+id = "herdr-omnibar"
+name = "Omnibar"
+# The version of the last release: YYYY.M.N. 0.0.0 until the first release.
+version = "0.0.0"
+min_herdr_version = "0.9.0"
+description = "One bar to go to an agent, a tab or a workspace, and to create a tab or a worktree"
+platforms = ["linux", "macos"]
+
+# scripts/install.sh puts the binary at bin/herdr-omnibar: the release binary of this version, or a
+# cargo build.
+[[build]]
+command = ["sh", "scripts/install.sh"]
+
+# Each action opens the popup on one filter. Bind a key to the action of your choice in the herdr
+# config, for example: command = "herdr-omnibar.worktrees". `open` is the bar to go somewhere, and
+# `new` creates a tab or a worktree.
+[[actions]]
+id = "open"
+title = "Omnibar: go to"
+description = "Search the agents, the tabs, the worktrees and the folders, then go to one"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "all"]
+
+[[actions]]
+id = "new"
+title = "Omnibar: create"
+description = "Create a tab or a worktree: choose the place, then what to create"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "new"]
+
+[[actions]]
+id = "agents"
+title = "Omnibar: agents"
+description = "Search the agents, then go to one"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "agents"]
+
+[[actions]]
+id = "tabs"
+title = "Omnibar: tabs"
+description = "Search the tabs without an agent, then go to one"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "tabs"]
+
+[[actions]]
+id = "worktrees"
+title = "Omnibar: worktrees"
+description = "Search the worktrees of the current project, then go to one or create one"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "worktrees"]
+
+[[actions]]
+id = "folders"
+title = "Omnibar: folders"
+description = "Search the folders and the projects, then open one"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "folders"]
+
+[[actions]]
+id = "actions"
+title = "Omnibar: actions"
+description = "Search the actions of the herdr plugins, then run one"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "actions"]
+
+# A tool to check the keyboard: it shows each key that the popup receives. Use it to check that
+# your terminal sends ctrl+Enter, ctrl+Backspace and ctrl+Left to herdr.
+[[actions]]
+id = "keys"
+title = "Omnibar: show the keys"
+description = "Show each key that the popup receives, to check the keyboard of the terminal"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "keys"]
+
+# The popup. With size = "default" in config.toml, it has the size of the other popups: 74 % × 62 %
+# of the window. With size = "big", the plugin opens the pane omnibar-big: 90 % × 80 %.
+[[panes]]
+id = "omnibar"
+title = "Omnibar"
+placement = "popup"
+width = "74%"
+height = "62%"
+command = ["bin/herdr-omnibar", "run"]
+
+[[panes]]
+id = "omnibar-big"
+title = "Omnibar"
+placement = "popup"
+width = "90%"
+height = "80%"
+command = ["bin/herdr-omnibar", "run"]
+
+[[panes]]
+id = "keys"
+title = "Omnibar: keys"
+placement = "popup"
+width = "60%"
+height = "60%"
+command = ["bin/herdr-omnibar", "keys"]

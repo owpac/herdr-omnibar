@@ -108,18 +108,20 @@ pub fn expand(path: &str) -> PathBuf {
 /// The places without a workspace: the projects of the roots and of zoxide, then the folders of
 /// zoxide. A folder of an open workspace is not in the list.
 pub fn others(roots: &[String], open: &[Place]) -> Vec<Place> {
-    let mut seen: HashSet<PathBuf> = open
+    // A folder is known by its inode: on macOS, ~/Workspace and ~/workspace are the same folder.
+    let mut seen: HashSet<(u64, u64)> = open
         .iter()
         .flat_map(|place| [Some(place.folder.clone()), place.main.clone()])
         .flatten()
+        .filter_map(|folder| identity(&folder))
         .collect();
-    if let Some(home) = env::var_os("HOME") {
-        seen.insert(PathBuf::from(home));
+    if let Some(home) = env::var_os("HOME").and_then(|home| identity(Path::new(&home))) {
+        seen.insert(home);
     }
     let mut projects = Vec::new();
     let mut folders = Vec::new();
     let mut add = |folder: PathBuf, from_zoxide: bool| {
-        if !seen.insert(folder.clone()) {
+        if !identity(&folder).is_some_and(|key| seen.insert(key)) {
             return;
         }
         if is_project(&folder) {
@@ -138,6 +140,13 @@ pub fn others(roots: &[String], open: &[Place]) -> Vec<Place> {
     }
     projects.extend(folders);
     projects
+}
+
+/// The device and the inode of a folder: 2 paths of the same folder give the same identity.
+fn identity(folder: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::metadata(folder).ok()?;
+    Some((metadata.dev(), metadata.ino()))
 }
 
 fn place_of(kind: Kind, folder: PathBuf) -> Place {
@@ -312,6 +321,14 @@ mod tests {
             branch.and_then(|branch| branch.worktree.clone()),
             Some(main)
         );
+    }
+
+    #[test]
+    fn two_paths_of_the_same_folder_have_the_same_identity() {
+        let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        assert_eq!(identity(&here), identity(&here.join("src/..")));
+        assert_ne!(identity(&here), identity(&here.join("src")));
+        assert_eq!(identity(&here.join("missing")), None);
     }
 
     #[test]

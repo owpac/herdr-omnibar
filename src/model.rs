@@ -251,6 +251,24 @@ pub struct AgentRow {
     pub status: Status,
     /// The name of the workspace of the agent.
     pub place: String,
+    /// The folder of the pane of the agent.
+    pub cwd: Option<PathBuf>,
+}
+
+/// A pane of a tab (feature pane_rows).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PaneRow {
+    pub pane_id: String,
+    pub tab_id: String,
+    pub workspace_id: String,
+    /// The title of the terminal of the pane, or "shell" for a prompt.
+    pub name: String,
+    /// The name of the tab of the pane.
+    pub tab: String,
+    pub place: String,
+    /// The kind of the agent of the pane, if it has one.
+    pub agent: Option<String>,
+    pub status: Status,
 }
 
 /// A tab without an agent.
@@ -281,6 +299,8 @@ pub struct Model {
     pub spaces: Vec<Space>,
     pub agents: Vec<AgentRow>,
     pub tabs: Vec<TabRow>,
+    /// Each pane of each tab (feature pane_rows).
+    pub panes: Vec<PaneRow>,
     pub focused_workspace_id: Option<String>,
     /// The tabs of each workspace, by workspace id, in their order.
     pub workspace_tabs: HashMap<String, Vec<TabSummary>>,
@@ -337,10 +357,37 @@ impl Model {
                     kind,
                     status: pane.agent_status,
                     place: place_of(&pane.workspace_id),
+                    cwd: pane.cwd.clone(),
                 })
             })
             .collect();
         agents.sort_by_key(|agent| agent.status.rank());
+        let panes = snapshot
+            .panes
+            .iter()
+            .map(|pane| {
+                let title = pane
+                    .terminal_title_stripped
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or_default();
+                let name = if title.is_empty() || is_prompt_title(title) {
+                    pane.agent.clone().unwrap_or_else(|| "shell".to_string())
+                } else {
+                    title.to_string()
+                };
+                PaneRow {
+                    pane_id: pane.pane_id.clone(),
+                    tab_id: pane.tab_id.clone(),
+                    workspace_id: pane.workspace_id.clone(),
+                    name,
+                    tab: label_of(&pane.tab_id, pane.terminal_title_stripped.as_deref()),
+                    place: place_of(&pane.workspace_id),
+                    agent: pane.agent.clone(),
+                    status: pane.agent_status,
+                }
+            })
+            .collect();
         let tabs = snapshot
             .tabs
             .iter()
@@ -395,6 +442,7 @@ impl Model {
             spaces,
             agents,
             tabs,
+            panes,
             focused_workspace_id: snapshot.focused_workspace_id.clone(),
             workspace_tabs,
         }

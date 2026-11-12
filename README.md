@@ -26,6 +26,7 @@ Each filter has its own action. Bind a key to the action of your choice in `~/.c
 | `herdr-omnibar.worktrees` | The branches of the current project, and a new worktree |
 | `herdr-omnibar.folders` | The projects and the folders |
 | `herdr-omnibar.actions` | The actions of the herdr plugins |
+| `herdr-omnibar.panes` | Each pane of each tab (feature `pane_rows`) |
 | `herdr-omnibar.keys` | A tool that shows the keys that the popup receives |
 
 ```toml
@@ -46,7 +47,7 @@ command = "herdr-omnibar.new"
 |-----|--------|
 | `↵` | Go to the selected row, choose a place, create, or run an action. |
 | `⇥`, `⇧⇥` | The next or the previous filter. In the step "what": the next agent (claude, codex, opencode, shell). In a path: complete the folder. |
-| `@`, `+`, `>` | On an empty search: the agents, the creation, the actions. |
+| `@`, `#`, `+`, `>`, `%` | On an empty text, from any filter: the agents, the folders, the creation, the actions, the panes (feature `pane_rows`). The key of the current filter goes back to All. |
 | `⌃A` | On a row of `open` that opens a worktree: the next agent. |
 | `⌃↵` | A new tab, with its agent, in the open workspace of the selected row: an agent, a tab, a workspace or a worktree. |
 | `⌃⌫` | Close the tab of the selected row, or remove the worktree of the selected branch, after a question on the action line. The main checkout stays. See [Remove a worktree](#remove-a-worktree). |
@@ -94,6 +95,10 @@ preview = "full"   # "full": the 3 views of a worktree. "summary": one view.
 # The optional features. Remove a name to turn its feature off.
 features = ["mouse", "rename_tab", "auto_titles", "agent_logos"]
 ```
+
+2 features are off by default. Add their names to `features` to turn them on:
+
+- `pane_rows`: the filter Panes, with one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
 
 zoxide adds its folders to the projects and the folders, when it is installed.
 

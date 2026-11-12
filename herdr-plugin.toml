@@ -63,6 +63,13 @@ description = "Search the actions of the herdr plugins, then run one"
 contexts = ["global"]
 command = ["bin/herdr-omnibar", "open", "actions"]
 
+[[actions]]
+id = "panes"
+title = "Omnibar: panes"
+description = "Search each pane of each tab, then go to one (feature pane_rows)"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "panes"]
+
 # A tool to check the keyboard: it shows each key that the popup receives. Use it to check that
 # your terminal sends ctrl+Enter, ctrl+Backspace and ctrl+Left to herdr.
 [[actions]]

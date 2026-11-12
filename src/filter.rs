@@ -12,6 +12,8 @@ pub enum Filter {
     Worktrees,
     Folders,
     Actions,
+    /// One row for each pane (feature pane_rows).
+    Panes,
 }
 
 impl Filter {
@@ -25,6 +27,7 @@ impl Filter {
             "worktrees" => Some(Filter::Worktrees),
             "folders" => Some(Filter::Folders),
             "actions" => Some(Filter::Actions),
+            "panes" => Some(Filter::Panes),
             _ => None,
         }
     }
@@ -39,7 +42,33 @@ impl Filter {
             Filter::Worktrees => "Worktrees",
             Filter::Folders => "Folders",
             Filter::Actions => "Actions",
+            Filter::Panes => "Panes",
         }
+    }
+
+    /// The key that opens the filter on an empty search.
+    pub fn shortcut(self) -> Option<char> {
+        match self {
+            Filter::Agents => Some('@'),
+            Filter::Folders => Some('#'),
+            Filter::New => Some('+'),
+            Filter::Actions => Some('>'),
+            Filter::Panes => Some('%'),
+            _ => None,
+        }
+    }
+
+    /// The filter of a key on an empty search.
+    pub fn of_shortcut(key: char) -> Option<Filter> {
+        [
+            Filter::Agents,
+            Filter::Folders,
+            Filter::New,
+            Filter::Actions,
+            Filter::Panes,
+        ]
+        .into_iter()
+        .find(|filter| filter.shortcut() == Some(key))
     }
 
     /// The name of the filter, for the actions and the variable OMNIBAR_FILTER.
@@ -52,6 +81,7 @@ impl Filter {
             Filter::Worktrees => "worktrees",
             Filter::Folders => "folders",
             Filter::Actions => "actions",
+            Filter::Panes => "panes",
         }
     }
 }
@@ -70,6 +100,7 @@ mod tests {
             "worktrees",
             "folders",
             "actions",
+            "panes",
         ] {
             assert_eq!(Filter::parse(name).map(Filter::name), Some(name));
         }
@@ -78,5 +109,16 @@ mod tests {
     #[test]
     fn an_unknown_name_gives_no_filter() {
         assert_eq!(Filter::parse("everything"), None);
+    }
+
+    #[test]
+    fn each_shortcut_gives_its_filter_back() {
+        for key in ['@', '#', '+', '>', '%'] {
+            assert_eq!(
+                Filter::of_shortcut(key).and_then(Filter::shortcut),
+                Some(key)
+            );
+        }
+        assert_eq!(Filter::of_shortcut('?'), None);
     }
 }

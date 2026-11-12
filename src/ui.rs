@@ -19,7 +19,7 @@ use crate::create::{self, Choice};
 use crate::filter::Filter;
 use crate::model::{Status, TabSummary};
 use crate::places::{Kind, Place};
-use crate::rows::{self, Item, Line as ListLine, FILTERS};
+use crate::rows::{self, Item, Line as ListLine};
 
 /// The prompt, the pointer of the selected row, the current filter, an open workspace.
 const ACCENT: Color = Color::Indexed(12);
@@ -122,12 +122,14 @@ fn scroll_offset(
 
 fn draw_search(frame: &mut Frame, area: Rect, app: &App) {
     // A narrow popup shows only the chip of the current filter.
-    let all_width: u16 = FILTERS
+    let all_width: u16 = app
+        .filters
         .iter()
         .map(|filter| filter.label().len() as u16 + 3)
         .sum();
     let all_fit = area.width > all_width + 30;
-    let chips: Vec<Span> = FILTERS
+    let chips: Vec<Span> = app
+        .filters
         .iter()
         .filter(|filter| all_fit || **filter == app.filter)
         .flat_map(|filter| {
@@ -185,7 +187,8 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) {
                 Filter::Worktrees => "branch: go to it, or type a new name to create it",
                 Filter::Folders => "project or folder",
                 Filter::Actions => "action or plugin",
-                _ => "search · @ agents · + new · > actions",
+                Filter::Panes => "pane, tab or workspace",
+                _ => "search · @ agents · # folders · + new · > actions",
             },
         ),
     };
@@ -230,6 +233,17 @@ fn crumb(place: Option<&str>) -> Span<'static> {
 /// The right part of a row.
 fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
     match item {
+        Item::Pane(pane) => match &pane.agent {
+            Some(kind) => vec![
+                Span::styled(kind.clone(), Style::new().fg(agent_color(kind))),
+                Span::raw(" "),
+                Span::styled(
+                    pane.status.label().to_string(),
+                    Style::new().fg(status_color(pane.status)),
+                ),
+            ],
+            None => Vec::new(),
+        },
         Item::Agent(agent) => vec![
             Span::styled(
                 agent.kind.clone(),
@@ -312,6 +326,11 @@ fn glyph(item: &Item) -> Span<'static> {
             Style::new().fg(status_color(agent.status)),
         ),
         Item::Tab(_) => Span::styled("▪", Style::new().fg(DIM)),
+        Item::Pane(pane) if pane.agent.is_some() => Span::styled(
+            pane.status.glyph(),
+            Style::new().fg(status_color(pane.status)),
+        ),
+        Item::Pane(_) => Span::styled("▫", Style::new().fg(DIM)),
         Item::Workspace(_) => Span::styled("▣", Style::new().fg(ACCENT)),
         Item::Action(_) => Span::styled("›", Style::new().fg(ACCENT)),
         Item::Create(_) => Span::styled("+", Style::new().fg(GREEN)),
@@ -575,7 +594,7 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
                 .unwrap_or_default();
             lines.extend(tab_lines(&tabs, width, None));
         }
-        Item::Agent(_) | Item::Tab(_) => {
+        Item::Agent(_) | Item::Tab(_) | Item::Pane(_) => {
             lines.push(title("PANE"));
             let text = app.preview_text(height.max(10)).unwrap_or_default();
             let content: Vec<&str> = text.trim_end().lines().collect();
@@ -885,6 +904,12 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
             false,
             false,
         ),
+        Item::Pane(pane) => (
+            format!("go to the pane {} of the tab {}", pane.name, pane.tab),
+            Some(pill_span(true, &pane.place)),
+            false,
+            false,
+        ),
         Item::Workspace(space) => (
             "go to".to_string(),
             Some(pill_span(true, &space.label())),
@@ -1127,8 +1152,8 @@ fn draw_help(frame: &mut Frame, area: Rect) {
             "The next or the previous filter. In the step what: the next agent.",
         ),
         (
-            "@  +  >",
-            "On an empty search: the agents, the creation, the actions.",
+            "@ # + > %",
+            "On an empty text: agents, folders, creation, actions, panes. Again: All.",
         ),
         (
             "~  /",

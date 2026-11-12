@@ -11,7 +11,7 @@ use crate::create::{self, Choice};
 use crate::filter::Filter;
 use crate::fuzzy;
 use crate::herdr::PluginAction;
-use crate::model::{AgentRow, Model, Space, Status, TabRow};
+use crate::model::{AgentRow, Model, PaneRow, Space, Status, TabRow};
 use crate::places::{self, Branch, Kind, Place};
 
 /// A row of the list.
@@ -28,6 +28,8 @@ pub enum Item {
     Action(PluginAction),
     /// The creation of a tab or a worktree with the query as its name: ↵ goes to the step "what".
     Create(String),
+    /// A pane of a tab (feature pane_rows).
+    Pane(PaneRow),
 }
 
 impl Item {
@@ -49,6 +51,7 @@ impl Item {
             Item::Action(action) if action.title.is_empty() => action.action_id.clone(),
             Item::Action(action) => action.title.clone(),
             Item::Create(name) => format!("create “{name}”…"),
+            Item::Pane(pane) => pane.name.clone(),
         }
     }
 
@@ -67,6 +70,7 @@ impl Item {
             Item::Choice(_) => String::new(),
             Item::Action(action) => action.plugin_id.clone(),
             Item::Create(_) => String::new(),
+            Item::Pane(pane) => format!("{} ▸ {}", pane.place, pane.tab),
         }
     }
 
@@ -80,6 +84,7 @@ impl Item {
             Item::Choice(choice) => format!("choice:{choice:?}"),
             Item::Action(action) => format!("action:{}:{}", action.plugin_id, action.action_id),
             Item::Create(_) => "create".to_string(),
+            Item::Pane(pane) => format!("pane:{}", pane.pane_id),
         }
     }
 
@@ -88,6 +93,7 @@ impl Item {
         match self {
             Item::Agent(agent) => agent.status,
             Item::Workspace(space) => space.workspace.agent_status,
+            Item::Pane(pane) if pane.agent.is_some() => pane.status,
             _ => Status::Unknown,
         }
     }
@@ -102,16 +108,23 @@ pub enum Line {
     Row { item: Item, positions: Vec<usize> },
 }
 
-/// The filters that the popup shows, in the order of Tab.
-pub const FILTERS: [Filter; 7] = [
-    Filter::All,
-    Filter::Agents,
-    Filter::Tabs,
-    Filter::Worktrees,
-    Filter::Folders,
-    Filter::New,
-    Filter::Actions,
-];
+/// The filters that the popup shows, in the order of Tab. The filter Panes needs the feature
+/// pane_rows.
+pub fn filters(pane_rows: bool) -> Vec<Filter> {
+    let mut filters = vec![
+        Filter::All,
+        Filter::Agents,
+        Filter::Tabs,
+        Filter::Worktrees,
+        Filter::Folders,
+        Filter::New,
+        Filter::Actions,
+    ];
+    if pane_rows {
+        filters.insert(3, Filter::Panes);
+    }
+    filters
+}
 
 /// The sources of the lines of the filters that go somewhere.
 pub struct Sources<'a> {
@@ -190,6 +203,10 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
     if filter == Filter::Actions {
         let actions = sources.actions.iter().cloned().map(Item::Action).collect();
         group(&mut lines, "Actions", matches(actions, query));
+    }
+    if filter == Filter::Panes {
+        let panes = model.panes.iter().cloned().map(Item::Pane).collect();
+        group(&mut lines, "Panes", matches(panes, query));
     }
     if filter == Filter::All && !query.is_empty() {
         group(
@@ -433,6 +450,7 @@ mod tests {
             kind: "claude".into(),
             status,
             place: "atlas".into(),
+            cwd: None,
         }
     }
 

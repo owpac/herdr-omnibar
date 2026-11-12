@@ -96,6 +96,8 @@ pub enum Confirm {
 pub struct App {
     pub model: Model,
     pub filter: Filter,
+    /// The filters of the chips and of Tab, from the features of config.toml.
+    pub filters: Vec<Filter>,
     /// The text of the filters that go somewhere.
     pub query: String,
     pub lines: Vec<Line>,
@@ -162,9 +164,11 @@ impl App {
         config: Config,
     ) -> App {
         let open = places::workspaces(&model);
+        let filters = rows::filters(config.has("pane_rows"));
         let mut app = App {
             model,
             filter,
+            filters,
             query: String::new(),
             lines: Vec::new(),
             selected: None,
@@ -351,12 +355,13 @@ impl App {
     }
 
     fn cycle_filter(&mut self, delta: i32) {
-        let count = rows::FILTERS.len() as i32;
-        let at = rows::FILTERS
+        let count = self.filters.len() as i32;
+        let at = self
+            .filters
             .iter()
             .position(|filter| *filter == self.filter)
             .unwrap_or(0) as i32;
-        self.set_filter(rows::FILTERS[(at + delta).rem_euclid(count) as usize]);
+        self.set_filter(self.filters[(at + delta).rem_euclid(count) as usize]);
     }
 
     fn edit(&mut self, change: impl FnOnce(&mut String)) {
@@ -569,6 +574,7 @@ impl App {
                 ..
             }) => id.clone(),
             Item::Place(place) => place.workspace_id.clone()?,
+            Item::Pane(pane) => pane.workspace_id.clone(),
             _ => return None,
         };
         self.open
@@ -800,17 +806,19 @@ impl App {
             }),
             KeyCode::F(1) => self.help = true,
             KeyCode::Char(character) if !ctrl && !alt => {
-                let shortcut = match character {
-                    '@' => Some(Filter::Agents),
-                    '+' => Some(Filter::New),
-                    '>' => Some(Filter::Actions),
-                    _ => None,
-                };
+                // On an empty text, a shortcut opens its filter from any filter, also from the
+                // creation. The shortcut of the current filter goes back to All.
+                let shortcut =
+                    Filter::of_shortcut(character).filter(|filter| self.filters.contains(filter));
                 let empty = self.text().is_empty() && !renaming;
                 if empty && character == '?' {
                     self.help = true;
-                } else if let (true, false, Some(filter)) = (empty, creating, shortcut) {
-                    self.set_filter(filter);
+                } else if let (true, Some(filter)) = (empty, shortcut) {
+                    if filter == self.filter {
+                        self.set_filter(Filter::All);
+                    } else {
+                        self.set_filter(filter);
+                    }
                 } else {
                     self.edit(|text| text.push(character));
                 }
@@ -826,6 +834,7 @@ impl App {
         let pane = match self.selected_item()? {
             Item::Agent(agent) => Some(agent.pane_id.clone()),
             Item::Tab(tab) => tab.pane_id.clone(),
+            Item::Pane(pane) => Some(pane.pane_id.clone()),
             _ => None,
         }?;
         let text = self.previews.entry(pane.clone()).or_insert_with(|| {
@@ -942,6 +951,15 @@ fn go(item: &Item) -> Result<(), herdr::Error> {
         }
         Item::Tab(tab) => herdr::focus_tab(&tab.tab_id),
         Item::Workspace(space) => herdr::focus_workspace(&space.workspace.workspace_id),
+        // herdr has no focus of a pane by its id: agent focus works for an agent pane. Another
+        // pane gets the focus of its tab.
+        Item::Pane(pane) => {
+            herdr::focus_tab(&pane.tab_id)?;
+            if pane.agent.is_some() {
+                herdr::focus_agent(&pane.pane_id)?;
+            }
+            Ok(())
+        }
         Item::Place(_) | Item::Choice(_) | Item::Action(_) | Item::Create(_) => Ok(()),
     }
 }
@@ -979,6 +997,7 @@ mod tests {
                 kind: "claude".into(),
                 status: Status::Idle,
                 place: "atlas".into(),
+                cwd: None,
             })
             .collect();
         let model = Model {
@@ -1074,6 +1093,22 @@ mod tests {
             }
             outcome => panic!("unexpected outcome {outcome:?}"),
         }
+    }
+
+    #[test]
+    fn a_shortcut_works_from_any_filter_and_its_second_press_goes_back_to_all() {
+        let mut app = app(Filter::New);
+        press(&mut app, KeyCode::Char('@'));
+        assert_eq!(app.filter, Filter::Agents);
+        press(&mut app, KeyCode::Char('>'));
+        assert_eq!(app.filter, Filter::Actions);
+        press(&mut app, KeyCode::Char('#'));
+        assert_eq!(app.filter, Filter::Folders);
+        press(&mut app, KeyCode::Char('#'));
+        assert_eq!(app.filter, Filter::All);
+        // Without the feature pane_rows, % is a character of the text.
+        press(&mut app, KeyCode::Char('%'));
+        assert_eq!((app.filter, app.query.as_str()), (Filter::All, "%"));
     }
 
     #[test]

@@ -217,14 +217,18 @@ pub fn execute_detached(plan: &Plan) -> Result<(), String> {
     spawn_detached(&["execute"], &[(PLAN_VARIABLE, &json)])
 }
 
+/// The variable that gives the process id of the popup to its detached processes.
+const POPUP_VARIABLE: &str = "OMNIBAR_POPUP_PID";
+
 /// Start this binary with these arguments in a detached process: it goes on after the popup
-/// closes.
+/// closes. The process gets the process id of the popup, to wait for its end.
 pub fn spawn_detached(arguments: &[&str], environment: &[(&str, &str)]) -> Result<(), String> {
     let executable =
         env::current_exe().map_err(|error| format!("cannot find the binary: {error}"))?;
     Command::new(executable)
         .args(arguments)
         .envs(environment.iter().copied())
+        .env(POPUP_VARIABLE, std::process::id().to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -259,19 +263,23 @@ pub fn fork_later(tab_id: &str, pane_id: &str) -> Result<(), String> {
         .map_err(|error| notify_failure(&error.to_string()))
 }
 
-/// Wait until the popup closes: its process ends, and this detached process gets a new parent.
-/// herdr refuses a popup or a focus change while the popup is open.
+/// Wait until the popup closes: herdr refuses a popup or a focus change while the popup is open.
+/// The popup is the parent of this process until its end. The popup often ends before this
+/// process starts: then its parent is already another process, and the wait stops at once.
 fn wait_for_popup() {
     use std::os::unix::process::parent_id;
     use std::thread::sleep;
     use std::time::Duration;
-    let parent = parent_id();
+    let popup = env::var(POPUP_VARIABLE)
+        .ok()
+        .and_then(|text| text.parse::<u32>().ok());
     for _ in 0..40 {
-        if parent_id() != parent {
+        if popup != Some(parent_id()) {
             break;
         }
         sleep(Duration::from_millis(50));
     }
+    // herdr removes the popup some time after the end of its process.
     sleep(Duration::from_millis(150));
 }
 

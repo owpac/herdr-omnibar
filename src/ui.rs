@@ -57,7 +57,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Constraint::Length(1),
     ])
     .areas(area);
-    draw_search(frame, search, app);
+    // The mouse needs the places of the chips and of the keys of the footer.
+    app.chip_areas = draw_search(frame, search, app);
     draw_rule(frame, rule_top);
     let (list, preview) = if app.preview && body.width >= PREVIEW_MIN_WIDTH {
         let [list, preview] =
@@ -76,7 +77,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
     draw_rule(frame, rule_bottom);
     draw_action(frame, action, app);
-    draw_footer(frame, footer, app);
+    app.hint_areas = draw_footer(frame, footer, app);
     if app.help {
         draw_help(frame, frame.area());
     }
@@ -120,7 +121,8 @@ fn scroll_offset(
     offset.min(lines.len().saturating_sub(height))
 }
 
-fn draw_search(frame: &mut Frame, area: Rect, app: &App) {
+/// Draw the search line. Return the area of each chip, for the mouse.
+fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> {
     // A narrow popup shows only the chip of the current filter.
     let all_width: u16 = app
         .filters
@@ -128,10 +130,14 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) {
         .map(|filter| filter.label().len() as u16 + 3)
         .sum();
     let all_fit = area.width > all_width + 30;
-    let chips: Vec<Span> = app
+    let shown: Vec<Filter> = app
         .filters
         .iter()
-        .filter(|filter| all_fit || **filter == app.filter)
+        .copied()
+        .filter(|filter| all_fit || *filter == app.filter)
+        .collect();
+    let chips: Vec<Span> = shown
+        .iter()
         .flat_map(|filter| {
             let style = if *filter == app.filter {
                 Style::new()
@@ -215,11 +221,19 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) {
         }
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), field);
+    let mut areas = Vec::new();
     if show_chips {
+        let mut x = chips_area.x;
+        for filter in &shown {
+            let width = filter.label().width() as u16 + 2;
+            areas.push((Rect::new(x, chips_area.y, width, 1), *filter));
+            x += width + 1;
+        }
         frame.render_widget(Paragraph::new(Line::from(chips)), chips_area);
     }
     let cursor = field.x + (before + text.width()) as u16;
     frame.set_cursor_position((cursor.min(field.right().saturating_sub(1)), field.y));
+    areas
 }
 
 fn crumb(place: Option<&str>) -> Span<'static> {
@@ -1037,7 +1051,8 @@ fn worktree_label(place: Option<&Place>, branch: &str) -> String {
     }
 }
 
-fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
+/// Draw the footer. Return the area of each key, with its key, for the mouse.
+fn draw_footer(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, String)> {
     let what = creating(app) && app.create.step == Step::What;
     let path = creating(app) && app.create.step == Step::Where && rows::is_path(&app.create.filter);
     let hints: Vec<(&str, String)> = if app.confirm.is_some() {
@@ -1121,12 +1136,18 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         }
     };
     let mut spans = Vec::new();
+    let mut areas = Vec::new();
+    let mut x = area.x;
     for (key, label) in hints {
+        let text = format!(" {label}   ");
+        let width = (key.width() + label.width() + 1) as u16;
+        areas.push((Rect::new(x, area.y, width, 1), key.to_string()));
+        x += (key.width() + text.width()) as u16;
         spans.push(Span::styled(
             key,
             Style::new().fg(MATCH).add_modifier(Modifier::BOLD),
         ));
-        spans.push(Span::styled(format!(" {label}   "), Style::new().fg(MUTED)));
+        spans.push(Span::styled(text, Style::new().fg(MUTED)));
     }
     let help = vec![
         Span::styled("?", Style::new().fg(MATCH).add_modifier(Modifier::BOLD)),
@@ -1137,7 +1158,11 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         " ".repeat((area.width as usize).saturating_sub(used)),
     ));
     spans.extend(help);
+    if used <= area.width as usize {
+        areas.push((Rect::new(area.right() - 6, area.y, 6, 1), "?".to_string()));
+    }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    areas
 }
 
 fn draw_help(frame: &mut Frame, area: Rect) {
@@ -1178,7 +1203,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         ),
         (
             "mouse",
-            "A click selects a row, a double click runs it, the wheel moves.",
+            "Click a row, a chip or a key. Double click runs a row. The wheel moves.",
         ),
         (
             "⌃← ⌃→",

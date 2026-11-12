@@ -59,7 +59,7 @@ command = "herdr-omnibar.new"
 | `esc` | Close the popup, or go back to the step "where". |
 | `?`, `F1` | The help. |
 
-The mouse works too: a click selects a row, a double click runs it, and the wheel moves the selection.
+The mouse works too: a click selects a row, a double click runs it, and the wheel moves the selection. A click on a chip opens its filter, and a click on a key of the footer runs this key.
 
 The omnibar remembers the last agent of each folder, in `agents.json` of its state folder.
 

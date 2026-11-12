@@ -127,6 +127,9 @@ pub struct App {
     pub reload: bool,
     /// The area of the list and the index of its first visible line, for the mouse.
     pub list_area: Rect,
+    /// The area of each chip of a filter, and of each key of the footer, for the mouse.
+    pub chip_areas: Vec<(Rect, Filter)>,
+    pub hint_areas: Vec<(Rect, String)>,
     pub list_offset: usize,
     /// The last click: the line and the time, for a double click.
     last_click: Option<(usize, Instant)>,
@@ -186,6 +189,8 @@ impl App {
             message: None,
             reload: false,
             list_area: Rect::default(),
+            chip_areas: Vec::new(),
+            hint_areas: Vec::new(),
             list_offset: 0,
             last_click: None,
             actions: None,
@@ -748,6 +753,33 @@ impl App {
             MouseEventKind::ScrollDown => self.move_by(1),
             MouseEventKind::ScrollUp => self.move_by(-1),
             MouseEventKind::Down(MouseButton::Left) => {
+                let at = |area: &Rect| {
+                    mouse.row >= area.y
+                        && mouse.row < area.y + area.height
+                        && mouse.column >= area.x
+                        && mouse.column < area.x + area.width
+                };
+                // A key of the footer runs, as if the user pressed it.
+                if let Some(key) = self
+                    .hint_areas
+                    .iter()
+                    .find(|(area, _)| at(area))
+                    .and_then(|(_, key)| key_of_hint(key))
+                {
+                    return self.on_key(key);
+                }
+                // A chip opens its filter.
+                if let Some(filter) = self
+                    .chip_areas
+                    .iter()
+                    .find(|(area, _)| at(area))
+                    .map(|(_, filter)| *filter)
+                {
+                    if self.confirm.is_none() && self.rename.is_none() {
+                        self.set_filter(filter);
+                    }
+                    return Outcome::Continue;
+                }
                 let area = self.list_area;
                 let inside = mouse.row >= area.y
                     && mouse.row < area.y + area.height
@@ -867,6 +899,27 @@ impl App {
         });
         Some(text.clone())
     }
+}
+
+/// The key event of a key of the footer.
+fn key_of_hint(hint: &str) -> Option<KeyEvent> {
+    let (code, modifiers) = match hint {
+        "↵" => (KeyCode::Enter, KeyModifiers::NONE),
+        "⌃↵" => (KeyCode::Enter, KeyModifiers::CONTROL),
+        "⇥" => (KeyCode::Tab, KeyModifiers::NONE),
+        "⌃⌫" => (KeyCode::Backspace, KeyModifiers::CONTROL),
+        "esc" => (KeyCode::Esc, KeyModifiers::NONE),
+        "?" => (KeyCode::F(1), KeyModifiers::NONE),
+        _ => {
+            // ⌃A, ⌃O, ⌃Y: ctrl and a letter.
+            let letter = hint.strip_prefix('⌃')?.chars().next()?;
+            (
+                KeyCode::Char(letter.to_ascii_lowercase()),
+                KeyModifiers::CONTROL,
+            )
+        }
+    };
+    Some(KeyEvent::new(code, modifiers))
 }
 
 /// Delete the last word of a text, and the spaces after it.
@@ -1354,6 +1407,28 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("stop it first"));
+    }
+
+    #[test]
+    fn a_click_on_a_chip_opens_its_filter_and_a_click_on_a_key_runs_it() {
+        let mut app = app(Filter::All);
+        app.chip_areas = vec![(Rect::new(50, 0, 8, 1), Filter::Agents)];
+        app.hint_areas = vec![(Rect::new(10, 30, 9, 1), "⌃O".to_string())];
+        let click = |column, row| MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.on_mouse(click(53, 0));
+        assert_eq!(app.filter, Filter::Agents);
+        assert!(app.preview);
+        app.on_mouse(click(12, 30));
+        assert!(!app.preview);
+        assert_eq!(
+            key_of_hint("⌃A"),
+            Some(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL))
+        );
     }
 
     #[test]

@@ -100,13 +100,22 @@ build_from_source() {
   say "built herdr-omnibar $version with cargo"
 }
 
-# True if the checkout is the release commit of the version. A checkout without git, for example
-# an archive, counts as the release commit.
+# True if the checkout is the commit of the release binary: the release commit of the version, or
+# the commit of its tag. A checkout without git, for example an archive, counts as the release
+# commit.
 release_commit() {
   [ -e .git ] || return 0
   case "$(git log -1 --format=%s 2>/dev/null)" in
     "chore: release $version" | "chore: release $version "*) return 0 ;;
   esac
+  # The tag can point to a later commit of main: a merge during the run of the release workflow.
+  # herdr makes a shallow clone without the tags: ask the remote. An annotated tag gives 2 lines,
+  # and the last line is its commit.
+  head=$(git rev-parse HEAD 2>/dev/null) || head=""
+  tag=$(git ls-remote origin "refs/tags/$version" "refs/tags/$version^{}" 2>/dev/null | awk 'END { print $1 }')
+  if [ -n "$head" ] && [ "$head" = "$tag" ]; then
+    return 0
+  fi
   say "this commit is not the release commit of $version: the script builds with cargo"
   return 1
 }

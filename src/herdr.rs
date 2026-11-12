@@ -255,13 +255,10 @@ pub fn split_pane(pane_id: &str, folder: &Path) -> Result<String, Error> {
         .and_then(|panes| panes.iter().find(|pane| pane["pane_id"] == pane_id))
         .map(|pane| pane["rect"].clone())
         .unwrap_or_default();
-    let width = rect["width"].as_f64().unwrap_or(0.0);
-    let height = rect["height"].as_f64().unwrap_or(0.0);
-    let direction = if width >= height * 2.2 {
-        "right"
-    } else {
-        "down"
-    };
+    let direction = split_direction(
+        rect["width"].as_u64().unwrap_or(0),
+        rect["height"].as_u64().unwrap_or(0),
+    );
     let folder = folder.to_string_lossy();
     let result = run_json(&[
         "pane",
@@ -278,6 +275,16 @@ pub fn split_pane(pane_id: &str, folder: &Path) -> Result<String, Error> {
         .or_else(|| result["pane_id"].as_str())
         .map(str::to_string)
         .ok_or_else(|| Error::new("herdr pane split gave no pane id".to_string()))
+}
+
+/// The direction of a split of a pane of this size, in cells: right for a wide pane, down for a
+/// tall pane. A cell is about 2.2 times higher than wide.
+fn split_direction(width: u64, height: u64) -> &'static str {
+    if width * 10 >= height * 22 {
+        "right"
+    } else {
+        "down"
+    }
 }
 
 /// Rename a pane.
@@ -366,4 +373,16 @@ pub fn open_plugin_pane(
         arguments.push(variable);
     }
     run(&arguments).map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wide_pane_splits_to_the_right_and_a_tall_pane_down() {
+        assert_eq!(split_direction(197, 55), "right");
+        assert_eq!(split_direction(100, 55), "down");
+        assert_eq!(split_direction(0, 0), "right");
+    }
 }

@@ -295,11 +295,23 @@ mod tests {
 
     #[test]
     fn this_repository_is_a_project_with_its_branch_main() {
+        // The tests also run in a linked worktree: the project is the main checkout.
         let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        assert!(is_project(&here));
-        let branches = branches(&here);
-        let main = branches.iter().find(|branch| branch.name == "main");
-        assert_eq!(main.and_then(|branch| branch.worktree.clone()), Some(here));
+        let common = git(
+            &here,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        );
+        let main = PathBuf::from(common.trim())
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap();
+        assert!(is_project(&main));
+        let branches = branches(&main);
+        let branch = branches.iter().find(|branch| branch.name == "main");
+        assert_eq!(
+            branch.and_then(|branch| branch.worktree.clone()),
+            Some(main)
+        );
     }
 
     #[test]

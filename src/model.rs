@@ -593,6 +593,7 @@ mod tests {
         let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let checkout = checkout_of(&here).expect("the repository of the plugin");
         assert_eq!(checkout.root, here);
-        assert!(checkout.is_main());
+        // The tests also run in a linked worktree: it has a `.git` file, not a folder.
+        assert_eq!(checkout.is_main(), here.join(".git").is_dir());
     }
 }

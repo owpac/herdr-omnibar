@@ -274,7 +274,7 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> 
             }
         }
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), field);
+    frame.render_widget(Paragraph::new(Line::from(round(spans, app))), field);
     let mut areas = Vec::new();
     if show_chips {
         let mut x = chips_area.x;
@@ -283,7 +283,7 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> 
             areas.push((Rect::new(x, chips_area.y, width, 1), *filter));
             x += width + 1;
         }
-        frame.render_widget(Paragraph::new(Line::from(chips)), chips_area);
+        frame.render_widget(Paragraph::new(Line::from(round(chips, app))), chips_area);
     }
     let cursor = field.x + (before + text.width()) as u16;
     frame.set_cursor_position((cursor.min(field.right().saturating_sub(1)), field.y));
@@ -325,13 +325,50 @@ fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
     spans
 }
 
-/// The kind of an agent. With running times, it has a fixed width: the times make a column.
+/// The kind of an agent, after its logo if the font is installed. With running times, it has a
+/// fixed width: the times make a column.
 fn kind_text(kind: &str, app: &App) -> String {
+    let kind = match crate::icons::logo(kind).filter(|_| app.logos) {
+        Some(logo) => format!("{logo} {kind}"),
+        None => kind.to_string(),
+    };
     if app.times.is_some() {
-        format!("{kind:<8}")
+        let width = if app.logos { 10 } else { 8 };
+        format!("{kind:<width$}")
     } else {
-        kind.to_string()
+        kind
     }
+}
+
+/// The ends of a rounded pill: half circles of a Nerd Font (feature nerd_font).
+const LEFT_CAP: &str = "\u{e0b6}";
+const RIGHT_CAP: &str = "\u{e0b4}";
+
+/// Round the ends of each span with a background: the filter, the crumb, the places of the action
+/// line. The first and the last space of the span become half circles: the width stays the same.
+fn round(spans: Vec<Span<'static>>, app: &App) -> Vec<Span<'static>> {
+    if !app.config.has("nerd_font") {
+        return spans;
+    }
+    let mut rounded = Vec::new();
+    for span in spans {
+        let background = span.style.bg.filter(|color| *color != Color::Reset);
+        let text = span.content.to_string();
+        match (
+            background,
+            text.strip_prefix(' ')
+                .and_then(|rest| rest.strip_suffix(' ')),
+        ) {
+            (Some(color), Some(inner)) => {
+                let cap = Style::new().fg(color);
+                rounded.push(Span::styled(LEFT_CAP, cap));
+                rounded.push(Span::styled(inner.to_string(), span.style));
+                rounded.push(Span::styled(RIGHT_CAP, cap));
+            }
+            _ => rounded.push(span),
+        }
+    }
+    rounded
 }
 
 /// The label of a status. With running times, it has a fixed width: the times make a column.
@@ -791,7 +828,7 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
             lines.push(title("CREATE"));
             match app.current_place() {
                 Some(place) => {
-                    lines.push(Line::from(pill_span(true, &place.label)));
+                    lines.push(Line::from(round(vec![pill_span(true, &place.label)], app)));
                     lines.push(Line::raw(""));
                     let text = format!(
                         "↵ creates “{name}” in the current place. Then choose a new worktree, \
@@ -811,9 +848,9 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
         }
         Item::Place(place) => {
             lines.push(title("THE PLACE"));
-            lines.push(Line::from(pill_span(
-                place.kind == Kind::Workspace,
-                &place.label,
+            lines.push(Line::from(round(
+                vec![pill_span(place.kind == Kind::Workspace, &place.label)],
+                app,
             )));
             lines.push(muted(fit(&rows::home(&place.folder), width)));
             lines.push(Line::raw(""));
@@ -847,11 +884,11 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
                 .or_else(|| app.current_place().cloned());
             match (choice, place) {
                 (Choice::NewTab, Some(place)) => {
-                    lines.push(Line::from(pill_span(true, &place.label)));
+                    lines.push(Line::from(round(vec![pill_span(true, &place.label)], app)));
                     lines.extend(tab_lines(&place.tabs, width, Some((&tab_name, &agent))));
                 }
                 (Choice::NewWorkspace, Some(place)) => {
-                    lines.push(Line::from(pill_span(false, &place.label)));
+                    lines.push(Line::from(round(vec![pill_span(false, &place.label)], app)));
                     lines.push(muted(fit(&rows::home(&place.folder), width)));
                     lines.extend(tab_lines(&[], width, Some((&tab_name, &agent))));
                 }
@@ -1199,7 +1236,7 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
         ));
         spans.extend(field);
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    frame.render_widget(Paragraph::new(Line::from(round(spans, app))), area);
 }
 
 /// The label of the workspace of a worktree: "project ▸ branch".

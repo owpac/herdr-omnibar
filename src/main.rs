@@ -13,6 +13,7 @@ mod create;
 mod filter;
 mod fuzzy;
 mod herdr;
+mod icons;
 mod keys;
 mod model;
 mod places;

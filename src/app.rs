@@ -157,6 +157,8 @@ pub struct App {
     pub times: Option<Times>,
     /// The git state of the worktrees of the branch rows.
     pub changes: Changes,
+    /// Show the logos of the agents: the feature agent_logos, and the font is installed.
+    pub logos: bool,
 }
 
 /// What a key asks for.
@@ -215,6 +217,7 @@ impl App {
             previews: HashMap::new(),
             times: None,
             changes: Changes::default(),
+            logos: false,
         };
         app.rebuild(None);
         app
@@ -1039,6 +1042,7 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
         app.times = Some(Times::start());
         app.ask_times();
     }
+    app.logos = app.config.has("agent_logos") && crate::icons::font_installed();
     let mut terminal = ratatui::init();
     let enhanced = terminal::supports_keyboard_enhancement().unwrap_or(false);
     if enhanced {

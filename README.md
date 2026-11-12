@@ -101,8 +101,16 @@ preview = "full"   # "full": the 3 views of a worktree. "summary": one view.
 features = ["mouse", "rename_tab", "auto_titles", "agent_logos"]
 ```
 
-2 features are off by default. Add their names to `features` to turn them on:
+`agent_logos` shows the logo of each agent before its name, if the font Herdr Agent Icons Max of [herdr-radar](https://github.com/hhdebb/herdr-radar) is installed, like herdr-bar. The omnibar never installs a font. On macOS:
 
+```sh
+curl -fsSL -o ~/Library/Fonts/HerdrAgentIconsMax-Regular.ttf \
+  https://raw.githubusercontent.com/hhdebb/herdr-radar/main/dist/HerdrAgentIconsMax-Regular.ttf
+```
+
+3 features are off by default. Add their names to `features` to turn them on:
+
+- `nerd_font`: the pills, the crumb and the current filter get round ends, like the mockup. The terminal font must be a Nerd Font.
 - `pane_rows`: the filter Panes, with one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
 - `running_time`: the running time of each agent and of each command, at the right of its row: `47s`, `12m`, `2h04m`, `3d`. A thread reads it in the background, one time for each pane: `herdr pane process-info`, then `ps`. The times show some time after the popup opens.
 

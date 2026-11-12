@@ -17,6 +17,7 @@ mod model;
 mod places;
 mod remove;
 mod rows;
+mod times;
 mod ui;
 mod watch;
 

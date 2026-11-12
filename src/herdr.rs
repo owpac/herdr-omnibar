@@ -207,6 +207,12 @@ pub struct Plugin {
     pub plugin_root: Option<PathBuf>,
 }
 
+/// The process information of a pane: its shell and its foreground process group.
+pub fn process_info(pane_id: &str) -> Result<serde_json::Value, Error> {
+    let result = run_json(&["pane", "process-info", "--pane", pane_id])?;
+    Ok(result["process_info"].clone())
+}
+
 /// Close a workspace, with its tabs.
 pub fn close_workspace(workspace_id: &str) -> Result<(), Error> {
     run(&["workspace", "close", workspace_id]).map(|_| ())

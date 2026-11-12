@@ -29,6 +29,7 @@ use crate::model::{self, AgentRow, Checkout, Model, Status};
 use crate::places::{self, Branch, Place};
 use crate::remove;
 use crate::rows::{self, Item, Line};
+use crate::times::{self, Times};
 use crate::ui;
 
 /// The time between 2 reads of the herdr snapshot.
@@ -143,6 +144,8 @@ pub struct App {
     current_branches: Option<Vec<Branch>>,
     /// The text of each pane that the preview has read, by pane id.
     previews: HashMap<String, String>,
+    /// The running times of the panes (feature running_time).
+    pub times: Option<Times>,
 }
 
 /// What a key asks for.
@@ -198,6 +201,7 @@ impl App {
             views: HashMap::new(),
             current_branches: None,
             previews: HashMap::new(),
+            times: None,
         };
         app.rebuild(None);
         app
@@ -330,11 +334,24 @@ impl App {
         }
     }
 
+    /// The running time of the foreground process of a pane, as a short text: 47s, 12m, 2h04m.
+    pub fn running_time(&self, pane: &str) -> Option<String> {
+        self.times.as_ref()?.of(pane).map(times::short)
+    }
+
+    /// Ask the thread of the running times for the panes of the model.
+    pub fn ask_times(&mut self) {
+        if let Some(times) = self.times.as_mut() {
+            times.ask(self.model.panes.iter().map(|pane| pane.pane_id.clone()));
+        }
+    }
+
     /// Take a new model: the snapshot changed.
     pub fn update_model(&mut self, model: Model) {
         let key = self.selected_item().map(Item::key);
         self.open = places::workspaces(&model);
         self.model = model;
+        self.ask_times();
         self.previews.clear();
         self.rebuild(key);
     }
@@ -952,6 +969,10 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
         create::installed_agents(),
         config,
     );
+    if app.config.has("running_time") {
+        app.times = Some(Times::start());
+        app.ask_times();
+    }
     let mut terminal = ratatui::init();
     let enhanced = terminal::supports_keyboard_enhancement().unwrap_or(false);
     if enhanced {
@@ -1321,6 +1342,27 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_backspace_refuses_a_worktree_where_an_agent_works() {
+        let mut app = app(Filter::Worktrees);
+        app.open[0].main = Some("/work/atlas".into());
+        app.model.agents[0].status = Status::Working;
+        app.model.agents[0].cwd = Some("/work/atlas.fix-login/src".into());
+        app.current_branches = Some(vec![Branch {
+            name: "fix-login".into(),
+            worktree: Some("/work/atlas.fix-login".into()),
+        }]);
+        app.rebuild(None);
+        assert_eq!(selected_name(&app), "fix-login");
+        app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert!(app.confirm.is_none());
+        assert!(app
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stop it first"));
+    }
+
+    #[test]
     fn ctrl_enter_creates_a_tab_next_to_the_agent() {
         let mut app = app(Filter::All);
         match app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL)) {
@@ -1379,37 +1421,6 @@ mod tests {
     }
 
     #[test]
-    fn escape_quits_and_question_mark_shows_the_help() {
-        let mut app = app(Filter::All);
-        press(&mut app, KeyCode::Char('?'));
-        assert!(app.help);
-        assert!(matches!(press(&mut app, KeyCode::Esc), Outcome::Continue));
-        assert!(!app.help);
-        assert!(matches!(press(&mut app, KeyCode::Esc), Outcome::Quit));
-    }
-
-    #[test]
-    fn ctrl_backspace_refuses_a_worktree_where_an_agent_works() {
-        let mut app = app(Filter::Worktrees);
-        app.open[0].main = Some("/work/atlas".into());
-        app.model.agents[0].status = Status::Working;
-        app.model.agents[0].cwd = Some("/work/atlas.fix-login/src".into());
-        app.current_branches = Some(vec![Branch {
-            name: "fix-login".into(),
-            worktree: Some("/work/atlas.fix-login".into()),
-        }]);
-        app.rebuild(None);
-        assert_eq!(selected_name(&app), "fix-login");
-        app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
-        assert!(app.confirm.is_none());
-        assert!(app
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("stop it first"));
-    }
-
-    #[test]
     fn a_click_on_a_chip_opens_its_filter_and_a_click_on_a_key_runs_it() {
         let mut app = app(Filter::All);
         app.chip_areas = vec![(Rect::new(50, 0, 8, 1), Filter::Agents)];
@@ -1429,6 +1440,16 @@ mod tests {
             key_of_hint("⌃A"),
             Some(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL))
         );
+    }
+
+    #[test]
+    fn escape_quits_and_question_mark_shows_the_help() {
+        let mut app = app(Filter::All);
+        press(&mut app, KeyCode::Char('?'));
+        assert!(app.help);
+        assert!(matches!(press(&mut app, KeyCode::Esc), Outcome::Continue));
+        assert!(!app.help);
+        assert!(matches!(press(&mut app, KeyCode::Esc), Outcome::Quit));
     }
 
     #[test]

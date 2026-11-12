@@ -246,13 +246,40 @@ fn crumb(place: Option<&str>) -> Span<'static> {
 
 /// The right part of a row.
 fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
+    let mut spans = right_spans(item, app);
+    // The running time of the agent or of the command (feature running_time).
+    let pane = match item {
+        Item::Agent(agent) => Some(agent.pane_id.as_str()),
+        Item::Tab(tab) => tab.pane_id.as_deref(),
+        Item::Pane(pane) => Some(pane.pane_id.as_str()),
+        _ => None,
+    };
+    if let Some(time) = pane.and_then(|pane| app.running_time(pane)) {
+        if !spans.is_empty() {
+            spans.push(Span::raw(" "));
+        }
+        spans.push(Span::styled(format!("{time:>5}"), Style::new().fg(DIM)));
+    }
+    spans
+}
+
+/// The label of a status. With running times, it has a fixed width: the times make a column.
+fn status_text(status: Status, app: &App) -> String {
+    if app.times.is_some() {
+        format!("{:<9}", status.label())
+    } else {
+        status.label().to_string()
+    }
+}
+
+fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
     match item {
         Item::Pane(pane) => match &pane.agent {
             Some(kind) => vec![
                 Span::styled(kind.clone(), Style::new().fg(agent_color(kind))),
                 Span::raw(" "),
                 Span::styled(
-                    pane.status.label().to_string(),
+                    status_text(pane.status, app),
                     Style::new().fg(status_color(pane.status)),
                 ),
             ],
@@ -265,7 +292,7 @@ fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
             ),
             Span::raw(" "),
             Span::styled(
-                agent.status.label().to_string(),
+                status_text(agent.status, app),
                 Style::new().fg(status_color(agent.status)),
             ),
         ],
@@ -919,7 +946,11 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
             false,
         ),
         Item::Pane(pane) => (
-            format!("go to the pane {} of the tab {}", pane.name, pane.tab),
+            if pane.name == pane.tab {
+                format!("go to the pane {}", pane.name)
+            } else {
+                format!("go to the pane {} of the tab {}", pane.name, pane.tab)
+            },
             Some(pill_span(true, &pane.place)),
             false,
             false,

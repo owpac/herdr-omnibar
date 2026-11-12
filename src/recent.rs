@@ -33,11 +33,14 @@ fn save(state_dir: &Path, recent: &Recent) {
     }
 }
 
-/// Write the time of use of a tab: now.
-pub fn touch(state_dir: &Path, tab_id: &str) {
+/// The times of use when the popup opens: the tab of the popup gets the time now.
+pub fn open(state_dir: &Path, current_tab: Option<&str>) -> Recent {
     let mut recent = load(state_dir);
-    recent.insert(tab_id.to_string(), now_seconds());
-    save(state_dir, &recent);
+    if let Some(tab_id) = current_tab {
+        recent.insert(tab_id.to_string(), now_seconds());
+        save(state_dir, &recent);
+    }
+    recent
 }
 
 /// Follow the focused tab of a snapshot, for the watcher. When the focus changes, the tab that the

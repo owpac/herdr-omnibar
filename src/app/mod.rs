@@ -158,8 +158,8 @@ pub struct App {
     /// The focused pane of the current workspace, when the popup opens: a split goes next to it.
     pub focused_pane: Option<String>,
     /// The times of use of the tabs, and the tab of the popup (feature recent_first).
-    pub recent: Recent,
-    pub current_tab: Option<String>,
+    recent: Recent,
+    current_tab: Option<String>,
     /// The last agent of each folder (agents.json), read one time when the popup opens. Empty in
     /// the tests: they do not read the state of the machine.
     remembered: HashMap<String, String>,
@@ -453,8 +453,21 @@ impl App {
         self.focused_pane.as_deref().filter(|_| current)
     }
 
+    /// Take the times of use of the tabs, and the tab of the popup: the rows take their order of
+    /// use (feature recent_first).
+    /// The selection goes to the first row: the tab before, like alt-tab.
+    pub fn use_recent(&mut self, recent: Recent, current_tab: Option<String>) {
+        self.recent = recent;
+        self.current_tab = current_tab;
+        let mut model = std::mem::take(&mut self.model);
+        self.order(&mut model);
+        self.open = places::workspaces(&model);
+        self.model = model;
+        self.rebuild(None);
+    }
+
     /// Sort the rows of a model by their use (feature recent_first).
-    pub fn order(&self, model: &mut Model) {
+    fn order(&self, model: &mut Model) {
         if self.config.has("recent_first") {
             recent::order(model, &self.recent, self.current_tab.as_deref());
         }
@@ -1046,6 +1059,25 @@ mod tests {
             Outcome::Remove(folder) => assert_eq!(folder, PathBuf::from("/work/atlas.fix-login")),
             outcome => panic!("unexpected outcome {outcome:?}"),
         }
+    }
+
+    #[test]
+    fn the_tab_used_last_comes_first_and_the_current_tab_last() {
+        let mut app = app(Filter::Agents);
+        let recent = Recent::from([
+            ("t-fix the login".to_string(), 10),
+            ("t-release notes".to_string(), 20),
+            ("t-omnibar design".to_string(), 30),
+        ]);
+        app.use_recent(recent, Some("t-omnibar design".to_string()));
+        assert_eq!(selected_name(&app), "release notes");
+        let names: Vec<&str> = app
+            .model
+            .agents
+            .iter()
+            .map(|agent| agent.name.as_str())
+            .collect();
+        assert_eq!(names, ["release notes", "fix the login", "omnibar design"]);
     }
 
     #[test]

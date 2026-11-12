@@ -6,9 +6,13 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
+use std::path::PathBuf;
+
 use crate::app::App;
+use crate::config::Preview;
 use crate::create::{self, Choice};
-use crate::model::TabSummary;
+use crate::herdr::PluginAction;
+use crate::model::{Space, TabSummary};
 use crate::places::{Kind, Place};
 use crate::rows::{self, Item};
 
@@ -23,190 +27,232 @@ pub(super) fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
         vertical: 0,
     });
     frame.render_widget(block, area);
+    // The preview of a pane or of a branch reads herdr or git, and keeps the text in the app.
     let Some(item) = app.selected_item().cloned() else {
         return;
     };
-    let height = inner.height as usize;
     let width = inner.width as usize;
-    let title = |text: &str| {
-        Line::from(Span::styled(
-            text.to_string(),
-            Style::new().fg(dim_color()).add_modifier(Modifier::BOLD),
-        ))
+    let height = inner.height as usize;
+    let lines = match &item {
+        Item::Workspace(space) => workspace_lines(app, space, width),
+        Item::Agent(_) | Item::Tab(_) | Item::Pane(_) => pane_lines(app, width, height),
+        Item::Action(action) => action_lines(action, width),
+        Item::Choice(Choice::Existing {
+            branch, worktree, ..
+        }) if !creating(app) => branch_lines(app, branch, worktree.as_ref(), width, height),
+        Item::Create(name) => create_lines(app, name, width),
+        Item::Place(place) => place_lines(app, place, width),
+        Item::Choice(choice) => choice_lines(app, choice, width),
     };
-    let muted = |text: String| Line::from(Span::styled(text, Style::new().fg(muted_color())));
-    let mut lines: Vec<Line> = Vec::new();
-    match &item {
-        Item::Workspace(space) => {
-            lines.push(title("WORKSPACE"));
-            if let Some(folder) = &space.folder {
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// The title of a part of the preview.
+fn title(text: &str) -> Line<'static> {
+    Line::from(Span::styled(
+        text.to_string(),
+        Style::new().fg(dim_color()).add_modifier(Modifier::BOLD),
+    ))
+}
+
+/// A line of secondary text.
+fn muted(text: String) -> Line<'static> {
+    Line::from(Span::styled(text, Style::new().fg(muted_color())))
+}
+
+/// A line of text that helps, cut into lines of the width.
+fn help_lines(text: &str, width: usize) -> Vec<Line<'static>> {
+    wrap(text, width)
+        .into_iter()
+        .map(|part| Line::from(Span::styled(part, Style::new().fg(dim_color()))))
+        .collect()
+}
+
+/// A workspace: its folder and its tabs.
+fn workspace_lines(app: &App, space: &Space, width: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![title("WORKSPACE")];
+    if let Some(folder) = &space.folder {
+        lines.push(muted(fit(&rows::home(folder), width)));
+    }
+    lines.push(Line::raw(""));
+    let tabs = app
+        .model
+        .workspace_tabs
+        .get(&space.workspace.workspace_id)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    lines.extend(tab_lines(tabs, width, None));
+    lines
+}
+
+/// An agent, a tab or a pane: the last lines of its screen.
+fn pane_lines(app: &mut App, width: usize, height: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![title("PANE")];
+    let text = app.preview_text(height.max(10)).unwrap_or_default();
+    let content: Vec<&str> = text.trim_end().lines().collect();
+    let start = content.len().saturating_sub(height.saturating_sub(1));
+    lines.extend(
+        content[start..]
+            .iter()
+            .map(|text_line| muted(fit(text_line, width))),
+    );
+    lines
+}
+
+/// An action of a plugin: its plugin, its id and its description.
+fn action_lines(action: &PluginAction, width: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        title("ACTION"),
+        muted(format!("{} · {}", action.plugin_id, action.action_id)),
+        Line::raw(""),
+    ];
+    lines.extend(wrap(&action.description, width).into_iter().map(Line::raw));
+    lines
+}
+
+/// A branch of the current project: the view of its diff, its log or its changes.
+fn branch_lines(
+    app: &mut App,
+    branch: &str,
+    worktree: Option<&PathBuf>,
+    width: usize,
+    height: usize,
+) -> Vec<Line<'static>> {
+    let views = if app.config.preview == Preview::Summary {
+        vec![Span::styled(
+            "SUMMARY",
+            Style::new().fg(dim_color()).add_modifier(Modifier::BOLD),
+        )]
+    } else {
+        let mut spans = Vec::new();
+        for (index, name) in ["DIFF", "LOG", "CHANGES"].iter().enumerate() {
+            let style = if index == app.view % 3 {
+                Style::new().fg(accent_color()).add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().fg(dim_color())
+            };
+            spans.push(Span::styled(*name, style));
+            spans.push(Span::styled(" · ", Style::new().fg(rule_color())));
+        }
+        spans.pop();
+        spans.push(Span::styled("  ⌃← ⌃→", Style::new().fg(match_color())));
+        spans
+    };
+    let mut lines = vec![Line::from(views)];
+    let text = app.branch_view(branch, worktree);
+    lines.extend(
+        text.lines()
+            .take(height.saturating_sub(1))
+            .map(|text_line| muted(fit(text_line, width))),
+    );
+    lines
+}
+
+/// The row "create": the creation in the current place.
+fn create_lines(app: &App, name: &str, width: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![title("CREATE")];
+    match app.current_place() {
+        Some(place) => {
+            lines.push(Line::from(round(vec![pill_span(true, &place.label)], app)));
+            lines.push(Line::raw(""));
+            lines.extend(help_lines(
+                &format!(
+                    "↵ creates “{name}” in the current place. Then choose a new worktree, a new \
+                     tab, or another place."
+                ),
+                width,
+            ));
+        }
+        None => lines.extend(help_lines(
+            &format!("↵ creates “{name}”. Then choose its place."),
+            width,
+        )),
+    }
+    lines
+}
+
+/// A place of the step "where": its workspace and its tabs.
+fn place_lines(app: &App, place: &Place, width: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        title("THE PLACE"),
+        Line::from(round(
+            vec![pill_span(place.kind == Kind::Workspace, &place.label)],
+            app,
+        )),
+        muted(fit(&rows::home(&place.folder), width)),
+        Line::raw(""),
+    ];
+    if place.tabs.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "    no tab yet",
+            Style::new().fg(dim_color()),
+        )));
+    } else {
+        lines.extend(tab_lines(&place.tabs, width, None));
+    }
+    lines.push(Line::raw(""));
+    lines.extend(help_lines(
+        "↵ chooses this place. Then type the name of the tab or of the branch.",
+        width,
+    ));
+    lines
+}
+
+/// A choice of the step "what", or a worktree row: where the creation goes.
+fn choice_lines(app: &App, choice: &Choice, width: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![title("WHERE IT GOES")];
+    let agent = app.agent();
+    let name = app.create.name.trim();
+    let tab_name = if name.is_empty() { "(auto name)" } else { name };
+    match (choice, app.target_place()) {
+        (Choice::NewTab, Some(place)) => {
+            lines.push(Line::from(round(vec![pill_span(true, &place.label)], app)));
+            lines.extend(tab_lines(&place.tabs, width, Some((tab_name, &agent))));
+        }
+        (Choice::NewWorkspace, Some(place)) => {
+            lines.push(Line::from(round(vec![pill_span(false, &place.label)], app)));
+            lines.push(muted(fit(&rows::home(&place.folder), width)));
+            lines.extend(tab_lines(&[], width, Some((tab_name, &agent))));
+        }
+        (Choice::NewWorktree { branch }, Some(place)) if create::is_branch_name(branch) => {
+            lines.extend(project_lines(app, place, branch, &agent, width));
+        }
+        (Choice::NewWorktree { branch }, _) if !branch.is_empty() => {
+            lines.push(Line::from(Span::styled(
+                format!("“{branch}” is not a branch name: choose + new tab."),
+                Style::new().fg(red_color()),
+            )));
+        }
+        (Choice::NewWorktree { .. }, _) => lines.extend(help_lines(
+            "Type the branch name: wt creates the branch, its worktree and its workspace.",
+            width,
+        )),
+        (
+            Choice::Existing {
+                branch,
+                worktree,
+                workspace_id,
+            },
+            _,
+        ) => {
+            let what = match (workspace_id, worktree) {
+                (Some(_), _) => "Its workspace is open: ↵ goes there.",
+                (None, Some(_)) => "Its worktree has no workspace: ↵ opens it.",
+                (None, None) => "The branch has no worktree: ↵ creates it with wt switch.",
+            };
+            lines.push(muted(format!("branch {branch}")));
+            if let Some(folder) = worktree {
                 lines.push(muted(fit(&rows::home(folder), width)));
             }
             lines.push(Line::raw(""));
-            let tabs = app
-                .model
-                .workspace_tabs
-                .get(&space.workspace.workspace_id)
-                .cloned()
-                .unwrap_or_default();
-            lines.extend(tab_lines(&tabs, width, None));
+            lines.extend(help_lines(what, width));
         }
-        Item::Agent(_) | Item::Tab(_) | Item::Pane(_) => {
-            lines.push(title("PANE"));
-            let text = app.preview_text(height.max(10)).unwrap_or_default();
-            let content: Vec<&str> = text.trim_end().lines().collect();
-            let start = content.len().saturating_sub(height.saturating_sub(1));
-            for text_line in &content[start..] {
-                lines.push(muted(fit(text_line, width)));
-            }
-        }
-        Item::Action(action) => {
-            lines.push(title("ACTION"));
-            lines.push(muted(format!(
-                "{} · {}",
-                action.plugin_id, action.action_id
-            )));
-            lines.push(Line::raw(""));
-            for part in wrap(&action.description, width) {
-                lines.push(Line::raw(part));
-            }
-        }
-        Item::Choice(Choice::Existing {
-            branch, worktree, ..
-        }) if !creating(app) => {
-            let views = if app.config.preview == crate::config::Preview::Summary {
-                vec![Span::styled(
-                    "SUMMARY",
-                    Style::new().fg(dim_color()).add_modifier(Modifier::BOLD),
-                )]
-            } else {
-                let mut spans = Vec::new();
-                for (index, name) in ["DIFF", "LOG", "CHANGES"].iter().enumerate() {
-                    let style = if index == app.view % 3 {
-                        Style::new().fg(accent_color()).add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::new().fg(dim_color())
-                    };
-                    spans.push(Span::styled(*name, style));
-                    spans.push(Span::styled(" · ", Style::new().fg(rule_color())));
-                }
-                spans.pop();
-                spans.push(Span::styled("  ⌃← ⌃→", Style::new().fg(match_color())));
-                spans
-            };
-            lines.push(Line::from(views));
-            let text = app.branch_view(branch, worktree.as_ref());
-            for text_line in text.lines().take(height.saturating_sub(1)) {
-                lines.push(muted(fit(text_line, width)));
-            }
-        }
-        Item::Create(name) => {
-            lines.push(title("CREATE"));
-            match app.current_place() {
-                Some(place) => {
-                    lines.push(Line::from(round(vec![pill_span(true, &place.label)], app)));
-                    lines.push(Line::raw(""));
-                    let text = format!(
-                        "↵ creates “{name}” in the current place. Then choose a new worktree, \
-                         a new tab, or another place."
-                    );
-                    for part in wrap(&text, width) {
-                        lines.push(Line::from(Span::styled(part, Style::new().fg(dim_color()))));
-                    }
-                }
-                None => {
-                    let text = format!("↵ creates “{name}”. Then choose its place.");
-                    for part in wrap(&text, width) {
-                        lines.push(Line::from(Span::styled(part, Style::new().fg(dim_color()))));
-                    }
-                }
-            }
-        }
-        Item::Place(place) => {
-            lines.push(title("THE PLACE"));
-            lines.push(Line::from(round(
-                vec![pill_span(place.kind == Kind::Workspace, &place.label)],
-                app,
-            )));
-            lines.push(muted(fit(&rows::home(&place.folder), width)));
-            lines.push(Line::raw(""));
-            if place.tabs.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    "    no tab yet",
-                    Style::new().fg(dim_color()),
-                )));
-            } else {
-                lines.extend(tab_lines(&place.tabs, width, None));
-            }
-            lines.push(Line::raw(""));
-            lines.push(Line::from(Span::styled(
-                "↵ chooses this place. Then type the name of the tab or of the branch.",
-                Style::new().fg(dim_color()),
-            )));
-        }
-        Item::Choice(choice) => {
-            lines.push(title("WHERE IT GOES"));
-            let agent = app.agent();
-            let name = app.create.name.trim().to_string();
-            let tab_name = if name.is_empty() {
-                "(auto name)".to_string()
-            } else {
-                name.clone()
-            };
-            let place = app.target_place().cloned();
-            match (choice, place) {
-                (Choice::NewTab, Some(place)) => {
-                    lines.push(Line::from(round(vec![pill_span(true, &place.label)], app)));
-                    lines.extend(tab_lines(&place.tabs, width, Some((&tab_name, &agent))));
-                }
-                (Choice::NewWorkspace, Some(place)) => {
-                    lines.push(Line::from(round(vec![pill_span(false, &place.label)], app)));
-                    lines.push(muted(fit(&rows::home(&place.folder), width)));
-                    lines.extend(tab_lines(&[], width, Some((&tab_name, &agent))));
-                }
-                (Choice::NewWorktree { branch }, Some(place)) if create::is_branch_name(branch) => {
-                    lines.extend(project_lines(app, &place, branch, &agent, width));
-                }
-                (Choice::NewWorktree { branch }, _) if !branch.is_empty() => {
-                    lines.push(Line::from(Span::styled(
-                        format!("“{branch}” is not a branch name: choose + new tab."),
-                        Style::new().fg(red_color()),
-                    )));
-                }
-                (Choice::NewWorktree { .. }, _) => {
-                    lines.push(Line::from(Span::styled(
-                        "Type the branch name: wt creates the branch, its worktree and its workspace.",
-                        Style::new().fg(dim_color()),
-                    )));
-                }
-                (
-                    Choice::Existing {
-                        branch,
-                        worktree,
-                        workspace_id,
-                    },
-                    _,
-                ) => {
-                    let what = match (workspace_id, worktree) {
-                        (Some(_), _) => "Its workspace is open: ↵ goes there.",
-                        (None, Some(_)) => "Its worktree has no workspace: ↵ opens it.",
-                        (None, None) => "The branch has no worktree: ↵ creates it with wt switch.",
-                    };
-                    lines.push(muted(format!("branch {branch}")));
-                    if let Some(folder) = worktree {
-                        lines.push(muted(fit(&rows::home(folder), width)));
-                    }
-                    lines.push(Line::raw(""));
-                    lines.push(Line::from(Span::styled(what, Style::new().fg(dim_color()))));
-                }
-                _ => lines.push(Line::from(Span::styled(
-                    "Choose a project, one of its workspaces, or a folder. The name stays.",
-                    Style::new().fg(dim_color()),
-                ))),
-            }
-        }
+        _ => lines.extend(help_lines(
+            "Choose a project, one of its workspaces, or a folder. The name stays.",
+            width,
+        )),
     }
-    frame.render_widget(Paragraph::new(lines), inner);
+    lines
 }
 
 /// The lines of the tabs of a workspace, with a new tab in green at the end if `new` gives its

@@ -1,4 +1,7 @@
 //! The action line: what Enter does, and where.
+//!
+//! Before the action of the selected row, the line shows a question (close or remove), the rename
+//! of a tab, or the message of the last command.
 
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -13,207 +16,234 @@ use crate::rows::Item;
 
 use super::{creating, style::*, text::*};
 
-pub(super) fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
-    let arrow =
-        |color: Color| Span::styled("→ ", Style::new().fg(color).add_modifier(Modifier::BOLD));
-    if let Some(confirm) = &app.confirm {
-        let question = match confirm {
-            Confirm::CloseTab { name, .. } => format!("close the tab {name}? ↵ yes · esc no"),
-            Confirm::RemoveWorktree { branch, agents, .. } => {
-                let agents = match agents {
-                    0 => String::new(),
-                    1 => " Its agent closes.".to_string(),
-                    count => format!(" Its {count} agents close."),
-                };
-                // The notification of the result tells if the action restore of herdr-worktrunk
-                // can bring the worktree back: wt alone keeps no record.
-                format!("remove the worktree {branch}?{agents} ↵ yes · esc no")
-            }
-        };
-        let line = Line::from(vec![
-            arrow(red_color()),
-            Span::styled(question, Style::new().fg(red_color())),
-        ]);
-        frame.render_widget(Paragraph::new(line), area);
-        return;
+/// What Enter does on a row: a verb, the workspace where it goes, and the agent field of a
+/// creation. A warning (a wrong branch name) shows in red.
+struct Action {
+    verb: String,
+    place: Option<Span<'static>>,
+    agent_field: bool,
+    warning: bool,
+}
+
+impl Action {
+    /// An action that goes to a place.
+    fn go(verb: String, place: Span<'static>) -> Action {
+        Action {
+            verb,
+            place: Some(place),
+            agent_field: false,
+            warning: false,
+        }
     }
-    if let Some(rename) = &app.rename {
-        let line = Line::from(vec![
-            arrow(accent_color()),
-            Span::raw(format!(
+
+    /// An action without a place.
+    fn bare(verb: impl Into<String>) -> Action {
+        Action {
+            verb: verb.into(),
+            place: None,
+            agent_field: false,
+            warning: false,
+        }
+    }
+
+    /// An action that creates in a place, with the agent field.
+    fn create(verb: String, place: Span<'static>) -> Action {
+        Action {
+            verb,
+            place: Some(place),
+            agent_field: true,
+            warning: false,
+        }
+    }
+
+    /// A wrong text: the line tells it in red.
+    fn warning(verb: String) -> Action {
+        Action {
+            verb,
+            place: None,
+            agent_field: false,
+            warning: true,
+        }
+    }
+}
+
+pub(super) fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
+    let line = match (&app.confirm, &app.rename, &app.message) {
+        (Some(confirm), _, _) => arrow_line(red_color(), question(confirm), red_color()),
+        (None, Some(rename), _) => arrow_line(
+            accent_color(),
+            format!(
                 "rename the tab “{}” to “{}”",
                 rename.old,
                 rename.text.trim()
-            )),
-        ]);
-        frame.render_widget(Paragraph::new(line), area);
-        return;
-    }
-    if let Some(message) = &app.message {
-        let line = Line::from(vec![
-            arrow(dim_color()),
-            Span::styled(message.clone(), Style::new().fg(muted_color())),
-        ]);
-        frame.render_widget(Paragraph::new(line), area);
-        return;
-    }
-    let Some(item) = app.selected_item() else {
-        frame.render_widget(
-            Paragraph::new(Span::styled(
+            ),
+            Color::Reset,
+        ),
+        (None, None, Some(message)) => arrow_line(dim_color(), message.clone(), muted_color()),
+        (None, None, None) => match app.selected_item() {
+            Some(item) => action_line(app, item, area.width as usize),
+            None => Line::from(Span::styled(
                 "→ nothing selected",
                 Style::new().fg(dim_color()),
             )),
-            area,
-        );
-        return;
+        },
     };
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+/// A line with an arrow and a text.
+fn arrow_line(arrow: Color, text: String, color: Color) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("→ ", Style::new().fg(arrow).add_modifier(Modifier::BOLD)),
+        Span::styled(text, Style::new().fg(color)),
+    ])
+}
+
+/// The question before a close or a removal.
+fn question(confirm: &Confirm) -> String {
+    match confirm {
+        Confirm::CloseTab { name, .. } => format!("close the tab {name}? ↵ yes · esc no"),
+        Confirm::RemoveWorktree { branch, agents, .. } => {
+            let agents = match agents {
+                0 => String::new(),
+                1 => " Its agent closes.".to_string(),
+                count => format!(" Its {count} agents close."),
+            };
+            // The notification of the result tells if the action restore of herdr-worktrunk can
+            // bring the worktree back: wt alone keeps no record.
+            format!("remove the worktree {branch}?{agents} ↵ yes · esc no")
+        }
+    }
+}
+
+/// The line of the action of a row: the verb, its place, and the agent field on the right.
+fn action_line(app: &App, item: &Item, width: usize) -> Line<'static> {
+    let action = action_of(app, item);
+    let color = if action.warning {
+        red_color()
+    } else {
+        accent_color()
+    };
+    let mut spans = vec![
+        Span::styled("→ ", Style::new().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            action.verb,
+            Style::new().fg(if action.warning {
+                red_color()
+            } else {
+                Color::Reset
+            }),
+        ),
+    ];
+    if let Some(place) = action.place {
+        spans.push(Span::styled("  in ", Style::new().fg(dim_color())));
+        spans.push(place);
+    }
+    if action.agent_field {
+        let field = agent_field(app);
+        let used = spans_width(&spans) + spans_width(&field);
+        spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
+        spans.extend(field);
+    }
+    Line::from(round(spans, app))
+}
+
+/// The agent of a creation, with its key: ⇥ in the creation, ⌃A on a row that opens a worktree.
+fn agent_field(app: &App) -> Vec<Span<'static>> {
+    let agent = app.agent();
+    let key = if creating(app) { " ⇥" } else { " ⌃A" };
+    let mut field = vec![
+        Span::styled("agent ", Style::new().fg(dim_color())),
+        Span::styled(
+            format!(" {agent} "),
+            Style::new().fg(agent_color(&agent)).bg(pill_color()),
+        ),
+        Span::styled(key, Style::new().fg(match_color())),
+    ];
+    if app.create.no_prompts && agent != "shell" {
+        field.push(Span::styled("  prompts off", Style::new().fg(red_color())));
+    }
+    field
+}
+
+/// What Enter does on a row.
+fn action_of(app: &App, item: &Item) -> Action {
+    match item {
+        Item::Agent(agent) => Action::go(
+            format!("go to the agent {}", agent.name),
+            pill_span(true, &agent.place),
+        ),
+        Item::Tab(tab) => Action::go(
+            format!("go to the tab {}", tab.name),
+            pill_span(true, &tab.place),
+        ),
+        Item::Pane(pane) => {
+            let verb = if pane.name == pane.tab {
+                format!("go to the pane {}", pane.name)
+            } else {
+                format!("go to the pane {} of the tab {}", pane.name, pane.tab)
+            };
+            Action::go(verb, pill_span(true, &pane.place))
+        }
+        Item::Workspace(space) => Action::go("go to".to_string(), pill_span(true, &space.label())),
+        Item::Action(action) => Action::bare(format!("run the action {}", action.title)),
+        Item::Place(place) => Action::go(
+            "create".to_string(),
+            pill_span(place.kind == Kind::Workspace, &place.label),
+        ),
+        Item::Create(name) => Action {
+            place: app
+                .target_place()
+                .map(|place| pill_span(true, &place.label)),
+            ..Action::bare(format!("create “{name}”: choose a tab or a worktree"))
+        },
+        Item::Choice(choice) => choice_action(app, choice),
+    }
+}
+
+/// What Enter does on a choice: a creation, or a worktree to open.
+fn choice_action(app: &App, choice: &Choice) -> Action {
+    let place = app.target_place();
+    let place_label = place.map(|place| place.label.as_str()).unwrap_or_default();
     let name = app.create.name.trim();
     let tab = if name.is_empty() {
         "new tab (auto name)".to_string()
     } else {
         format!("new tab “{name}”")
     };
-    let place = app.target_place();
-    let place_label = place
-        .as_ref()
-        .map(|place| place.label.clone())
-        .unwrap_or_default();
-    // The verb, the place (open or new), and the agent field for a creation.
-    let (verb, where_, agent_field, warning): (String, Option<Span>, bool, bool) = match item {
-        Item::Agent(agent) => (
-            format!("go to the agent {}", agent.name),
-            Some(pill_span(true, &agent.place)),
-            false,
-            false,
-        ),
-        Item::Tab(tab_row) => (
-            format!("go to the tab {}", tab_row.name),
-            Some(pill_span(true, &tab_row.place)),
-            false,
-            false,
-        ),
-        Item::Pane(pane) => (
-            if pane.name == pane.tab {
-                format!("go to the pane {}", pane.name)
-            } else {
-                format!("go to the pane {} of the tab {}", pane.name, pane.tab)
-            },
-            Some(pill_span(true, &pane.place)),
-            false,
-            false,
-        ),
-        Item::Workspace(space) => (
-            "go to".to_string(),
-            Some(pill_span(true, &space.label())),
-            false,
-            false,
-        ),
-        Item::Action(action) => (
-            format!("run the action {}", action.title),
-            None,
-            false,
-            false,
-        ),
-        Item::Place(place) => (
-            "create".to_string(),
-            Some(pill_span(place.kind == Kind::Workspace, &place.label)),
-            false,
-            false,
-        ),
-        Item::Create(name) => (
-            format!("create “{name}”: choose a tab or a worktree"),
-            place.map(|place| pill_span(true, &place.label)),
-            false,
-            false,
-        ),
-        Item::Choice(choice) => match choice {
-            Choice::NewWorktree { branch } if branch.is_empty() => (
-                "type the branch name of the new worktree".into(),
-                None,
-                false,
-                true,
-            ),
-            Choice::NewWorktree { branch } if !create::is_branch_name(branch) => (
-                format!("“{branch}” is not a branch name"),
-                None,
-                false,
-                true,
-            ),
-            Choice::NewWorktree { branch } => (
-                format!("new worktree {branch}"),
-                Some(pill_span(
-                    false,
-                    &format!(
-                        "{} ▸ {branch}",
-                        place.map(|place| place.project.as_str()).unwrap_or("")
-                    ),
-                )),
-                true,
-                false,
-            ),
-            Choice::Existing {
-                branch,
-                workspace_id: Some(id),
-                ..
-            } => {
-                let label = app
-                    .open_place(id)
-                    .map(|open| open.label.clone())
-                    .unwrap_or_else(|| worktree_label(place, branch));
-                (
-                    format!("go to the worktree {branch}"),
-                    Some(pill_span(true, &label)),
-                    false,
-                    false,
-                )
-            }
-            Choice::Existing { branch, .. } => (
-                format!("open the worktree {branch}"),
-                Some(pill_span(false, &worktree_label(place, branch))),
-                true,
-                false,
-            ),
-            Choice::NewTab => (tab, Some(pill_span(true, &place_label)), true, false),
-            Choice::NewWorkspace => (tab, Some(pill_span(false, &place_label)), true, false),
-            Choice::AnotherPlace => ("choose another place".into(), None, false, false),
-        },
-    };
-    let arrow_color = if warning { red_color() } else { accent_color() };
-    let mut spans = vec![
-        Span::styled(
-            "→ ",
-            Style::new().fg(arrow_color).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            verb,
-            Style::new().fg(if warning { red_color() } else { Color::Reset }),
-        ),
-    ];
-    if let Some(pill) = where_ {
-        spans.push(Span::styled("  in ", Style::new().fg(dim_color())));
-        spans.push(pill);
-    }
-    if agent_field {
-        let agent = app.agent();
-        let mut field = vec![
-            Span::styled("agent ", Style::new().fg(dim_color())),
-            Span::styled(
-                format!(" {agent} "),
-                Style::new().fg(agent_color(&agent)).bg(pill_color()),
-            ),
-        ];
-        let key = if creating(app) { " ⇥" } else { " ⌃A" };
-        field.push(Span::styled(key, Style::new().fg(match_color())));
-        if app.create.no_prompts && agent != "shell" {
-            field.push(Span::styled("  prompts off", Style::new().fg(red_color())));
+    match choice {
+        Choice::NewWorktree { branch } if branch.is_empty() => {
+            Action::warning("type the branch name of the new worktree".into())
         }
-        let used = spans_width(&spans) + spans_width(&field);
-        spans.push(Span::raw(
-            " ".repeat((area.width as usize).saturating_sub(used)),
-        ));
-        spans.extend(field);
+        Choice::NewWorktree { branch } if !create::is_branch_name(branch) => {
+            Action::warning(format!("“{branch}” is not a branch name"))
+        }
+        Choice::NewWorktree { branch } => Action::create(
+            format!("new worktree {branch}"),
+            pill_span(false, &worktree_label(place, branch)),
+        ),
+        Choice::Existing {
+            branch,
+            workspace_id: Some(id),
+            ..
+        } => {
+            let label = app
+                .open_place(id)
+                .map(|open| open.label.clone())
+                .unwrap_or_else(|| worktree_label(place, branch));
+            Action::go(
+                format!("go to the worktree {branch}"),
+                pill_span(true, &label),
+            )
+        }
+        Choice::Existing { branch, .. } => Action::create(
+            format!("open the worktree {branch}"),
+            pill_span(false, &worktree_label(place, branch)),
+        ),
+        Choice::NewTab => Action::create(tab, pill_span(true, place_label)),
+        Choice::NewWorkspace => Action::create(tab, pill_span(false, place_label)),
+        Choice::AnotherPlace => Action::bare("choose another place"),
     }
-    frame.render_widget(Paragraph::new(Line::from(round(spans, app))), area);
 }
 
 /// The label of the workspace of a worktree: "project ▸ branch".

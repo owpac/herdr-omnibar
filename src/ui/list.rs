@@ -127,30 +127,26 @@ fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
     spans
 }
 
+/// The kind and the state of an agent: "claude idle".
+fn agent_spans(kind: &str, status: Status, app: &App) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(kind_text(kind, app), Style::new().fg(agent_color(kind))),
+        Span::raw(" "),
+        Span::styled(
+            status_text(status, app),
+            Style::new().fg(status_color(status)),
+        ),
+    ]
+}
+
+/// The right side of a row, before its running time.
 fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
     match item {
         Item::Pane(pane) => match &pane.agent {
-            Some(kind) => vec![
-                Span::styled(kind_text(kind, app), Style::new().fg(agent_color(kind))),
-                Span::raw(" "),
-                Span::styled(
-                    status_text(pane.status, app),
-                    Style::new().fg(status_color(pane.status)),
-                ),
-            ],
+            Some(kind) => agent_spans(kind, pane.status, app),
             None => Vec::new(),
         },
-        Item::Agent(agent) => vec![
-            Span::styled(
-                kind_text(&agent.kind, app),
-                Style::new().fg(agent_color(&agent.kind)),
-            ),
-            Span::raw(" "),
-            Span::styled(
-                status_text(agent.status, app),
-                Style::new().fg(status_color(agent.status)),
-            ),
-        ],
+        Item::Agent(agent) => agent_spans(&agent.kind, agent.status, app),
         Item::Tab(tab) => vec![Span::styled(
             tab.command.clone(),
             Style::new().fg(dim_color()),

@@ -103,6 +103,16 @@ pub fn config_dir() -> PathBuf {
     home.join(".config/herdr/plugins/config/herdr-omnibar")
 }
 
+/// The state folder of the plugin: HERDR_PLUGIN_STATE_DIR, else the folder that herdr gives to
+/// the plugin by default. A command from a shell has no HERDR_PLUGIN_STATE_DIR.
+pub fn state_dir() -> PathBuf {
+    if let Some(folder) = env::var_os("HERDR_PLUGIN_STATE_DIR") {
+        return PathBuf::from(folder);
+    }
+    let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    home.join(".local/state/herdr/plugins/herdr-omnibar")
+}
+
 /// The options of config.toml in the config folder of the plugin.
 pub fn current() -> Config {
     load(&config_dir())

@@ -2,7 +2,8 @@
 //! or a worktree.
 //!
 //! The actions of herdr-plugin.toml run `open <filter>`: it reads the context of the action, then
-//! opens the popup. The popup runs `run`. `keys` shows the keys that the popup receives.
+//! opens the popup. The popup runs `run`. `keys` shows the keys that the popup receives. `watch`
+//! starts the watcher of the automatic titles of the tabs.
 
 mod app;
 mod config;
@@ -16,13 +17,14 @@ mod model;
 mod places;
 mod rows;
 mod ui;
+mod watch;
 
 use std::env;
 use std::process::ExitCode;
 
 use filter::Filter;
 
-const USAGE: &str = "usage: herdr-omnibar open <filter> | run | execute | invoke <plugin> <action> | keys | list | --version
+const USAGE: &str = "usage: herdr-omnibar open <filter> | run | execute | invoke <plugin> <action> | keys | list | watch [--run] | titles | --version
 filters: all, new, agents, tabs, worktrees, folders, actions, keys";
 
 /// The variable that gives the filter of the popup.
@@ -37,6 +39,11 @@ fn main() -> ExitCode {
         Some("run") => run(),
         Some("keys") => keys::run().map_err(|error| error.to_string()),
         Some("list") => list(),
+        Some("watch") if arguments.get(1).is_some_and(|argument| argument == "--run") => {
+            watch::run()
+        }
+        Some("watch") => watch::start(),
+        Some("titles") => watch::print(),
         Some("execute") => create::execute_from_environment(),
         Some("invoke") => match (arguments.get(1), arguments.get(2)) {
             (Some(plugin), Some(action)) => create::invoke_later(plugin, action),
@@ -63,6 +70,10 @@ fn main() -> ExitCode {
 /// Open the popup on a filter. An action runs this command: herdr gives it the context of the
 /// action. The popup gets the filter and the context in its environment.
 fn open(name: &str) -> Result<(), String> {
+    // Each opening starts the watcher of the titles again, if it stopped.
+    if let Err(error) = watch::start() {
+        eprintln!("herdr-omnibar: {error}");
+    }
     let context = context::Context::from_environment();
     if name == "keys" {
         return herdr::open_plugin_pane("keys", &context, &[]).map_err(|error| error.to_string());

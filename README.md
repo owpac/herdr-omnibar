@@ -62,6 +62,20 @@ The mouse works too: a click selects a row, a double click runs it, and the whee
 
 The omnibar remembers the last agent of each folder, in `agents.json` of its state folder.
 
+## Automatic titles of the tabs
+
+A tab with one agent takes the title that the agent gives to its terminal: Claude Code and Codex write their task there. The omnibar renames only a tab with the name that herdr gives (its number), or with the last title that the omnibar wrote. A name that you give stays: after `⌃R` or `herdr tab rename`, the tab keeps your name until it closes. A tab with 2 agents keeps its name. A title that tells nothing (a prompt, the name of the agent, the name of the folder) does not replace a name. When the agent stops, the tab keeps its last title.
+
+One watcher runs for each herdr server. herdr starts it at its start and when it detects an agent. Each opening of the popup starts it again, if it stopped. The watcher reads the snapshot every 2 s. It stops when herdr stops, when you remove `auto_titles` from `features`, or when you disable the plugin. It runs its binary again after a rebuild or an update of the plugin.
+
+herdr-bar also writes the titles of the tabs. While herdr-bar is enabled, and its `config.json` does not set `"auto_titles": false`, the omnibar waits: 2 writers on the same tab fight. To give the titles to the omnibar, write this file:
+
+```sh
+echo '{"auto_titles": false}' > ~/.config/herdr/plugins/config/herdr-bar/config.json
+```
+
+`herdr-omnibar titles` prints what the watcher does now: the tabs to rename, or the reason to wait. The log of the watcher is `watch.log`, in the state folder of the plugin (`~/.local/state/herdr/plugins/herdr-omnibar/`).
+
 ## Configuration
 
 `config.toml` in the config folder of the plugin (`~/.config/herdr/plugins/config/herdr-omnibar/`):
@@ -97,7 +111,7 @@ cargo test --locked
 shellcheck scripts/*.sh
 ```
 
-`herdr-omnibar list` prints the workspaces, the agents and the tabs, as the popup sees them.
+`herdr-omnibar list` prints the workspaces, the agents and the tabs, as the popup sees them. `herdr-omnibar titles` prints the renames of the watcher of the titles.
 
 ## License
 

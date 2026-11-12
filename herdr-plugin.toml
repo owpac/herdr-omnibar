@@ -97,3 +97,12 @@ placement = "popup"
 width = "60%"
 height = "60%"
 command = ["bin/herdr-omnibar", "keys"]
+
+# The watcher of the automatic titles of the tabs (feature auto_titles). `watch` starts the detached
+# process `watch --run`, then returns: herdr waits for the end of these commands.
+[[startup]]
+command = ["bin/herdr-omnibar", "watch"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["bin/herdr-omnibar", "watch"]

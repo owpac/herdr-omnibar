@@ -196,6 +196,22 @@ pub fn plugin_actions() -> Result<Vec<PluginAction>, Error> {
         .map_err(|error| Error::new(format!("herdr plugin action list: {error}")))
 }
 
+/// A plugin of herdr, from `herdr plugin list --json`.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct Plugin {
+    pub plugin_id: String,
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+/// The installed plugins.
+pub fn plugins() -> Result<Vec<Plugin>, Error> {
+    let arguments = ["plugin", "list", "--json"];
+    let result = run_json(&arguments)?;
+    serde_json::from_value(result["plugins"].clone())
+        .map_err(|error| Error::new(format!("herdr plugin list: {error}")))
+}
+
 /// Run an action of a herdr plugin.
 pub fn invoke_action(plugin_id: &str, action_id: &str) -> Result<(), Error> {
     run(&[

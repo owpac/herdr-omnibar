@@ -350,7 +350,7 @@ fn wt_switch(main: &Path, branch: &str, create: bool) -> Result<PathBuf, String>
 
 /// The file that keeps the last agent of each folder, in the state folder of the plugin.
 fn agents_file() -> Option<PathBuf> {
-    env::var_os("HERDR_PLUGIN_STATE_DIR").map(|folder| PathBuf::from(folder).join("agents.json"))
+    Some(crate::config::state_dir().join("agents.json"))
 }
 
 fn read_agents(file: &Path) -> HashMap<String, String> {

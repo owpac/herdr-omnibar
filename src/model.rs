@@ -89,6 +89,20 @@ pub struct Tab {
     pub workspace_id: String,
     #[serde(default)]
     pub label: String,
+    /// The position of the tab in its workspace. herdr names a new tab with this number.
+    #[serde(default)]
+    pub number: Option<u32>,
+}
+
+impl Tab {
+    /// True if the tab has the name that herdr gives: its number. A name that the user gives and
+    /// that is equal to the number looks the same.
+    pub fn has_default_label(&self) -> bool {
+        match self.number {
+            Some(number) => self.label == number.to_string(),
+            None => self.label.is_empty(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -301,13 +315,9 @@ impl Model {
         // is a better name, because an agent writes its task there. The title of an idle shell
         // is its prompt (user@host:folder): the name is then "shell".
         let label_of = |tab_id: &str, title: Option<&str>| {
-            let label = snapshot
-                .tabs
-                .iter()
-                .find(|tab| tab.tab_id == tab_id)
-                .map(|tab| tab.label.clone())
-                .unwrap_or_default();
-            let numbered = label.is_empty() || label.chars().all(|c| c.is_ascii_digit());
+            let tab = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id);
+            let label = tab.map(|tab| tab.label.clone()).unwrap_or_default();
+            let numbered = tab.is_none_or(Tab::has_default_label);
             match title.map(str::trim).filter(|title| !title.is_empty()) {
                 Some(title) if numbered && is_prompt_title(title) => "shell".to_string(),
                 Some(title) if numbered => title.to_string(),
@@ -392,7 +402,7 @@ impl Model {
 }
 
 /// True for the title that a shell gives to its terminal while it waits: `user@host:folder`.
-fn is_prompt_title(title: &str) -> bool {
+pub fn is_prompt_title(title: &str) -> bool {
     title
         .split_once(':')
         .is_some_and(|(head, _)| head.contains('@') && !head.contains(char::is_whitespace))

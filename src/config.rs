@@ -5,6 +5,7 @@
 //! size = "default"   # "default": 74 % × 62 % of the window. "big": 90 % × 80 %.
 //! roots = ["~/Workspace"]   # the folders of the projects, 2 levels deep
 //! preview = "full"   # "full": diff, log, changes of a worktree (ctrl+Left, ctrl+Right). "summary".
+//! pills = "square"   # the ends of the pills: "square", "round" (a Nerd Font), "flat".
 //! # The optional features. Remove a name to turn its feature off.
 //! features = ["mouse", "rename_tab", "auto_titles", "agent_logos"]
 //! ```
@@ -46,6 +47,18 @@ pub enum Preview {
     Summary,
 }
 
+/// The ends of the pills: the current filter, the crumb, the places of the action line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Pills {
+    /// Half blocks (▐ ▌): square corners, and a half cell of space on each side.
+    #[default]
+    Square,
+    /// Half circles of a Nerd Font: the font of the terminal must be a Nerd Font.
+    Round,
+    /// A full cell of space on each side.
+    Flat,
+}
+
 /// The features that are on by default.
 pub const DEFAULT_FEATURES: [&str; 4] = ["mouse", "rename_tab", "auto_titles", "agent_logos"];
 
@@ -56,6 +69,7 @@ pub struct Config {
     /// The folders where the omnibar looks for the git projects.
     pub roots: Vec<String>,
     pub preview: Preview,
+    pub pills: Pills,
     /// The optional features that are on.
     pub features: Vec<String>,
 }
@@ -76,6 +90,7 @@ impl Default for Config {
                 .map(|root| root.to_string())
                 .collect(),
             preview: Preview::Full,
+            pills: Pills::Square,
             features: DEFAULT_FEATURES
                 .iter()
                 .map(|name| name.to_string())
@@ -91,6 +106,7 @@ struct File {
     size: Option<String>,
     roots: Option<Vec<String>>,
     preview: Option<String>,
+    pills: Option<String>,
     features: Option<Vec<String>>,
 }
 
@@ -138,6 +154,11 @@ fn parse(text: &str) -> Config {
             Some("summary") => Preview::Summary,
             _ => Preview::Full,
         },
+        pills: match file.pills.as_deref() {
+            Some("round") => Pills::Round,
+            Some("flat") => Pills::Flat,
+            _ => Pills::Square,
+        },
         features: file.features.unwrap_or(defaults.features),
     }
 }
@@ -175,6 +196,13 @@ mod tests {
         let config = parse("features = [\"rename_tab\", \"running_time\"]");
         assert!(!config.has("mouse"));
         assert!(config.has("running_time"));
+    }
+
+    #[test]
+    fn pills_takes_its_3_values() {
+        assert_eq!(parse("").pills, Pills::Square);
+        assert_eq!(parse("pills = \"round\"").pills, Pills::Round);
+        assert_eq!(parse("pills = \"flat\"").pills, Pills::Flat);
     }
 
     #[test]

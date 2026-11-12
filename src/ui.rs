@@ -15,6 +15,7 @@ use ratatui::Frame;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::{App, Confirm, Step};
+use crate::config::Pills;
 use crate::create::{self, Choice};
 use crate::filter::Filter;
 use crate::model::{Status, TabSummary};
@@ -340,16 +341,17 @@ fn kind_text(kind: &str, app: &App) -> String {
     }
 }
 
-/// The ends of a rounded pill: half circles of a Nerd Font (feature nerd_font).
-const LEFT_CAP: &str = "\u{e0b6}";
-const RIGHT_CAP: &str = "\u{e0b4}";
-
-/// Round the ends of each span with a background: the filter, the crumb, the places of the action
-/// line. The first and the last space of the span become half circles: the width stays the same.
+/// The ends of each span with a background: the filter, the crumb, the places of the action line.
+/// The first and the last space of the span become the ends of the pill: the width stays the
+/// same. A cell gives only 2 forms of end: a half circle, or a straight side.
 fn round(spans: Vec<Span<'static>>, app: &App) -> Vec<Span<'static>> {
-    if !app.config.has("nerd_font") {
-        return spans;
-    }
+    let (left_cap, right_cap) = match app.config.pills {
+        Pills::Flat => return spans,
+        // Half blocks: a straight side at the middle of the cell.
+        Pills::Square => ("▐", "▌"),
+        // Half circles of a Nerd Font.
+        Pills::Round => ("\u{e0b6}", "\u{e0b4}"),
+    };
     let mut rounded = Vec::new();
     for span in spans {
         let background = span.style.bg.filter(|color| *color != Color::Reset);
@@ -361,9 +363,9 @@ fn round(spans: Vec<Span<'static>>, app: &App) -> Vec<Span<'static>> {
         ) {
             (Some(color), Some(inner)) => {
                 let cap = Style::new().fg(color);
-                rounded.push(Span::styled(LEFT_CAP, cap));
+                rounded.push(Span::styled(left_cap, cap));
                 rounded.push(Span::styled(inner.to_string(), span.style));
-                rounded.push(Span::styled(RIGHT_CAP, cap));
+                rounded.push(Span::styled(right_cap, cap));
             }
             _ => rounded.push(span),
         }

@@ -97,6 +97,9 @@ echo '{"auto_titles": false}' > ~/.config/herdr/plugins/config/herdr-bar/config.
 size = "default"   # "default": 74 % × 62 % of the window, like the other popups. "big": 90 % × 80 %.
 roots = ["~/Workspace", "~/projects", "~/src", "~/code", "~/dev", "~/repos"]   # the git projects, 2 levels deep
 preview = "full"   # "full": the 3 views of a worktree. "summary": one view.
+# The ends of the pills (the current filter, the crumb, the places of the action line).
+# "square": half blocks, square corners. "round": half circles of a Nerd Font. "flat": a space.
+pills = "square"
 # The optional features. Remove a name to turn its feature off.
 features = ["mouse", "rename_tab", "auto_titles", "agent_logos"]
 ```
@@ -108,9 +111,8 @@ curl -fsSL -o ~/Library/Fonts/HerdrAgentIconsMax-Regular.ttf \
   https://raw.githubusercontent.com/hhdebb/herdr-radar/main/dist/HerdrAgentIconsMax-Regular.ttf
 ```
 
-3 features are off by default. Add their names to `features` to turn them on:
+2 features are off by default. Add their names to `features` to turn them on:
 
-- `nerd_font`: the pills, the crumb and the current filter get round ends, like the mockup. The terminal font must be a Nerd Font.
 - `pane_rows`: the filter Panes, with one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
 - `running_time`: the running time of each agent and of each command, at the right of its row: `47s`, `12m`, `2h04m`, `3d`. A thread reads it in the background, one time for each pane: `herdr pane process-info`, then `ps`. The times show some time after the popup opens.
 

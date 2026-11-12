@@ -2,6 +2,16 @@
 
 **One bar to go to an agent, a tab or a workspace of [herdr](https://herdr.dev), and to create a tab or a worktree.**
 
+## Installation
+
+Install a release: give its tag, from the [releases](https://github.com/owpac/herdr-omnibar/releases) page.
+
+```sh
+herdr plugin install owpac/herdr-omnibar --ref <tag>
+```
+
+The install downloads the release binary for your machine, and checks it with the `SHA256SUMS` file of the release. Without a binary for your machine, the install builds it with cargo (Rust 1.89 or later). Without `--ref`, herdr installs the last commit of `main`. If this commit is not a release commit, the install builds with cargo. Then bind the actions to your keys (see [Actions](#actions)).
+
 ## The 2 doors
 
 - **`open`** goes to what exists. The list has the agents that need you first, then the other agents, the tabs without an agent, the worktrees of the current project, the other workspaces and the git projects. `↵` goes to the selected row. If you type a text, the last row is `create “<text>”…`: `↵` on it starts the creation in the current place, with this text as the name. A branch of the current project shows the git state of its worktree: `✓` no change, `●` changes that are not committed, `○` no worktree. Its right column tells if its workspace is open, and the age of its last commit.
@@ -150,6 +160,10 @@ shellcheck scripts/*.sh
 ```
 
 `herdr-omnibar list` prints the workspaces, the agents and the tabs, as the popup sees them. `herdr-omnibar titles` prints the renames of the watcher of the titles.
+
+## Release
+
+Each push to `main` updates the pull request "chore: release YYYY.M.N": it writes the version and the section of `CHANGELOG.md` (git-cliff). The workflow release-merge merges it each day at 19:00 UTC, if all the checks pass: convert it to a draft to stop it. After the merge, the workflow release tags the commit, builds the binaries for Linux and macOS (x86_64 and aarch64), and publishes the release with their `SHA256SUMS`. A GitHub App opens and merges the pull request: its events start the checks, like the events of a person.
 
 ## License
 

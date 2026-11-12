@@ -494,7 +494,7 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
     ratatui::restore();
     match outcome? {
         Outcome::Go(item) => go(&item).map_err(|error| error.to_string()),
-        Outcome::Create(plan) => create::execute(&plan),
+        Outcome::Create(plan) => create::execute_detached(&plan),
         Outcome::Quit | Outcome::Continue => Ok(()),
     }
 }

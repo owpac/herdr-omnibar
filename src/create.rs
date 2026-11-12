@@ -7,9 +7,12 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
 
 use crate::herdr;
 use crate::places::{Branch, Place};
@@ -80,7 +83,7 @@ pub fn choices(place: &Place, name: &str, branches: &[Branch], open: &[Place]) -
 }
 
 /// What the omnibar does after the popup closes.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
     NewTab {
         workspace_id: String,
@@ -102,7 +105,7 @@ pub enum Action {
 }
 
 /// A creation: its action, the name of the tab, the agent, and the flag without prompts.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plan {
     pub action: Action,
     pub name: String,
@@ -176,6 +179,39 @@ pub fn no_prompt_arguments(agent: &str) -> &'static [&'static str] {
         "codex" => &["--dangerously-bypass-approvals-and-sandbox"],
         _ => &[],
     }
+}
+
+/// The variable that gives the plan (JSON) to the detached process `execute`.
+pub const PLAN_VARIABLE: &str = "OMNIBAR_PLAN";
+
+/// Run a plan in a detached process, then return at once: the popup closes now. A creation can
+/// take some seconds (wt, the start of the agent): a popup that waits shows a black screen and
+/// takes no key.
+pub fn execute_detached(plan: &Plan) -> Result<(), String> {
+    let executable =
+        env::current_exe().map_err(|error| format!("cannot find the binary: {error}"))?;
+    let json = serde_json::to_string(plan).map_err(|error| error.to_string())?;
+    Command::new(executable)
+        .arg("execute")
+        .env(PLAN_VARIABLE, json)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map_err(|error| format!("cannot start the creation: {error}"))?;
+    Ok(())
+}
+
+/// The detached process `execute`: run the plan of OMNIBAR_PLAN. The popup is closed: an error
+/// goes to a herdr notification.
+pub fn execute_from_environment() -> Result<(), String> {
+    let json = env::var(PLAN_VARIABLE).map_err(|_| format!("{PLAN_VARIABLE} is missing"))?;
+    let plan: Plan =
+        serde_json::from_str(&json).map_err(|error| format!("{PLAN_VARIABLE}: {error}"))?;
+    execute(&plan).inspect_err(|error| {
+        let _ = herdr::show_notification("herdr-omnibar: the creation failed", error);
+    })
 }
 
 /// Run a plan: create the tab, the workspace or the worktree, then start the agent in its pane.
@@ -458,6 +494,17 @@ mod tests {
         .unwrap();
         let name = agent_name(&plan);
         assert!(name.starts_with("claude-review-the-omnibar-"), "{name}");
+    }
+
+    #[test]
+    fn a_plan_goes_through_json_to_the_detached_process() {
+        let atlas = workspace("atlas", "/work/atlas", "w1", Some("/work/atlas"));
+        let choice = Choice::NewWorktree {
+            branch: "fix-login".into(),
+        };
+        let plan = plan(&atlas, &choice, "fix-login", "codex", true).unwrap();
+        let json = serde_json::to_string(&plan).unwrap();
+        assert_eq!(serde_json::from_str::<Plan>(&json).unwrap(), plan);
     }
 
     #[test]

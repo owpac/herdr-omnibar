@@ -22,7 +22,7 @@ use std::process::ExitCode;
 
 use filter::Filter;
 
-const USAGE: &str = "usage: herdr-omnibar open <filter> | run | keys | list | --version
+const USAGE: &str = "usage: herdr-omnibar open <filter> | run | execute | keys | list | --version
 filters: all, new, agents, tabs, worktrees, folders, actions, keys";
 
 /// The variable that gives the filter of the popup.
@@ -37,6 +37,7 @@ fn main() -> ExitCode {
         Some("run") => run(),
         Some("keys") => keys::run().map_err(|error| error.to_string()),
         Some("list") => list(),
+        Some("execute") => create::execute_from_environment(),
         Some("--version") => {
             println!("herdr-omnibar {}", env!("CARGO_PKG_VERSION"));
             Ok(())

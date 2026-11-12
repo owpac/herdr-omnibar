@@ -3,6 +3,7 @@
 //!
 //! ```toml
 //! size = "default"   # "default": 74 % × 62 % of the window. "big": 90 % × 80 %.
+//! roots = ["~/Workspace"]   # the folders of the projects, 2 levels deep
 //! ```
 //!
 //! A missing file, a missing key or a wrong value gives the default.
@@ -33,9 +34,23 @@ impl Size {
 }
 
 /// The options of the plugin.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub size: Size,
+    /// The folders where the omnibar looks for the git projects.
+    pub roots: Vec<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            size: Size::Default,
+            roots: crate::places::DEFAULT_ROOTS
+                .iter()
+                .map(|root| root.to_string())
+                .collect(),
+        }
+    }
 }
 
 /// The keys of config.toml. An unknown key stays without an effect.
@@ -43,6 +58,7 @@ pub struct Config {
 #[serde(default)]
 struct File {
     size: Option<String>,
+    roots: Option<Vec<String>>,
 }
 
 /// The config folder of the plugin.
@@ -68,11 +84,13 @@ pub fn load(folder: &Path) -> Config {
 
 fn parse(text: &str) -> Config {
     let file: File = toml::from_str(text).unwrap_or_default();
+    let defaults = Config::default();
     Config {
         size: match file.size.as_deref() {
             Some("big") => Size::Big,
             _ => Size::Default,
         },
+        roots: file.roots.unwrap_or(defaults.roots),
     }
 }
 
@@ -95,6 +113,12 @@ mod tests {
     fn a_wrong_value_gives_the_default() {
         assert_eq!(parse("size = 3").size, Size::Default);
         assert_eq!(parse("size = \"huge\"").size, Size::Default);
+    }
+
+    #[test]
+    fn roots_replace_the_default_roots() {
+        assert_eq!(parse("roots = [\"~/code\"]").roots, ["~/code"]);
+        assert!(parse("").roots.contains(&"~/Workspace".to_string()));
     }
 
     #[test]

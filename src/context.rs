@@ -31,6 +31,11 @@ impl Context {
         Context::parse(&env::var(CONTEXT_JSON_VARIABLE).unwrap_or_default())
     }
 
+    /// The context of the action that opened the popup: the action gives it in OMNIBAR_CONTEXT.
+    pub fn of_popup() -> Context {
+        Context::parse(&env::var(crate::CONTEXT_VARIABLE).unwrap_or_default())
+    }
+
     /// The context in a JSON text. A text that is not a context gives an empty context.
     pub fn parse(text: &str) -> Context {
         serde_json::from_str(text).unwrap_or_default()

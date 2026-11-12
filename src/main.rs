@@ -7,11 +7,13 @@
 mod app;
 mod config;
 mod context;
+mod create;
 mod filter;
 mod fuzzy;
 mod herdr;
 mod keys;
 mod model;
+mod places;
 mod rows;
 mod ui;
 
@@ -122,5 +124,5 @@ fn run() -> Result<(), String> {
         .ok()
         .and_then(|name| Filter::parse(&name))
         .unwrap_or(Filter::All);
-    app::run(filter)
+    app::run(filter, context::Context::of_popup())
 }

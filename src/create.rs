@@ -1,0 +1,475 @@
+//! The creation of a tab or a worktree: the choices of the step "what", the plan of a choice, and
+//! its execution after the popup closes.
+//!
+//! A worktree always gets its own workspace: `wt switch --create`, then `herdr worktree open`. A
+//! tab goes into the workspace of the place, or into a new workspace for a place without one.
+
+use std::collections::HashMap;
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::herdr;
+use crate::places::{Branch, Place};
+
+/// A choice of the step "what". The name is the text of the step.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Choice {
+    /// A new branch and its worktree, in its own workspace.
+    NewWorktree { branch: String },
+    /// A branch that exists: go to its workspace, or open its worktree.
+    Existing {
+        branch: String,
+        worktree: Option<PathBuf>,
+        workspace_id: Option<String>,
+    },
+    /// A new tab in the workspace of the place.
+    NewTab,
+    /// A new workspace for a place without one, with its first tab.
+    NewWorkspace,
+    /// Go back to the step "where".
+    AnotherPlace,
+}
+
+/// True for a valid name of a new git branch.
+pub fn is_branch_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    let first_ok = characters.next().is_some_and(|c| c.is_ascii_alphanumeric());
+    first_ok
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._/-".contains(c))
+        && !name.contains("..")
+        && !name.contains("//")
+        && !name.ends_with('/')
+        && !name.ends_with(".lock")
+}
+
+/// The choices for a place and a name. In a git project, the worktree comes first.
+pub fn choices(place: &Place, name: &str, branches: &[Branch], open: &[Place]) -> Vec<Choice> {
+    let mut out = Vec::new();
+    if place.main.is_some() {
+        let name = name.trim();
+        match branches
+            .iter()
+            .find(|branch| !name.is_empty() && branch.name == name)
+        {
+            Some(branch) => out.push(Choice::Existing {
+                branch: branch.name.clone(),
+                worktree: branch.worktree.clone(),
+                workspace_id: branch.worktree.as_ref().and_then(|worktree| {
+                    open.iter()
+                        .find(|other| &other.folder == worktree)
+                        .and_then(|other| other.workspace_id.clone())
+                }),
+            }),
+            None => out.push(Choice::NewWorktree {
+                branch: name.to_string(),
+            }),
+        }
+    }
+    out.push(if place.workspace_id.is_some() {
+        Choice::NewTab
+    } else {
+        Choice::NewWorkspace
+    });
+    out.push(Choice::AnotherPlace);
+    out
+}
+
+/// What the omnibar does after the popup closes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Action {
+    NewTab {
+        workspace_id: String,
+        folder: PathBuf,
+    },
+    NewWorkspace {
+        folder: PathBuf,
+        label: String,
+    },
+    /// wt switch, with --create for a new branch, then the workspace of the worktree.
+    Worktree {
+        main: PathBuf,
+        branch: String,
+        create: bool,
+    },
+    Focus {
+        workspace_id: String,
+    },
+}
+
+/// A creation: its action, the name of the tab, the agent, and the flag without prompts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Plan {
+    pub action: Action,
+    pub name: String,
+    pub agent: String,
+    pub no_prompts: bool,
+    /// The folder that remembers the agent.
+    pub folder: PathBuf,
+}
+
+/// The plan of a choice, or None if the choice cannot run (no branch name, a wrong name).
+pub fn plan(
+    place: &Place,
+    choice: &Choice,
+    name: &str,
+    agent: &str,
+    no_prompts: bool,
+) -> Option<Plan> {
+    let name = name.trim().to_string();
+    let action = match choice {
+        Choice::NewWorktree { branch } if is_branch_name(branch) => Action::Worktree {
+            main: place.main.clone()?,
+            branch: branch.clone(),
+            create: true,
+        },
+        Choice::NewWorktree { .. } | Choice::AnotherPlace => return None,
+        Choice::Existing {
+            workspace_id: Some(workspace_id),
+            ..
+        } => Action::Focus {
+            workspace_id: workspace_id.clone(),
+        },
+        Choice::Existing { branch, .. } => Action::Worktree {
+            main: place.main.clone()?,
+            branch: branch.clone(),
+            create: false,
+        },
+        Choice::NewTab => Action::NewTab {
+            workspace_id: place.workspace_id.clone()?,
+            folder: place.folder.clone(),
+        },
+        Choice::NewWorkspace => Action::NewWorkspace {
+            folder: place.folder.clone(),
+            label: place.label.clone(),
+        },
+    };
+    Some(Plan {
+        action,
+        name,
+        agent: agent.to_string(),
+        no_prompts,
+        folder: place.folder.clone(),
+    })
+}
+
+/// The agents on the PATH, then "shell".
+pub fn installed_agents() -> Vec<String> {
+    let path = env::var_os("PATH").unwrap_or_default();
+    let mut agents: Vec<String> = ["claude", "codex", "opencode"]
+        .into_iter()
+        .filter(|agent| env::split_paths(&path).any(|folder| folder.join(agent).is_file()))
+        .map(str::to_string)
+        .collect();
+    agents.push("shell".to_string());
+    agents
+}
+
+/// The arguments of an agent that start it without its permission prompts.
+pub fn no_prompt_arguments(agent: &str) -> &'static [&'static str] {
+    match agent {
+        "claude" => &["--dangerously-skip-permissions"],
+        "codex" => &["--dangerously-bypass-approvals-and-sandbox"],
+        _ => &[],
+    }
+}
+
+/// Run a plan: create the tab, the workspace or the worktree, then start the agent in its pane.
+pub fn execute(plan: &Plan) -> Result<(), String> {
+    let text = |error: herdr::Error| error.to_string();
+    let pane = match &plan.action {
+        Action::Focus { workspace_id } => {
+            return herdr::focus_workspace(workspace_id).map_err(text);
+        }
+        Action::NewTab {
+            workspace_id,
+            folder,
+        } => {
+            let label = (!plan.name.is_empty()).then_some(plan.name.as_str());
+            herdr::create_tab(workspace_id, folder, label).map_err(text)?
+        }
+        Action::NewWorkspace { folder, label } => {
+            let (tab, pane) = herdr::create_workspace(folder, label).map_err(text)?;
+            if !plan.name.is_empty() {
+                herdr::rename_tab(&tab, &plan.name).map_err(text)?;
+            }
+            pane
+        }
+        Action::Worktree {
+            main,
+            branch,
+            create,
+        } => {
+            let worktree = wt_switch(main, branch, *create)?;
+            herdr::open_worktree(main, &worktree).map_err(text)?
+        }
+    };
+    remember_agent(&plan.folder, &plan.agent);
+    if plan.agent == "shell" {
+        return Ok(());
+    }
+    let arguments = if plan.no_prompts {
+        no_prompt_arguments(&plan.agent)
+    } else {
+        &[]
+    };
+    herdr::start_agent(&agent_name(plan), &plan.agent, &pane, arguments).map_err(text)
+}
+
+/// A name for herdr agent start: the agent, the name or the branch, and a number.
+fn agent_name(plan: &Plan) -> String {
+    let base = match &plan.action {
+        Action::Worktree { branch, .. } => branch.clone(),
+        _ if !plan.name.is_empty() => plan.name.clone(),
+        _ => plan
+            .folder
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    };
+    let slug: String = base
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let number = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|time| time.as_millis() % 10_000)
+        .unwrap_or(0);
+    format!(
+        "{}-{}-{number}",
+        plan.agent,
+        slug.chars().take(24).collect::<String>()
+    )
+}
+
+/// wt switch, without a terminal: return the folder of the worktree. The hooks of wt run.
+fn wt_switch(main: &Path, branch: &str, create: bool) -> Result<PathBuf, String> {
+    let mut command = Command::new("wt");
+    command.arg("-C").arg(main).arg("switch");
+    if create {
+        command.arg("--create");
+    }
+    let output = command
+        .args([branch, "--no-cd", "--format", "json"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("cannot run wt: {error}"))?;
+    if !output.status.success() {
+        let details = String::from_utf8_lossy(&output.stderr);
+        let last = details
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("no message");
+        return Err(format!("wt switch {branch}: {}", last.trim()));
+    }
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("wt switch: invalid JSON: {error}"))?;
+    result["path"]
+        .as_str()
+        .map(PathBuf::from)
+        .ok_or_else(|| "wt switch gave no path".to_string())
+}
+
+/// The file that keeps the last agent of each folder, in the state folder of the plugin.
+fn agents_file() -> Option<PathBuf> {
+    env::var_os("HERDR_PLUGIN_STATE_DIR").map(|folder| PathBuf::from(folder).join("agents.json"))
+}
+
+fn read_agents(file: &Path) -> HashMap<String, String> {
+    fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// The last agent of a folder, if the omnibar knows it.
+pub fn remembered_agent(folder: &Path) -> Option<String> {
+    let file = agents_file()?;
+    read_agents(&file)
+        .get(&folder.display().to_string())
+        .cloned()
+}
+
+fn remember_agent(folder: &Path, agent: &str) {
+    let Some(file) = agents_file() else {
+        return;
+    };
+    let mut agents = read_agents(&file);
+    agents.insert(folder.display().to_string(), agent.to_string());
+    if let Ok(text) = serde_json::to_string_pretty(&agents) {
+        let _ = fs::create_dir_all(file.parent().unwrap_or(Path::new(".")));
+        let _ = fs::write(&file, text);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::places::Kind;
+
+    fn workspace(label: &str, folder: &str, id: &str, main: Option<&str>) -> Place {
+        Place {
+            kind: Kind::Workspace,
+            label: label.into(),
+            project: label.into(),
+            folder: folder.into(),
+            workspace_id: Some(id.into()),
+            main: main.map(PathBuf::from),
+            tabs: Vec::new(),
+        }
+    }
+
+    fn branches() -> Vec<Branch> {
+        vec![
+            Branch {
+                name: "main".into(),
+                worktree: Some("/work/atlas".into()),
+            },
+            Branch {
+                name: "fix-login".into(),
+                worktree: Some("/work/atlas.fix-login".into()),
+            },
+            Branch {
+                name: "old".into(),
+                worktree: None,
+            },
+        ]
+    }
+
+    #[test]
+    fn a_branch_name_has_no_space_and_no_double_dot() {
+        assert!(is_branch_name("fix-login"));
+        assert!(is_branch_name("feat/omnibar.v2"));
+        assert!(!is_branch_name("review the omnibar"));
+        assert!(!is_branch_name("a..b"));
+        assert!(!is_branch_name("-x"));
+        assert!(!is_branch_name(""));
+    }
+
+    #[test]
+    fn in_a_project_the_worktree_comes_first_then_the_tab() {
+        let atlas = workspace("atlas", "/work/atlas", "w1", Some("/work/atlas"));
+        assert_eq!(
+            choices(&atlas, "notes", &branches(), &[]),
+            [
+                Choice::NewWorktree {
+                    branch: "notes".into()
+                },
+                Choice::NewTab,
+                Choice::AnotherPlace
+            ]
+        );
+    }
+
+    #[test]
+    fn a_branch_that_exists_goes_to_its_workspace() {
+        let atlas = workspace("atlas", "/work/atlas", "w1", Some("/work/atlas"));
+        let fix = workspace(
+            "atlas ▸ fix-login",
+            "/work/atlas.fix-login",
+            "w2",
+            Some("/work/atlas"),
+        );
+        let choice = &choices(&atlas, "fix-login", &branches(), &[atlas.clone(), fix])[0];
+        assert_eq!(
+            choice,
+            &Choice::Existing {
+                branch: "fix-login".into(),
+                worktree: Some("/work/atlas.fix-login".into()),
+                workspace_id: Some("w2".into())
+            }
+        );
+        let plan = plan(&atlas, choice, "fix-login", "claude", false).unwrap();
+        assert_eq!(
+            plan.action,
+            Action::Focus {
+                workspace_id: "w2".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_branch_without_worktree_opens_it_with_wt() {
+        let atlas = workspace("atlas", "/work/atlas", "w1", Some("/work/atlas"));
+        let choice = &choices(&atlas, "old", &branches(), &[])[0];
+        let plan = plan(&atlas, choice, "old", "codex", false).unwrap();
+        assert_eq!(
+            plan.action,
+            Action::Worktree {
+                main: "/work/atlas".into(),
+                branch: "old".into(),
+                create: false
+            }
+        );
+    }
+
+    #[test]
+    fn a_folder_outside_git_gets_a_workspace_and_no_worktree() {
+        let notes = Place {
+            kind: Kind::Folder,
+            label: "notes".into(),
+            project: "notes".into(),
+            folder: "/notes".into(),
+            workspace_id: None,
+            main: None,
+            tabs: Vec::new(),
+        };
+        assert_eq!(
+            choices(&notes, "draft", &[], &[]),
+            [Choice::NewWorkspace, Choice::AnotherPlace]
+        );
+    }
+
+    #[test]
+    fn a_wrong_branch_name_and_another_place_have_no_plan() {
+        let atlas = workspace("atlas", "/work/atlas", "w1", Some("/work/atlas"));
+        let wrong = Choice::NewWorktree {
+            branch: "review the omnibar".into(),
+        };
+        assert!(plan(&atlas, &wrong, "review the omnibar", "claude", false).is_none());
+        assert!(plan(&atlas, &Choice::AnotherPlace, "", "claude", false).is_none());
+    }
+
+    #[test]
+    fn the_agent_name_is_a_slug_with_a_number() {
+        let atlas = workspace("atlas", "/work/atlas", "w1", Some("/work/atlas"));
+        let plan = plan(
+            &atlas,
+            &Choice::NewTab,
+            "Review: the Omnibar!",
+            "claude",
+            false,
+        )
+        .unwrap();
+        let name = agent_name(&plan);
+        assert!(name.starts_with("claude-review-the-omnibar-"), "{name}");
+    }
+
+    #[test]
+    fn no_prompts_has_a_flag_for_claude_and_codex_only() {
+        assert_eq!(
+            no_prompt_arguments("claude"),
+            ["--dangerously-skip-permissions"]
+        );
+        assert_eq!(
+            no_prompt_arguments("codex"),
+            ["--dangerously-bypass-approvals-and-sandbox"]
+        );
+        assert!(no_prompt_arguments("shell").is_empty());
+    }
+}

@@ -1,7 +1,11 @@
 //! The popup: its state, its keys and its loop.
 //!
 //! The loop draws the popup, waits for a key, and reads the herdr snapshot again every 1.5 s. Enter
-//! closes the popup, then goes to the selected row.
+//! closes the popup, then goes to the selected row, or runs the creation.
+//!
+//! The filter New is the creation, in 2 steps. The step "where" chooses a place: the text is a
+//! filter. The step "what" chooses what to create there: the text is the name of the tab or of the
+//! branch. The text is never both.
 
 use std::collections::HashMap;
 use std::io;
@@ -14,25 +18,79 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::{execute, terminal};
 
+use crate::config::{self, Config};
+use crate::context::Context;
+use crate::create::{self, Choice, Plan};
 use crate::filter::Filter;
 use crate::herdr;
 use crate::model::{self, Checkout, Model};
+use crate::places::{self, Branch, Place};
 use crate::rows::{self, Item, Line};
 use crate::ui;
 
 /// The time between 2 reads of the herdr snapshot.
 const REFRESH: Duration = Duration::from_millis(1500);
 
+/// The step of a creation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    Where,
+    What,
+}
+
+/// The state of a creation.
+#[derive(Clone, Debug)]
+pub struct Create {
+    pub step: Step,
+    /// The place of the step "what".
+    pub place: Option<Place>,
+    /// The text of the step "where": a filter.
+    pub filter: String,
+    /// The text of the step "what": the name of the tab or of the branch.
+    pub name: String,
+    /// The agent of the creation, if the user changed it with Tab.
+    pub agent: Option<String>,
+    pub no_prompts: bool,
+    /// The local branches of the git project of the place.
+    pub branches: Vec<Branch>,
+}
+
+impl Create {
+    fn new() -> Create {
+        Create {
+            step: Step::Where,
+            place: None,
+            filter: String::new(),
+            name: String::new(),
+            agent: None,
+            no_prompts: false,
+            branches: Vec::new(),
+        }
+    }
+}
+
 /// The state of the popup.
 pub struct App {
     pub model: Model,
     pub filter: Filter,
+    /// The text of the filters that go somewhere.
     pub query: String,
     pub lines: Vec<Line>,
     /// The index in `lines` of the selected row.
     pub selected: Option<usize>,
     pub preview: bool,
     pub help: bool,
+    pub create: Create,
+    /// The open workspaces, as places.
+    pub open: Vec<Place>,
+    /// The places without a workspace: projects and folders.
+    pub others: Vec<Place>,
+    /// The workspace of the context: the current place.
+    pub current: Option<String>,
+    /// The agents on the PATH, then "shell".
+    pub agents: Vec<String>,
+    /// The branches of the current project, for the filter Worktrees.
+    current_branches: Option<Vec<Branch>>,
     /// The text of each pane that the preview has read, by pane id.
     previews: HashMap<String, String>,
 }
@@ -43,10 +101,18 @@ pub enum Outcome {
     Continue,
     Quit,
     Go(Item),
+    Create(Plan),
 }
 
 impl App {
-    pub fn new(model: Model, filter: Filter) -> App {
+    pub fn new(
+        model: Model,
+        filter: Filter,
+        others: Vec<Place>,
+        current: Option<String>,
+        agents: Vec<String>,
+    ) -> App {
+        let open = places::workspaces(&model);
         let mut app = App {
             model,
             filter,
@@ -55,23 +121,99 @@ impl App {
             selected: None,
             preview: true,
             help: false,
+            create: Create::new(),
+            open,
+            others,
+            current,
+            agents,
+            current_branches: None,
             previews: HashMap::new(),
         };
         app.rebuild(None);
         app
     }
 
+    /// The text of the search line: the query, or the text of the step of the creation.
+    pub fn text(&self) -> &str {
+        match (self.filter, self.create.step) {
+            (Filter::New, Step::Where) => &self.create.filter,
+            (Filter::New, Step::What) => &self.create.name,
+            _ => &self.query,
+        }
+    }
+
+    fn text_mut(&mut self) -> &mut String {
+        match (self.filter, self.create.step) {
+            (Filter::New, Step::Where) => &mut self.create.filter,
+            (Filter::New, Step::What) => &mut self.create.name,
+            _ => &mut self.query,
+        }
+    }
+
+    /// The place of the current workspace.
+    pub fn current_place(&self) -> Option<&Place> {
+        let current = self.current.as_deref()?;
+        self.open
+            .iter()
+            .find(|place| place.workspace_id.as_deref() == Some(current))
+    }
+
     /// Build the lines again. The selection stays on the row with this key, if it is still there.
     fn rebuild(&mut self, keep: Option<String>) {
-        self.lines = rows::build(&self.model, self.filter, &self.query);
+        self.lines = match (self.filter, self.create.step) {
+            (Filter::New, Step::Where) => rows::where_lines(
+                &self.open,
+                &self.others,
+                self.current.as_deref(),
+                &self.create.filter,
+            ),
+            (Filter::New, Step::What) => match &self.create.place {
+                Some(place) => rows::what_lines(
+                    place,
+                    create::choices(place, &self.create.name, &self.create.branches, &self.open),
+                ),
+                None => Vec::new(),
+            },
+            (Filter::Worktrees, _) => {
+                let project = self
+                    .current_place()
+                    .map(|place| place.project.clone())
+                    .unwrap_or_default();
+                let branches = self.current_branches();
+                rows::worktree_lines(&branches, &self.open, &project, &self.query)
+            }
+            _ => rows::build(&self.model, &self.others, self.filter, &self.query),
+        };
         let rows = self.row_indices();
-        self.selected = keep
+        let mut selected = keep
             .and_then(|key| {
                 rows.iter().copied().find(
                     |&index| matches!(&self.lines[index], Line::Row { item, .. } if item.key() == key),
                 )
             })
             .or_else(|| rows.first().copied());
+        // A name that is not a branch name selects the next choice: the new tab.
+        if let (Some(index), true) = (selected, self.filter == Filter::New) {
+            if let Line::Row {
+                item: Item::Choice(Choice::NewWorktree { branch }),
+                ..
+            } = &self.lines[index]
+            {
+                if !branch.is_empty() && !create::is_branch_name(branch) {
+                    selected = rows.get(1).copied().or(selected);
+                }
+            }
+        }
+        self.selected = selected;
+    }
+
+    /// The branches of the current project, read one time.
+    fn current_branches(&mut self) -> Vec<Branch> {
+        if self.current_branches.is_none() {
+            let main = self.current_place().and_then(|place| place.main.clone());
+            self.current_branches = Some(main.as_deref().map(places::branches).unwrap_or_default());
+        }
+        self.current_branches.clone().unwrap_or_default()
     }
 
     fn row_indices(&self) -> Vec<usize> {
@@ -93,6 +235,7 @@ impl App {
     /// Take a new model: the snapshot changed.
     pub fn update_model(&mut self, model: Model) {
         let key = self.selected_item().map(Item::key);
+        self.open = places::workspaces(&model);
         self.model = model;
         self.previews.clear();
         self.rebuild(key);
@@ -112,6 +255,9 @@ impl App {
     }
 
     fn set_filter(&mut self, filter: Filter) {
+        if filter == Filter::New && self.filter != Filter::New {
+            self.create = Create::new();
+        }
         self.filter = filter;
         self.rebuild(None);
     }
@@ -126,13 +272,120 @@ impl App {
     }
 
     fn edit(&mut self, change: impl FnOnce(&mut String)) {
-        change(&mut self.query);
+        change(self.text_mut());
         self.rebuild(None);
+    }
+
+    /// The agent of the creation: the agent that the user chose, else the last agent of the
+    /// place, else the agent of its tabs, else the first agent on the PATH.
+    pub fn agent(&self) -> String {
+        if let Some(agent) = &self.create.agent {
+            return agent.clone();
+        }
+        let place = self.create.place.as_ref().or_else(|| self.current_place());
+        let remembered = place.and_then(|place| create::remembered_agent(&place.folder));
+        let from_tabs = place.and_then(|place| place.tabs.iter().find_map(|tab| tab.agent.clone()));
+        remembered
+            .or(from_tabs)
+            .filter(|agent| self.agents.contains(agent))
+            .or_else(|| self.agents.first().cloned())
+            .unwrap_or_else(|| "shell".to_string())
+    }
+
+    fn cycle_agent(&mut self) {
+        let current = self.agent();
+        let at = self
+            .agents
+            .iter()
+            .position(|agent| *agent == current)
+            .unwrap_or(0);
+        self.create.agent = self
+            .agents
+            .get((at + 1) % self.agents.len().max(1))
+            .cloned();
+    }
+
+    /// Choose a place: go to the step "what". The name stays.
+    fn choose_place(&mut self, place: Place) {
+        self.create.branches = place
+            .main
+            .as_deref()
+            .map(places::branches)
+            .unwrap_or_default();
+        self.create.place = Some(place);
+        self.create.step = Step::What;
+        self.create.agent = None;
+        self.rebuild(None);
+    }
+
+    fn back_to_where(&mut self) {
+        self.create.step = Step::Where;
+        self.create.filter.clear();
+        let key = self
+            .create
+            .place
+            .as_ref()
+            .map(|place| format!("place:{}", place.key()));
+        self.rebuild(key);
+    }
+
+    /// The plan of a choice for a place.
+    fn plan(&self, place: &Place, choice: &Choice, name: &str) -> Option<Plan> {
+        create::plan(place, choice, name, &self.agent(), self.create.no_prompts)
+    }
+
+    /// Enter on the selected row.
+    fn enter(&mut self) -> Outcome {
+        let Some(item) = self.selected_item().cloned() else {
+            return Outcome::Continue;
+        };
+        match (self.filter, item) {
+            (_, Item::Place(place)) => {
+                if self.filter != Filter::New {
+                    self.filter = Filter::New;
+                    self.create = Create::new();
+                }
+                self.choose_place(place);
+                Outcome::Continue
+            }
+            (Filter::New, Item::Choice(Choice::AnotherPlace)) => {
+                self.back_to_where();
+                Outcome::Continue
+            }
+            (Filter::New, Item::Choice(choice)) => {
+                let Some(place) = self.create.place.clone() else {
+                    return Outcome::Continue;
+                };
+                match self.plan(&place, &choice, &self.create.name.clone()) {
+                    Some(plan) => Outcome::Create(plan),
+                    None => Outcome::Continue,
+                }
+            }
+            (_, Item::Choice(choice)) => {
+                // The filter Worktrees: the place is the current workspace.
+                let Some(place) = self.current_place().cloned() else {
+                    return Outcome::Continue;
+                };
+                let name = match &choice {
+                    Choice::NewWorktree { branch } | Choice::Existing { branch, .. } => {
+                        branch.clone()
+                    }
+                    _ => String::new(),
+                };
+                match self.plan(&place, &choice, &name) {
+                    Some(plan) => Outcome::Create(plan),
+                    None => Outcome::Continue,
+                }
+            }
+            (_, item) => Outcome::Go(item),
+        }
     }
 
     pub fn on_key(&mut self, key: KeyEvent) -> Outcome {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let creating = self.filter == Filter::New;
+        let what = creating && self.create.step == Step::What;
         if self.help {
             self.help = false;
             if matches!(key.code, KeyCode::Esc | KeyCode::Char('?') | KeyCode::F(1)) {
@@ -140,28 +393,32 @@ impl App {
             }
         }
         match key.code {
+            KeyCode::Esc if what => self.back_to_where(),
             KeyCode::Esc => return Outcome::Quit,
             KeyCode::Char('c' | 'g') if ctrl => return Outcome::Quit,
-            KeyCode::Enter => {
-                return self
-                    .selected_item()
-                    .cloned()
-                    .map(Outcome::Go)
-                    .unwrap_or(Outcome::Continue)
-            }
+            KeyCode::Enter => return self.enter(),
             KeyCode::Up => self.move_by(-1),
             KeyCode::Down => self.move_by(1),
             KeyCode::Char('p' | 'k') if ctrl => self.move_by(-1),
             KeyCode::Char('n' | 'j') if ctrl => self.move_by(1),
             KeyCode::PageUp => self.move_by(-8),
             KeyCode::PageDown => self.move_by(8),
+            KeyCode::Left if what && self.create.name.is_empty() => self.back_to_where(),
+            KeyCode::Tab if what => self.cycle_agent(),
+            KeyCode::Tab if creating && rows::is_path(&self.create.filter) => {
+                if let Some(completed) = rows::complete_path(&self.create.filter, &self.lines) {
+                    self.create.filter = completed;
+                    self.rebuild(None);
+                }
+            }
             KeyCode::Tab => self.cycle_filter(1),
             KeyCode::BackTab => self.cycle_filter(-1),
+            KeyCode::Char('y') if ctrl && what => self.create.no_prompts = !self.create.no_prompts,
             KeyCode::Char('o') if ctrl => self.preview = !self.preview,
             KeyCode::Char('u') if ctrl => self.edit(String::clear),
             KeyCode::Char('w') if ctrl => self.edit(delete_word),
-            KeyCode::Backspace => self.edit(|query| {
-                query.pop();
+            KeyCode::Backspace => self.edit(|text| {
+                text.pop();
             }),
             KeyCode::F(1) => self.help = true,
             KeyCode::Char(character) if !ctrl && !alt => {
@@ -171,12 +428,13 @@ impl App {
                     '>' => Some(Filter::Actions),
                     _ => None,
                 };
-                if self.query.is_empty() && character == '?' {
+                let empty = self.text().is_empty();
+                if empty && character == '?' {
                     self.help = true;
-                } else if let (true, Some(filter)) = (self.query.is_empty(), shortcut) {
+                } else if let (true, false, Some(filter)) = (empty, creating, shortcut) {
                     self.set_filter(filter);
                 } else {
-                    self.edit(|query| query.push(character));
+                    self.edit(|text| text.push(character));
                 }
             }
             _ => {}
@@ -190,7 +448,7 @@ impl App {
         let pane = match self.selected_item()? {
             Item::Agent(agent) => Some(agent.pane_id.clone()),
             Item::Tab(tab) => tab.pane_id.clone(),
-            Item::Workspace(_) => None,
+            _ => None,
         }?;
         let text = self.previews.entry(pane.clone()).or_insert_with(|| {
             herdr::read_pane(&pane, lines).unwrap_or_else(|error| error.to_string())
@@ -209,11 +467,18 @@ fn delete_word(text: &mut String) {
     text.truncate(start);
 }
 
-/// Run the popup on a filter.
-pub fn run(filter: Filter) -> Result<(), String> {
+/// Run the popup on a filter, in the context of the action.
+pub fn run(filter: Filter, context: Context) -> Result<(), String> {
+    let config: Config = config::current();
     let mut cache: HashMap<PathBuf, Option<Checkout>> = HashMap::new();
     let model = model::load_cached(&mut cache).map_err(|error| error.to_string())?;
-    let mut app = App::new(model, filter);
+    let open = places::workspaces(&model);
+    let others = places::others(&config.roots, &open);
+    let current = context
+        .workspace_id
+        .clone()
+        .or(model.focused_workspace_id.clone());
+    let mut app = App::new(model, filter, others, current, create::installed_agents());
     let mut terminal = ratatui::init();
     let enhanced = terminal::supports_keyboard_enhancement().unwrap_or(false);
     if enhanced {
@@ -228,8 +493,9 @@ pub fn run(filter: Filter) -> Result<(), String> {
     }
     ratatui::restore();
     match outcome? {
-        Some(item) => go(&item).map_err(|error| error.to_string()),
-        None => Ok(()),
+        Outcome::Go(item) => go(&item).map_err(|error| error.to_string()),
+        Outcome::Create(plan) => create::execute(&plan),
+        Outcome::Quit | Outcome::Continue => Ok(()),
     }
 }
 
@@ -237,7 +503,7 @@ fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
     app: &mut App,
     cache: &mut HashMap<PathBuf, Option<Checkout>>,
-) -> Result<Option<Item>, String> {
+) -> Result<Outcome, String> {
     let mut last_read = Instant::now();
     loop {
         terminal
@@ -250,9 +516,8 @@ fn event_loop(
                     continue;
                 }
                 match app.on_key(key) {
-                    Outcome::Quit => return Ok(None),
-                    Outcome::Go(item) => return Ok(Some(item)),
                     Outcome::Continue => {}
+                    outcome => return Ok(outcome),
                 }
             }
         } else {
@@ -273,6 +538,7 @@ fn go(item: &Item) -> Result<(), herdr::Error> {
         }
         Item::Tab(tab) => herdr::focus_tab(&tab.tab_id),
         Item::Workspace(space) => herdr::focus_workspace(&space.workspace.workspace_id),
+        Item::Place(_) | Item::Choice(_) => Ok(()),
     }
 }
 
@@ -280,8 +546,25 @@ fn go(item: &Item) -> Result<(), herdr::Error> {
 mod tests {
     use super::*;
     use crate::model::{AgentRow, Status};
+    use crate::places::Kind;
 
-    fn app() -> App {
+    fn place(label: &str, workspace: Option<&str>, main: Option<&str>) -> Place {
+        Place {
+            kind: if workspace.is_some() {
+                Kind::Workspace
+            } else {
+                Kind::Project
+            },
+            label: label.into(),
+            project: label.into(),
+            folder: format!("/work/{label}").into(),
+            workspace_id: workspace.map(str::to_string),
+            main: main.map(PathBuf::from),
+            tabs: Vec::new(),
+        }
+    }
+
+    fn app(filter: Filter) -> App {
         let agents = ["fix the login", "omnibar design", "release notes"]
             .iter()
             .map(|name| AgentRow {
@@ -298,11 +581,29 @@ mod tests {
             agents,
             ..Model::default()
         };
-        App::new(model, Filter::All)
+        let mut app = App::new(
+            model,
+            filter,
+            vec![place("prompts", None, Some("/work/prompts"))],
+            Some("w1".into()),
+            vec!["claude".into(), "codex".into(), "shell".into()],
+        );
+        app.open = vec![
+            place("atlas", Some("w1"), None),
+            place("pac", Some("w2"), None),
+        ];
+        app.rebuild(None);
+        app
     }
 
     fn press(app: &mut App, code: KeyCode) -> Outcome {
         app.on_key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn type_text(app: &mut App, text: &str) {
+        for character in text.chars() {
+            press(app, KeyCode::Char(character));
+        }
     }
 
     fn selected_name(app: &App) -> String {
@@ -311,7 +612,7 @@ mod tests {
 
     #[test]
     fn the_first_row_is_selected_and_down_moves() {
-        let mut app = app();
+        let mut app = app(Filter::All);
         assert_eq!(selected_name(&app), "fix the login");
         press(&mut app, KeyCode::Down);
         assert_eq!(selected_name(&app), "omnibar design");
@@ -322,10 +623,8 @@ mod tests {
 
     #[test]
     fn typing_filters_and_enter_goes_to_the_selected_row() {
-        let mut app = app();
-        for character in "rel".chars() {
-            press(&mut app, KeyCode::Char(character));
-        }
+        let mut app = app(Filter::All);
+        type_text(&mut app, "rel");
         assert_eq!(selected_name(&app), "release notes");
         assert!(
             matches!(press(&mut app, KeyCode::Enter), Outcome::Go(Item::Agent(agent)) if agent.name == "release notes")
@@ -334,7 +633,7 @@ mod tests {
 
     #[test]
     fn tab_changes_the_filter_and_at_on_an_empty_query_shows_the_agents() {
-        let mut app = app();
+        let mut app = app(Filter::All);
         press(&mut app, KeyCode::Tab);
         assert_eq!(app.filter, Filter::Agents);
         press(&mut app, KeyCode::BackTab);
@@ -345,17 +644,63 @@ mod tests {
     }
 
     #[test]
-    fn a_refresh_keeps_the_selected_row() {
-        let mut app = app();
-        press(&mut app, KeyCode::Down);
-        let model = app.model.clone();
-        app.update_model(model);
-        assert_eq!(selected_name(&app), "omnibar design");
+    fn the_creation_starts_at_the_current_place_then_keeps_the_name() {
+        let mut app = app(Filter::New);
+        assert_eq!(app.create.step, Step::Where);
+        assert_eq!(selected_name(&app), "atlas");
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.create.step, Step::What);
+        type_text(&mut app, "review");
+        assert_eq!(app.create.name, "review");
+        assert_eq!(selected_name(&app), "new tab");
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.create.step, Step::Where);
+        assert_eq!(app.create.name, "review");
+        type_text(&mut app, "pac");
+        assert_eq!(selected_name(&app), "pac");
+    }
+
+    #[test]
+    fn in_a_project_a_branch_name_selects_the_worktree_and_a_sentence_the_tab() {
+        let mut app = app(Filter::New);
+        type_text(&mut app, "prompts");
+        press(&mut app, KeyCode::Enter);
+        type_text(&mut app, "fix-login");
+        assert_eq!(selected_name(&app), "new worktree fix-login");
+        press(&mut app, KeyCode::Char(' '));
+        type_text(&mut app, "now");
+        assert_eq!(selected_name(&app), "new workspace");
+    }
+
+    #[test]
+    fn tab_changes_the_agent_in_the_step_what_and_enter_gives_the_plan() {
+        let mut app = app(Filter::New);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.agent(), "claude");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.agent(), "codex");
+        app.on_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL));
+        type_text(&mut app, "notes");
+        match press(&mut app, KeyCode::Enter) {
+            Outcome::Create(plan) => {
+                assert_eq!(plan.agent, "codex");
+                assert!(plan.no_prompts);
+                assert_eq!(plan.name, "notes");
+                assert_eq!(
+                    plan.action,
+                    create::Action::NewTab {
+                        workspace_id: "w1".into(),
+                        folder: "/work/atlas".into()
+                    }
+                );
+            }
+            other => panic!("no plan: {other:?}"),
+        }
     }
 
     #[test]
     fn escape_quits_and_question_mark_shows_the_help() {
-        let mut app = app();
+        let mut app = app(Filter::All);
         press(&mut app, KeyCode::Char('?'));
         assert!(app.help);
         assert!(matches!(press(&mut app, KeyCode::Esc), Outcome::Continue));

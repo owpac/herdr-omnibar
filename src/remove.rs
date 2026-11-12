@@ -28,7 +28,7 @@ pub fn run(folder: &Path) -> Result<(), String> {
 }
 
 fn remove(folder: &Path) -> Result<String, String> {
-    if let Some(binary) = worktrunk_binary() {
+    if let Some(binary) = worktrunk_remover() {
         let output = Command::new(&binary)
             .args(["remove", "--path"])
             .arg(folder)
@@ -52,24 +52,35 @@ fn remove(folder: &Path) -> Result<String, String> {
     remove_with_wt(folder)
 }
 
-/// The binary of herdr-worktrunk, if the plugin is installed and enabled.
-fn worktrunk_binary() -> Option<PathBuf> {
+/// The binary of herdr-worktrunk, if the plugin is installed and enabled, and if it has the
+/// command `remove --path` (version 2026.11.33 or later). Its usage names this command.
+pub fn worktrunk_remover() -> Option<PathBuf> {
     let plugins = herdr::plugins().ok()?;
     let plugin = plugins
         .into_iter()
         .find(|plugin| plugin.plugin_id == WORKTRUNK && plugin.enabled)?;
     let binary = plugin.plugin_root?.join("bin").join(WORKTRUNK);
-    binary.is_file().then_some(binary)
+    if !binary.is_file() {
+        return None;
+    }
+    let output = Command::new(&binary).arg("--usage").output().ok()?;
+    let usage = String::from_utf8_lossy(&output.stderr);
+    usage.contains("remove --path").then_some(binary)
 }
 
 /// Remove the worktree with wt, then close its workspace. An agent in the workspace stops the
 /// removal: only herdr-worktrunk closes the agents, with a way to resume them.
 fn remove_with_wt(folder: &Path) -> Result<String, String> {
     let snapshot = herdr::snapshot().map_err(|error| error.to_string())?;
+    // A pane in a subfolder of the worktree also gives its workspace.
     let workspace = snapshot
         .panes
         .iter()
-        .find(|pane| pane.cwd.as_deref() == Some(folder))
+        .find(|pane| {
+            pane.cwd
+                .as_deref()
+                .is_some_and(|cwd| cwd.starts_with(folder))
+        })
         .map(|pane| pane.workspace_id.clone());
     if let Some(workspace) = &workspace {
         if snapshot

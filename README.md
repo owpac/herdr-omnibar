@@ -65,10 +65,15 @@ The omnibar remembers the last agent of each folder, in `agents.json` of its sta
 
 ## Remove a worktree
 
-`⌃⌫` on a branch with a worktree asks a question on the action line. The question gives the number of agents in its workspace. After `↵`, the popup closes, then a detached process removes the worktree. A herdr notification gives the result.
+`⌃⌫` on a branch with a worktree asks a question on the action line. The question gives the number of agents of the worktree: in its workspace, or in its folder. After `↵`, the popup closes, then a detached process removes the worktree. A herdr notification gives the result.
+
+The omnibar does not ask the question in 2 cases. The action line then tells why:
+
+- An agent of the worktree works, or waits for an answer.
+- The worktree has an idle agent, and herdr-worktrunk 2026.11.33 or later is not installed. Only herdr-worktrunk closes the agents.
 
 - If herdr-worktrunk is installed, its command `remove --path <worktree> --close-agents` removes the worktree. It records the removal for its action `restore`, closes the idle agents, then closes the workspace. An agent that works, or changes that are not committed, stop the removal.
-- Else, or with a version of herdr-worktrunk without this command, `wt remove` removes the worktree, and the omnibar closes its workspace. An agent in the workspace stops the removal, and no record exists for a restore.
+- Else, `wt remove` removes the worktree, and the omnibar closes its workspace. No record exists for a restore.
 
 ## Automatic titles of the tabs
 

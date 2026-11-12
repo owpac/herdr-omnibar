@@ -25,8 +25,9 @@ use crate::context::Context;
 use crate::create::{self, Choice, Plan};
 use crate::filter::Filter;
 use crate::herdr::{self, PluginAction};
-use crate::model::{self, Checkout, Model};
+use crate::model::{self, AgentRow, Checkout, Model, Status};
 use crate::places::{self, Branch, Place};
+use crate::remove;
 use crate::rows::{self, Item, Line};
 use crate::ui;
 
@@ -657,17 +658,41 @@ impl App {
             ));
             return;
         }
-        let agents = workspace_id.as_ref().map_or(0, |id| {
-            self.model
-                .agents
-                .iter()
-                .filter(|agent| &agent.workspace_id == id)
-                .count()
-        });
+        // The agents of the worktree: in its workspace, or in its folder. herdr-worktrunk
+        // closes the idle agents, and refuses an agent that works or waits for an answer.
+        let agents: Vec<&AgentRow> = self
+            .model
+            .agents
+            .iter()
+            .filter(|agent| {
+                workspace_id.as_ref() == Some(&agent.workspace_id)
+                    || agent
+                        .cwd
+                        .as_ref()
+                        .is_some_and(|cwd| cwd.starts_with(&folder))
+            })
+            .collect();
+        if agents
+            .iter()
+            .any(|agent| !matches!(agent.status, Status::Idle | Status::Done))
+        {
+            self.message = Some(format!(
+                "an agent works in the worktree {branch}, or waits for you: stop it first"
+            ));
+            return;
+        }
+        if !agents.is_empty() && remove::worktrunk_remover().is_none() {
+            self.message = Some(
+                "only herdr-worktrunk 2026.11.33 or later closes the agents of a worktree: \
+                 update it, or stop the agents first"
+                    .to_string(),
+            );
+            return;
+        }
         self.confirm = Some(Confirm::RemoveWorktree {
             folder,
             branch,
-            agents,
+            agents: agents.len(),
         });
     }
 
@@ -1308,6 +1333,27 @@ mod tests {
         assert!(matches!(press(&mut app, KeyCode::Esc), Outcome::Continue));
         assert!(!app.help);
         assert!(matches!(press(&mut app, KeyCode::Esc), Outcome::Quit));
+    }
+
+    #[test]
+    fn ctrl_backspace_refuses_a_worktree_where_an_agent_works() {
+        let mut app = app(Filter::Worktrees);
+        app.open[0].main = Some("/work/atlas".into());
+        app.model.agents[0].status = Status::Working;
+        app.model.agents[0].cwd = Some("/work/atlas.fix-login/src".into());
+        app.current_branches = Some(vec![Branch {
+            name: "fix-login".into(),
+            worktree: Some("/work/atlas.fix-login".into()),
+        }]);
+        app.rebuild(None);
+        assert_eq!(selected_name(&app), "fix-login");
+        app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert!(app.confirm.is_none());
+        assert!(app
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stop it first"));
     }
 
     #[test]

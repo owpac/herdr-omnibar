@@ -263,9 +263,10 @@ pub fn fork_later(tab_id: &str, pane_id: &str) -> Result<(), String> {
         .map_err(|error| notify_failure(&error.to_string()))
 }
 
-/// Wait until the popup closes: herdr refuses a popup or a focus change while the popup is open.
-/// The popup is the parent of this process until its end. The popup often ends before this
-/// process starts: then its parent is already another process, and the wait stops at once.
+/// Wait until the popup closes: herdr refuses a popup or a focus change while the popup is open
+/// (error `ui_busy`). The popup is the parent of this process until its end. The popup often ends
+/// before this process starts: then its parent is already another process, and the wait stops at
+/// once.
 fn wait_for_popup() {
     use std::os::unix::process::parent_id;
     use std::thread::sleep;
@@ -273,14 +274,15 @@ fn wait_for_popup() {
     let popup = env::var(POPUP_VARIABLE)
         .ok()
         .and_then(|text| text.parse::<u32>().ok());
-    for _ in 0..40 {
+    // At most 2 s: a popup that does not end must not block the action for ever.
+    for _ in 0..400 {
         if popup != Some(parent_id()) {
             break;
         }
-        sleep(Duration::from_millis(50));
+        sleep(Duration::from_millis(5));
     }
-    // herdr removes the popup some time after the end of its process.
-    sleep(Duration::from_millis(150));
+    // herdr removes the popup about 10 ms after the end of its process: a small margin.
+    sleep(Duration::from_millis(20));
 }
 
 /// Show a failure in a herdr notification, and give its message back.

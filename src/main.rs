@@ -15,6 +15,7 @@ mod herdr;
 mod keys;
 mod model;
 mod places;
+mod remove;
 mod rows;
 mod ui;
 mod watch;
@@ -24,7 +25,7 @@ use std::process::ExitCode;
 
 use filter::Filter;
 
-const USAGE: &str = "usage: herdr-omnibar open <filter> | run | execute | invoke <plugin> <action> | keys | list | watch [--run] | titles | --version
+const USAGE: &str = "usage: herdr-omnibar open <filter> | run | execute | invoke <plugin> <action> | keys | list | watch [--run] | titles | remove <worktree> | --version
 filters: all, new, agents, tabs, worktrees, folders, actions, keys";
 
 /// The variable that gives the filter of the popup.
@@ -44,6 +45,10 @@ fn main() -> ExitCode {
         }
         Some("watch") => watch::start(),
         Some("titles") => watch::print(),
+        Some("remove") => match arguments.get(1) {
+            Some(folder) => remove::run(std::path::Path::new(folder)),
+            None => Err(USAGE.to_string()),
+        },
         Some("execute") => create::execute_from_environment(),
         Some("invoke") => match (arguments.get(1), arguments.get(2)) {
             (Some(plugin), Some(action)) => create::invoke_later(plugin, action),

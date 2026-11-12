@@ -49,7 +49,7 @@ command = "herdr-omnibar.new"
 | `@`, `+` | On an empty search: the agents, the creation. |
 | `⌃A` | On a row of `open` that opens a worktree: the next agent. |
 | `⌃↵` | A new tab, with its agent, in the workspace of the selected row. |
-| `⌃⌫` | Close the tab of the selected row, after a question on the action line. |
+| `⌃⌫` | Close the tab of the selected row, or remove the worktree of the selected branch, after a question on the action line. The main checkout stays. See [Remove a worktree](#remove-a-worktree). |
 | `⌃R` | Rename the tab of the selected row. `↵` saves, `esc` keeps the old name. |
 | `⌃Y` | In the step "what": start the agent without its permission prompts, for this tab only. |
 | `⌃←`, `⌃→` | The view of the preview of a worktree: diff, log, changes. |
@@ -61,6 +61,13 @@ command = "herdr-omnibar.new"
 The mouse works too: a click selects a row, a double click runs it, and the wheel moves the selection.
 
 The omnibar remembers the last agent of each folder, in `agents.json` of its state folder.
+
+## Remove a worktree
+
+`⌃⌫` on a branch with a worktree asks a question on the action line. The question gives the number of agents in its workspace. After `↵`, the popup closes, then a detached process removes the worktree. A herdr notification gives the result.
+
+- If herdr-worktrunk is installed, its command `remove --path <worktree> --close-agents` removes the worktree. It records the removal for its action `restore`, closes the idle agents, then closes the workspace. An agent that works, or changes that are not committed, stop the removal.
+- Else, or with a version of herdr-worktrunk without this command, `wt remove` removes the worktree, and the omnibar closes its workspace. An agent in the workspace stops the removal, and no record exists for a restore.
 
 ## Automatic titles of the tabs
 

@@ -202,6 +202,14 @@ pub struct Plugin {
     pub plugin_id: String,
     #[serde(default)]
     pub enabled: bool,
+    /// The folder of the installed plugin.
+    #[serde(default)]
+    pub plugin_root: Option<PathBuf>,
+}
+
+/// Close a workspace, with its tabs.
+pub fn close_workspace(workspace_id: &str) -> Result<(), Error> {
+    run(&["workspace", "close", workspace_id]).map(|_| ())
 }
 
 /// The installed plugins.

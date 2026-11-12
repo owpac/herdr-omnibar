@@ -482,6 +482,7 @@ mod tests {
             vec![Plugin {
                 plugin_id: HERDR_BAR.to_string(),
                 enabled,
+                plugin_root: None,
             }]
         };
         assert!(other_writer(&plugins(true), None).is_some());

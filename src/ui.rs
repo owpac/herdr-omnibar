@@ -14,7 +14,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::app::{App, Step};
+use crate::app::{App, Confirm, Step};
 use crate::create::{self, Choice};
 use crate::filter::Filter;
 use crate::model::{Status, TabSummary};
@@ -739,13 +739,23 @@ fn pill_span(open: bool, label: &str) -> Span<'static> {
 fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
     let arrow =
         |color: Color| Span::styled("→ ", Style::new().fg(color).add_modifier(Modifier::BOLD));
-    if let Some((_, name)) = &app.confirm {
+    if let Some(confirm) = &app.confirm {
+        let question = match confirm {
+            Confirm::CloseTab { name, .. } => format!("close the tab {name}? ↵ yes · esc no"),
+            Confirm::RemoveWorktree { branch, agents, .. } => {
+                let agents = match agents {
+                    0 => String::new(),
+                    1 => " Its agent closes.".to_string(),
+                    count => format!(" Its {count} agents close."),
+                };
+                // The notification of the result tells if the action restore of herdr-worktrunk
+                // can bring the worktree back: wt alone keeps no record.
+                format!("remove the worktree {branch}?{agents} ↵ yes · esc no")
+            }
+        };
         let line = Line::from(vec![
             arrow(RED),
-            Span::styled(
-                format!("close the tab {name}? ↵ yes · esc no"),
-                Style::new().fg(RED),
-            ),
+            Span::styled(question, Style::new().fg(RED)),
         ]);
         frame.render_widget(Paragraph::new(line), area);
         return;
@@ -1001,11 +1011,13 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
                 if app.opens_worktree() {
                     hints.push(("⌃A", "agent".to_string()));
                 }
-                hints.extend([
-                    ("⇥", "filter".to_string()),
-                    ("⌃O", "preview".to_string()),
-                    ("esc", "close".to_string()),
-                ]);
+                hints.push(("⇥", "filter".to_string()));
+                if app.can_remove_worktree() {
+                    hints.push(("⌃⌫", "remove".to_string()));
+                } else {
+                    hints.push(("⌃O", "preview".to_string()));
+                }
+                hints.push(("esc", "close".to_string()));
                 hints
             }
         }
@@ -1055,7 +1067,10 @@ fn draw_help(frame: &mut Frame, area: Rect) {
             "⌃↵",
             "A new tab, with its agent, in the workspace of the selected row.",
         ),
-        ("⌃⌫", "Close the tab of the selected row, after a question."),
+        (
+            "⌃⌫",
+            "Close the tab of the selected row, or remove its worktree, after a question.",
+        ),
         (
             "⌃R",
             "Rename the tab of the selected row. ↵ saves, esc keeps the name.",

@@ -79,6 +79,19 @@ pub struct Rename {
     pub text: String,
 }
 
+/// The question of the action line, before a close or a removal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Confirm {
+    /// Close a tab: its id and its name.
+    CloseTab { tab_id: String, name: String },
+    /// Remove a worktree: its folder, its branch, and the number of agents in its workspace.
+    RemoveWorktree {
+        folder: PathBuf,
+        branch: String,
+        agents: usize,
+    },
+}
+
 /// The state of the popup.
 pub struct App {
     pub model: Model,
@@ -101,8 +114,8 @@ pub struct App {
     pub agents: Vec<String>,
     /// The options of config.toml.
     pub config: Config,
-    /// The tab to close (its id and its name), while the action line asks the question.
-    pub confirm: Option<(String, String)>,
+    /// The tab to close or the worktree to remove, while the action line asks the question.
+    pub confirm: Option<Confirm>,
     /// The tab to rename, while the search line holds its new name.
     pub rename: Option<Rename>,
     /// A message on the action line: the result of the last command.
@@ -135,6 +148,8 @@ pub enum Outcome {
     Create(Plan),
     /// Run an action of a herdr plugin, after the popup closes.
     Invoke(PluginAction),
+    /// Remove the worktree of this folder, after the popup closes.
+    Remove(PathBuf),
 }
 
 impl App {
@@ -577,27 +592,85 @@ impl App {
         }
     }
 
-    /// ctrl+Backspace: ask before the close of the selected tab.
-    fn ask_close(&mut self) {
-        if let Some(tab) = self.selected_tab() {
-            self.confirm = Some(tab);
-        } else if let Some(Item::Choice(Choice::Existing { .. })) = self.selected_item() {
-            self.message = Some(
-                "The removal of a worktree comes with a command of herdr-worktrunk.".to_string(),
-            );
+    /// The main checkout of the project of the branch rows: the place of the step "what", else
+    /// the current place.
+    fn project_main(&self) -> Option<PathBuf> {
+        self.create
+            .place
+            .as_ref()
+            .filter(|_| self.filter == Filter::New)
+            .or_else(|| self.current_place())
+            .and_then(|place| place.main.clone())
+    }
+
+    /// True if ctrl+Backspace on the selected row removes a worktree: a branch with a worktree
+    /// that is not the main checkout.
+    pub fn can_remove_worktree(&self) -> bool {
+        match self.selected_item() {
+            Some(Item::Choice(Choice::Existing {
+                worktree: Some(folder),
+                ..
+            })) => self.project_main().as_ref() != Some(folder),
+            _ => false,
         }
     }
 
+    /// ctrl+Backspace: ask before the close of the selected tab, or before the removal of the
+    /// selected worktree.
+    fn ask_close(&mut self) {
+        if let Some((tab_id, name)) = self.selected_tab() {
+            self.confirm = Some(Confirm::CloseTab { tab_id, name });
+            return;
+        }
+        let Some(Item::Choice(Choice::Existing {
+            branch,
+            worktree,
+            workspace_id,
+        })) = self.selected_item().cloned()
+        else {
+            return;
+        };
+        let Some(folder) = worktree else {
+            self.message = Some(format!("the branch {branch} has no worktree to remove"));
+            return;
+        };
+        if self.project_main().as_ref() == Some(&folder) {
+            self.message = Some(format!(
+                "{branch} is the main checkout of the project: it stays"
+            ));
+            return;
+        }
+        let agents = workspace_id.as_ref().map_or(0, |id| {
+            self.model
+                .agents
+                .iter()
+                .filter(|agent| &agent.workspace_id == id)
+                .count()
+        });
+        self.confirm = Some(Confirm::RemoveWorktree {
+            folder,
+            branch,
+            agents,
+        });
+    }
+
     fn on_confirm_key(&mut self, key: KeyEvent) -> Outcome {
-        let Some((tab_id, name)) = self.confirm.take() else {
+        let Some(confirm) = self.confirm.take() else {
             return Outcome::Continue;
         };
-        if key.code == KeyCode::Enter {
-            self.message = Some(match herdr::close_tab(&tab_id) {
-                Ok(()) => format!("closed the tab {name}"),
-                Err(error) => format!("cannot close the tab {name}: {error}"),
-            });
-            self.reload = true;
+        if key.code != KeyCode::Enter {
+            return Outcome::Continue;
+        }
+        match confirm {
+            Confirm::CloseTab { tab_id, name } => {
+                self.message = Some(match herdr::close_tab(&tab_id) {
+                    Ok(()) => format!("closed the tab {name}"),
+                    Err(error) => format!("cannot close the tab {name}: {error}"),
+                });
+                self.reload = true;
+            }
+            // The removal can close the workspace of the popup: it runs after the popup closes.
+            Confirm::RemoveWorktree { folder, .. } => return Outcome::Remove(folder),
         }
         Outcome::Continue
     }
@@ -805,6 +878,9 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
         Outcome::Create(plan) => create::execute_detached(&plan),
         Outcome::Invoke(action) => {
             create::spawn_detached(&["invoke", &action.plugin_id, &action.action_id], &[])
+        }
+        Outcome::Remove(folder) => {
+            create::spawn_detached(&["remove", &folder.to_string_lossy()], &[])
         }
         Outcome::Quit | Outcome::Continue => Ok(()),
     }
@@ -1077,11 +1153,47 @@ mod tests {
         app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
         assert_eq!(
             app.confirm,
-            Some(("t-fix the login".to_string(), "fix the login".to_string()))
+            Some(Confirm::CloseTab {
+                tab_id: "t-fix the login".to_string(),
+                name: "fix the login".to_string()
+            })
         );
         press(&mut app, KeyCode::Esc);
         assert!(app.confirm.is_none());
         assert!(!app.reload);
+    }
+
+    #[test]
+    fn ctrl_backspace_on_a_worktree_asks_then_removes_it_and_keeps_the_main_checkout() {
+        let mut app = app(Filter::Worktrees);
+        app.open[0].main = Some("/work/atlas".into());
+        app.current_branches = Some(vec![
+            Branch {
+                name: "main".into(),
+                worktree: Some("/work/atlas".into()),
+            },
+            Branch {
+                name: "fix-login".into(),
+                worktree: Some("/work/atlas.fix-login".into()),
+            },
+        ]);
+        app.rebuild(None);
+        assert_eq!(selected_name(&app), "main");
+        app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert!(app.confirm.is_none());
+        assert!(app
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("main checkout"));
+        press(&mut app, KeyCode::Down);
+        assert_eq!(selected_name(&app), "fix-login");
+        app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert!(matches!(app.confirm, Some(Confirm::RemoveWorktree { .. })));
+        match press(&mut app, KeyCode::Enter) {
+            Outcome::Remove(folder) => assert_eq!(folder, PathBuf::from("/work/atlas.fix-login")),
+            outcome => panic!("unexpected outcome {outcome:?}"),
+        }
     }
 
     #[test]

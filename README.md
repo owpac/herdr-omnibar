@@ -108,6 +108,10 @@ features = ["mouse", "rename_tab", "auto_titles", "agent_logos"]
 
 zoxide adds its folders to the projects and the folders, when it is installed.
 
+## Colors
+
+The omnibar takes the colors of the herdr theme. herdr gives no color to its plugins: the omnibar reads `[theme]` and `[ui] accent` in the config of herdr (`HERDR_CONFIG_PATH`, else `~/.config/herdr/config.toml`). It builds the palette with the rules of herdr: the theme `name`, `dark_name` and `light_name` with `auto_switch`, `[theme.custom]`, then `[theme.custom.dark]` or `[theme.custom.light]`. With `auto_switch`, the omnibar asks macOS for its appearance. The popup reads the config at each opening: after a change of theme, the next opening has the new colors.
+
 ## The keyboard
 
 The omnibar asks the terminal for the keyboard protocol of kitty. herdr then forwards the modifiers of Enter, Backspace and the arrows to the popup, if your terminal sends them to herdr. The action `herdr-omnibar.keys` shows each key that the popup receives: use it to check `ctrl+Enter`, `ctrl+Backspace` and `ctrl+Left`.

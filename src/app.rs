@@ -994,6 +994,8 @@ fn delete_word(text: &mut String) {
 
 /// Run the popup on a filter, in the context of the action.
 pub fn run(filter: Filter, context: Context) -> Result<(), String> {
+    // The colors of the herdr theme, read at each opening.
+    crate::theme::init(crate::theme::load());
     let config: Config = config::current();
     let mut cache: HashMap<PathBuf, Option<Checkout>> = HashMap::new();
     let model = model::load_cached(&mut cache).map_err(|error| error.to_string())?;

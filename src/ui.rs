@@ -20,32 +20,76 @@ use crate::filter::Filter;
 use crate::model::{Status, TabSummary};
 use crate::places::{Kind, Place};
 use crate::rows::{self, Item, Line as ListLine};
+use crate::theme;
 
-// The colors of the mockup: the palette Dracula, in RGB. A terminal with another theme shows the
-// same colors.
+// The colors come from the herdr theme (see theme.rs). Each role of the omnibar takes a color of
+// the palette of herdr, like the mockup on the theme dracula.
 
 /// The prompt, the pointer of the selected row, the current filter, an open workspace.
-const ACCENT: Color = Color::Rgb(0xbd, 0x93, 0xf9);
+fn accent_color() -> Color {
+    theme::palette().accent
+}
+
+/// The text on the accent: the current filter.
+fn on_accent_color() -> Color {
+    match theme::palette().panel_bg {
+        Color::Reset => Color::Black,
+        color => color,
+    }
+}
+
 /// The letters of the query in a name, and the keys of the footer.
-const MATCH: Color = Color::Rgb(0x8b, 0xe9, 0xfd);
+fn match_color() -> Color {
+    theme::palette().teal
+}
+
 /// A creation: a new tab, a new worktree, a new workspace.
-const GREEN: Color = Color::Rgb(0x50, 0xfa, 0x7b);
+fn green_color() -> Color {
+    theme::palette().green
+}
+
 /// A name that cannot be a branch, and the flag without prompts.
-const RED: Color = Color::Rgb(0xff, 0x55, 0x55);
+fn red_color() -> Color {
+    theme::palette().red
+}
+
 /// The secondary text: the labels of the footer.
-const MUTED: Color = Color::Rgb(0xa4, 0xab, 0xc6);
+fn muted_color() -> Color {
+    theme::palette().overlay1
+}
+
 /// The titles of the groups, the context of a row, the text that helps.
-const DIM: Color = Color::Rgb(0x62, 0x72, 0xa4);
+fn dim_color() -> Color {
+    theme::palette().overlay0
+}
+
 /// The rules.
-const RULE: Color = Color::Rgb(0x44, 0x47, 0x5a);
+fn rule_color() -> Color {
+    theme::palette().surface0
+}
+
 /// The background of the selected row.
-const SELECTED: Color = Color::Rgb(0x3a, 0x3c, 0x4e);
+fn selected_color() -> Color {
+    theme::palette().active_row_bg
+}
+
 /// The background of a place on the action line.
-const PILL: Color = Color::Rgb(0x34, 0x37, 0x46);
+fn pill_color() -> Color {
+    theme::palette().surface0
+}
+
 /// The colors of the agents and of the states.
-const ORANGE: Color = Color::Rgb(0xff, 0xb8, 0x6c);
-const PINK: Color = Color::Rgb(0xff, 0x79, 0xc6);
-const YELLOW: Color = Color::Rgb(0xf1, 0xfa, 0x8c);
+fn orange_color() -> Color {
+    theme::palette().peach
+}
+
+fn pink_color() -> Color {
+    theme::palette().mauve
+}
+
+fn yellow_color() -> Color {
+    theme::palette().yellow
+}
 
 /// The width of the popup under which the preview hides.
 const PREVIEW_MIN_WIDTH: u16 = 70;
@@ -93,7 +137,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 fn draw_rule(frame: &mut Frame, area: Rect) {
     let rule = "─".repeat(area.width as usize);
     frame.render_widget(
-        Paragraph::new(Span::styled(rule, Style::new().fg(RULE))),
+        Paragraph::new(Span::styled(rule, Style::new().fg(rule_color()))),
         area,
     );
 }
@@ -148,11 +192,11 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> 
         .flat_map(|filter| {
             let style = if *filter == app.filter {
                 Style::new()
-                    .fg(Color::Black)
-                    .bg(ACCENT)
+                    .fg(on_accent_color())
+                    .bg(accent_color())
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::new().fg(DIM)
+                Style::new().fg(dim_color())
             };
             [
                 Span::styled(format!(" {} ", filter.label()), style),
@@ -172,7 +216,10 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> 
     let (prompt, placeholder) = match (creating(app), app.create.step) {
         _ if app.rename.is_some() => {
             spans.extend([
-                Span::styled(" rename › tab ", Style::new().fg(MUTED).bg(PILL)),
+                Span::styled(
+                    " rename › tab ",
+                    Style::new().fg(muted_color()).bg(pill_color()),
+                ),
                 gap(),
             ]);
             ("name ❯ ", "the new name of the tab")
@@ -207,14 +254,14 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> 
     };
     spans.push(Span::styled(
         prompt,
-        Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
+        Style::new().fg(accent_color()).add_modifier(Modifier::BOLD),
     ));
     let before: usize = spans.iter().map(Span::width).sum();
     let text = app.text();
     if text.is_empty() {
         spans.push(Span::styled(
             fit(placeholder, (field.width as usize).saturating_sub(before)),
-            Style::new().fg(DIM),
+            Style::new().fg(dim_color()),
         ));
     } else {
         spans.push(Span::raw(text.to_string()));
@@ -222,7 +269,7 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> 
         if creating(app) && app.create.step == Step::Where && rows::is_path(text) {
             if let Some(completed) = rows::complete_path(text, &app.lines) {
                 if let Some(rest) = completed.strip_prefix(text) {
-                    spans.push(Span::styled(rest.to_string(), Style::new().fg(DIM)));
+                    spans.push(Span::styled(rest.to_string(), Style::new().fg(dim_color())));
                 }
             }
         }
@@ -248,7 +295,7 @@ fn crumb(place: Option<&str>) -> Span<'static> {
         Some(place) => format!(" new › {} ", fit(place, 30)),
         None => " new ".to_string(),
     };
-    Span::styled(text, Style::new().fg(MUTED).bg(PILL))
+    Span::styled(text, Style::new().fg(muted_color()).bg(pill_color()))
 }
 
 /// The space after the crumb.
@@ -270,7 +317,10 @@ fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
         if !spans.is_empty() {
             spans.push(Span::raw(" "));
         }
-        spans.push(Span::styled(format!("{time:>5}"), Style::new().fg(DIM)));
+        spans.push(Span::styled(
+            format!("{time:>5}"),
+            Style::new().fg(dim_color()),
+        ));
     }
     spans
 }
@@ -317,7 +367,10 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
                 Style::new().fg(status_color(agent.status)),
             ),
         ],
-        Item::Tab(tab) => vec![Span::styled(tab.command.clone(), Style::new().fg(DIM))],
+        Item::Tab(tab) => vec![Span::styled(
+            tab.command.clone(),
+            Style::new().fg(dim_color()),
+        )],
         Item::Workspace(space) => {
             let count = app
                 .model
@@ -325,7 +378,7 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
                 .get(&space.workspace.workspace_id)
                 .map(Vec::len)
                 .unwrap_or(0);
-            vec![Span::styled(tabs_text(count), Style::new().fg(DIM))]
+            vec![Span::styled(tabs_text(count), Style::new().fg(dim_color()))]
         }
         Item::Place(place) => place_right(place, app),
         Item::Action(_) | Item::Create(_) => Vec::new(),
@@ -336,14 +389,17 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
                 worktree,
             } => {
                 let (text, color) = match (workspace_id, worktree) {
-                    (Some(_), _) => ("workspace", ACCENT),
-                    (None, Some(_)) => ("no workspace", DIM),
-                    (None, None) => ("no worktree", DIM),
+                    (Some(_), _) => ("workspace", accent_color()),
+                    (None, Some(_)) => ("no workspace", dim_color()),
+                    (None, None) => ("no worktree", dim_color()),
                 };
                 let mut spans = vec![Span::styled(text, Style::new().fg(color))];
                 // The age of the last commit of the branch.
                 if let Some(age) = app.branch_age(branch) {
-                    spans.push(Span::styled(format!(" {age:>5}"), Style::new().fg(DIM)));
+                    spans.push(Span::styled(
+                        format!(" {age:>5}"),
+                        Style::new().fg(dim_color()),
+                    ));
                 }
                 spans
             }
@@ -362,7 +418,7 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
 fn place_right(place: &Place, app: &App) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     if place.workspace_id.is_some() && place.workspace_id == app.current {
-        spans.push(Span::styled("current ", Style::new().fg(ACCENT)));
+        spans.push(Span::styled("current ", Style::new().fg(accent_color())));
     }
     match place.kind {
         Kind::Workspace => {
@@ -372,12 +428,12 @@ fn place_right(place: &Place, app: &App) -> Vec<Span<'static>> {
                         format!("{} ", tab.status.glyph()),
                         Style::new().fg(status_color(tab.status)),
                     ),
-                    None => Span::styled("▪ ", Style::new().fg(DIM)),
+                    None => Span::styled("▪ ", Style::new().fg(dim_color())),
                 });
             }
         }
-        Kind::Project => spans.push(Span::styled("no workspace", Style::new().fg(DIM))),
-        Kind::Folder => spans.push(Span::styled("folder", Style::new().fg(DIM))),
+        Kind::Project => spans.push(Span::styled("no workspace", Style::new().fg(dim_color()))),
+        Kind::Folder => spans.push(Span::styled("folder", Style::new().fg(dim_color()))),
     }
     spans
 }
@@ -392,24 +448,24 @@ fn glyph(item: &Item) -> Span<'static> {
             agent.status.glyph(),
             Style::new().fg(status_color(agent.status)),
         ),
-        Item::Tab(_) => Span::styled("▪", Style::new().fg(DIM)),
+        Item::Tab(_) => Span::styled("▪", Style::new().fg(dim_color())),
         Item::Pane(pane) if pane.agent.is_some() => Span::styled(
             pane.status.glyph(),
             Style::new().fg(status_color(pane.status)),
         ),
-        Item::Pane(_) => Span::styled("▫", Style::new().fg(DIM)),
-        Item::Workspace(_) => Span::styled("▣", Style::new().fg(ACCENT)),
-        Item::Action(_) => Span::styled("›", Style::new().fg(ACCENT)),
-        Item::Create(_) => Span::styled("+", Style::new().fg(GREEN)),
+        Item::Pane(_) => Span::styled("▫", Style::new().fg(dim_color())),
+        Item::Workspace(_) => Span::styled("▣", Style::new().fg(accent_color())),
+        Item::Action(_) => Span::styled("›", Style::new().fg(accent_color())),
+        Item::Create(_) => Span::styled("+", Style::new().fg(green_color())),
         Item::Place(place) => match place.kind {
-            Kind::Workspace => Span::styled("▣", Style::new().fg(ACCENT)),
-            Kind::Project => Span::styled("□", Style::new().fg(MUTED)),
-            Kind::Folder => Span::styled("▸", Style::new().fg(DIM)),
+            Kind::Workspace => Span::styled("▣", Style::new().fg(accent_color())),
+            Kind::Project => Span::styled("□", Style::new().fg(muted_color())),
+            Kind::Folder => Span::styled("▸", Style::new().fg(dim_color())),
         },
         Item::Choice(choice) => match choice {
-            Choice::Existing { .. } => Span::styled("↪", Style::new().fg(ACCENT)),
-            Choice::AnotherPlace => Span::styled("‹", Style::new().fg(DIM)),
-            _ => Span::styled("+", Style::new().fg(GREEN)),
+            Choice::Existing { .. } => Span::styled("↪", Style::new().fg(accent_color())),
+            Choice::AnotherPlace => Span::styled("‹", Style::new().fg(dim_color())),
+            _ => Span::styled("+", Style::new().fg(green_color())),
         },
     }
 }
@@ -423,9 +479,9 @@ fn row_glyph(item: &Item, app: &App) -> Span<'static> {
             worktree,
             ..
         }) if !creating(app) => match (workspace_id, worktree) {
-            (Some(_), _) => Span::styled("▣", Style::new().fg(ACCENT)),
-            (None, Some(_)) => Span::styled("□", Style::new().fg(MUTED)),
-            (None, None) => Span::styled("○", Style::new().fg(DIM)),
+            (Some(_), _) => Span::styled("▣", Style::new().fg(accent_color())),
+            (None, Some(_)) => Span::styled("□", Style::new().fg(muted_color())),
+            (None, None) => Span::styled("○", Style::new().fg(dim_color())),
         },
         _ => glyph(item),
     }
@@ -437,10 +493,10 @@ fn name_style(item: &Item) -> Style {
         Item::Choice(Choice::NewWorktree { branch })
             if !branch.is_empty() && !create::is_branch_name(branch) =>
         {
-            Style::new().fg(RED)
+            Style::new().fg(red_color())
         }
         Item::Choice(Choice::NewWorktree { .. } | Choice::NewTab | Choice::NewWorkspace)
-        | Item::Create(_) => Style::new().fg(GREEN),
+        | Item::Create(_) => Style::new().fg(green_color()),
         _ => Style::new(),
     }
 }
@@ -520,7 +576,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
             _ => "No result. ⇥ changes the filter.",
         };
         frame.render_widget(
-            Paragraph::new(Span::styled(text, Style::new().fg(DIM))),
+            Paragraph::new(Span::styled(text, Style::new().fg(dim_color()))),
             area,
         );
         return;
@@ -562,13 +618,13 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
             ListLine::Gap => Line::raw(""),
             ListLine::Group(title) => Line::from(Span::styled(
                 format!(" {}", title.to_uppercase()),
-                Style::new().fg(DIM).add_modifier(Modifier::BOLD),
+                Style::new().fg(dim_color()).add_modifier(Modifier::BOLD),
             )),
             ListLine::Row { item, positions } => {
                 let is_selected = Some(index) == app.selected;
                 let mut spans = vec![
                     if is_selected {
-                        Span::styled("▌", Style::new().fg(ACCENT))
+                        Span::styled("▌", Style::new().fg(accent_color()))
                     } else {
                         Span::raw(" ")
                     },
@@ -584,7 +640,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
                 spans.push(Span::raw("  "));
                 spans.push(Span::styled(
                     pad(&fit(&context_of(item, app), context_width), context_width),
-                    Style::new().fg(DIM),
+                    Style::new().fg(dim_color()),
                 ));
                 spans.push(Span::raw("  "));
                 spans.extend(fit_spans(right_side(item, app), right_width));
@@ -592,7 +648,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
                 spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
                 let line = Line::from(spans);
                 if is_selected {
-                    line.patch_style(Style::new().bg(SELECTED))
+                    line.patch_style(Style::new().bg(selected_color()))
                 } else {
                     line
                 }
@@ -610,10 +666,10 @@ fn tab_lines(tabs: &[TabSummary], width: usize, new: Option<(&str, &str)>) -> Ve
         .enumerate()
         .map(|(index, tab)| {
             let mut spans = vec![
-                Span::styled(format!("{:>3} ", index + 1), Style::new().fg(DIM)),
+                Span::styled(format!("{:>3} ", index + 1), Style::new().fg(dim_color())),
                 Span::styled(
                     fit(&tab.name, width.saturating_sub(18)),
-                    Style::new().fg(MUTED),
+                    Style::new().fg(muted_color()),
                 ),
             ];
             if let Some(agent) = &tab.agent {
@@ -638,7 +694,7 @@ fn tab_lines(tabs: &[TabSummary], width: usize, new: Option<(&str, &str)>) -> Ve
                 tabs.len() + 1,
                 fit(name, width.saturating_sub(18))
             ),
-            Style::new().fg(GREEN),
+            Style::new().fg(green_color()),
         )));
     }
     lines
@@ -647,7 +703,7 @@ fn tab_lines(tabs: &[TabSummary], width: usize, new: Option<(&str, &str)>) -> Ve
 fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
     let block = Block::new()
         .borders(Borders::LEFT)
-        .border_style(Style::new().fg(RULE));
+        .border_style(Style::new().fg(rule_color()));
     let inner = block.inner(area).inner(Margin {
         horizontal: 1,
         vertical: 0,
@@ -661,10 +717,10 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
     let title = |text: &str| {
         Line::from(Span::styled(
             text.to_string(),
-            Style::new().fg(DIM).add_modifier(Modifier::BOLD),
+            Style::new().fg(dim_color()).add_modifier(Modifier::BOLD),
         ))
     };
-    let muted = |text: String| Line::from(Span::styled(text, Style::new().fg(MUTED)));
+    let muted = |text: String| Line::from(Span::styled(text, Style::new().fg(muted_color())));
     let mut lines: Vec<Line> = Vec::new();
     match &item {
         Item::Workspace(space) => {
@@ -707,21 +763,21 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
             let views = if app.config.preview == crate::config::Preview::Summary {
                 vec![Span::styled(
                     "SUMMARY",
-                    Style::new().fg(DIM).add_modifier(Modifier::BOLD),
+                    Style::new().fg(dim_color()).add_modifier(Modifier::BOLD),
                 )]
             } else {
                 let mut spans = Vec::new();
                 for (index, name) in ["DIFF", "LOG", "CHANGES"].iter().enumerate() {
                     let style = if index == app.view % 3 {
-                        Style::new().fg(ACCENT).add_modifier(Modifier::BOLD)
+                        Style::new().fg(accent_color()).add_modifier(Modifier::BOLD)
                     } else {
-                        Style::new().fg(DIM)
+                        Style::new().fg(dim_color())
                     };
                     spans.push(Span::styled(*name, style));
-                    spans.push(Span::styled(" · ", Style::new().fg(RULE)));
+                    spans.push(Span::styled(" · ", Style::new().fg(rule_color())));
                 }
                 spans.pop();
-                spans.push(Span::styled("  ⌃← ⌃→", Style::new().fg(MATCH)));
+                spans.push(Span::styled("  ⌃← ⌃→", Style::new().fg(match_color())));
                 spans
             };
             lines.push(Line::from(views));
@@ -741,13 +797,13 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
                          a new tab, or another place."
                     );
                     for part in wrap(&text, width) {
-                        lines.push(Line::from(Span::styled(part, Style::new().fg(DIM))));
+                        lines.push(Line::from(Span::styled(part, Style::new().fg(dim_color()))));
                     }
                 }
                 None => {
                     let text = format!("↵ creates “{name}”. Then choose its place.");
                     for part in wrap(&text, width) {
-                        lines.push(Line::from(Span::styled(part, Style::new().fg(DIM))));
+                        lines.push(Line::from(Span::styled(part, Style::new().fg(dim_color()))));
                     }
                 }
             }
@@ -763,7 +819,7 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
             if place.tabs.is_empty() {
                 lines.push(Line::from(Span::styled(
                     "    no tab yet",
-                    Style::new().fg(DIM),
+                    Style::new().fg(dim_color()),
                 )));
             } else {
                 lines.extend(tab_lines(&place.tabs, width, None));
@@ -771,7 +827,7 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
             lines.push(Line::raw(""));
             lines.push(Line::from(Span::styled(
                 "↵ chooses this place. Then type the name of the tab or of the branch.",
-                Style::new().fg(DIM),
+                Style::new().fg(dim_color()),
             )));
         }
         Item::Choice(choice) => {
@@ -804,13 +860,13 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
                 (Choice::NewWorktree { branch }, _) if !branch.is_empty() => {
                     lines.push(Line::from(Span::styled(
                         format!("“{branch}” is not a branch name: choose + new tab."),
-                        Style::new().fg(RED),
+                        Style::new().fg(red_color()),
                     )));
                 }
                 (Choice::NewWorktree { .. }, _) => {
                     lines.push(Line::from(Span::styled(
                         "Type the branch name: wt creates the branch, its worktree and its workspace.",
-                        Style::new().fg(DIM),
+                        Style::new().fg(dim_color()),
                     )));
                 }
                 (
@@ -831,11 +887,11 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
                         lines.push(muted(fit(&rows::home(folder), width)));
                     }
                     lines.push(Line::raw(""));
-                    lines.push(Line::from(Span::styled(what, Style::new().fg(DIM))));
+                    lines.push(Line::from(Span::styled(what, Style::new().fg(dim_color()))));
                 }
                 _ => lines.push(Line::from(Span::styled(
                     "Choose a project, one of its workspaces, or a folder. The name stays.",
-                    Style::new().fg(DIM),
+                    Style::new().fg(dim_color()),
                 ))),
             }
         }
@@ -852,7 +908,7 @@ fn project_lines(
     width: usize,
 ) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(vec![
-        Span::styled("project ", Style::new().fg(DIM)),
+        Span::styled("project ", Style::new().fg(dim_color())),
         Span::raw(place.project.clone()),
     ])];
     // The open workspaces of the project: the main checkout, then "▸ branch" for a worktree.
@@ -867,26 +923,29 @@ fn project_lines(
             None => other.label.clone(),
         };
         lines.push(Line::from(vec![
-            Span::styled("  ▣ ", Style::new().fg(ACCENT)),
-            Span::styled(pad(&fit(&name, column), column), Style::new().fg(MUTED)),
+            Span::styled("  ▣ ", Style::new().fg(accent_color())),
+            Span::styled(
+                pad(&fit(&name, column), column),
+                Style::new().fg(muted_color()),
+            ),
             Span::styled(
                 format!(" {}", tabs_text(other.tabs.len())),
-                Style::new().fg(DIM),
+                Style::new().fg(dim_color()),
             ),
         ]));
     }
     lines.push(Line::from(vec![
-        Span::styled("+ ▣ ", Style::new().fg(GREEN)),
+        Span::styled("+ ▣ ", Style::new().fg(green_color())),
         Span::styled(
             pad(&fit(&format!("▸ {branch}"), column), column),
-            Style::new().fg(GREEN),
+            Style::new().fg(green_color()),
         ),
         Span::styled(
             fit(
                 &format!(" new workspace · 1 tab {agent}"),
                 width.saturating_sub(column + 4),
             ),
-            Style::new().fg(GREEN),
+            Style::new().fg(green_color()),
         ),
     ]));
     if let Some(main) = &place.main {
@@ -895,20 +954,20 @@ fn project_lines(
         let base = app.base_branch().unwrap_or("the default branch");
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![
-            Span::styled("worktree ", Style::new().fg(DIM)),
+            Span::styled("worktree ", Style::new().fg(dim_color())),
             Span::styled(
                 fit(&folder, width.saturating_sub(9)),
-                Style::new().fg(MUTED),
+                Style::new().fg(muted_color()),
             ),
         ]));
         lines.push(Line::from(vec![
-            Span::styled("branch   ", Style::new().fg(DIM)),
+            Span::styled("branch   ", Style::new().fg(dim_color())),
             Span::styled(
                 fit(
                     &format!("{branch} (new, from {base})"),
                     width.saturating_sub(9),
                 ),
-                Style::new().fg(MUTED),
+                Style::new().fg(muted_color()),
             ),
         ]));
     }
@@ -920,12 +979,12 @@ fn pill_span(open: bool, label: &str) -> Span<'static> {
     if open {
         Span::styled(
             format!(" workspace {label} · open "),
-            Style::new().fg(Color::Reset).bg(PILL),
+            Style::new().fg(Color::Reset).bg(pill_color()),
         )
     } else {
         Span::styled(
             format!(" ＋ new workspace {label} "),
-            Style::new().fg(GREEN).bg(PILL),
+            Style::new().fg(green_color()).bg(pill_color()),
         )
     }
 }
@@ -948,15 +1007,15 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
             }
         };
         let line = Line::from(vec![
-            arrow(RED),
-            Span::styled(question, Style::new().fg(RED)),
+            arrow(red_color()),
+            Span::styled(question, Style::new().fg(red_color())),
         ]);
         frame.render_widget(Paragraph::new(line), area);
         return;
     }
     if let Some(rename) = &app.rename {
         let line = Line::from(vec![
-            arrow(ACCENT),
+            arrow(accent_color()),
             Span::raw(format!(
                 "rename the tab “{}” to “{}”",
                 rename.old,
@@ -968,15 +1027,18 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
     }
     if let Some(message) = &app.message {
         let line = Line::from(vec![
-            arrow(DIM),
-            Span::styled(message.clone(), Style::new().fg(MUTED)),
+            arrow(dim_color()),
+            Span::styled(message.clone(), Style::new().fg(muted_color())),
         ]);
         frame.render_widget(Paragraph::new(line), area);
         return;
     }
     let Some(item) = app.selected_item() else {
         frame.render_widget(
-            Paragraph::new(Span::styled("→ nothing selected", Style::new().fg(DIM))),
+            Paragraph::new(Span::styled(
+                "→ nothing selected",
+                Style::new().fg(dim_color()),
+            )),
             area,
         );
         return;
@@ -1101,7 +1163,7 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
             Choice::AnotherPlace => ("choose another place".into(), None, false, false),
         },
     };
-    let arrow_color = if warning { RED } else { ACCENT };
+    let arrow_color = if warning { red_color() } else { accent_color() };
     let mut spans = vec![
         Span::styled(
             "→ ",
@@ -1109,26 +1171,26 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
         ),
         Span::styled(
             verb,
-            Style::new().fg(if warning { RED } else { Color::Reset }),
+            Style::new().fg(if warning { red_color() } else { Color::Reset }),
         ),
     ];
     if let Some(pill) = where_ {
-        spans.push(Span::styled("  in ", Style::new().fg(DIM)));
+        spans.push(Span::styled("  in ", Style::new().fg(dim_color())));
         spans.push(pill);
     }
     if agent_field {
         let agent = app.agent();
         let mut field = vec![
-            Span::styled("agent ", Style::new().fg(DIM)),
+            Span::styled("agent ", Style::new().fg(dim_color())),
             Span::styled(
                 format!(" {agent} "),
-                Style::new().fg(agent_color(&agent)).bg(PILL),
+                Style::new().fg(agent_color(&agent)).bg(pill_color()),
             ),
         ];
         let key = if creating(app) { " ⇥" } else { " ⌃A" };
-        field.push(Span::styled(key, Style::new().fg(MATCH)));
+        field.push(Span::styled(key, Style::new().fg(match_color())));
         if app.create.no_prompts && agent != "shell" {
-            field.push(Span::styled("  prompts off", Style::new().fg(RED)));
+            field.push(Span::styled("  prompts off", Style::new().fg(red_color())));
         }
         let used = spans_width(&spans) + spans_width(&field);
         spans.push(Span::raw(
@@ -1246,13 +1308,16 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, String)> 
         x += (key.width() + text.width()) as u16;
         spans.push(Span::styled(
             key,
-            Style::new().fg(MATCH).add_modifier(Modifier::BOLD),
+            Style::new().fg(match_color()).add_modifier(Modifier::BOLD),
         ));
-        spans.push(Span::styled(text, Style::new().fg(MUTED)));
+        spans.push(Span::styled(text, Style::new().fg(muted_color())));
     }
     let help = vec![
-        Span::styled("?", Style::new().fg(MATCH).add_modifier(Modifier::BOLD)),
-        Span::styled(" help", Style::new().fg(MUTED)),
+        Span::styled(
+            "?",
+            Style::new().fg(match_color()).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" help", Style::new().fg(muted_color())),
     ];
     let used = spans_width(&spans) + spans_width(&help);
     spans.push(Span::raw(
@@ -1324,10 +1389,10 @@ fn draw_help(frame: &mut Frame, area: Rect) {
     frame.render_widget(Clear, box_area);
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(Style::new().fg(RULE))
+        .border_style(Style::new().fg(rule_color()))
         .title(Span::styled(
             " herdr-omnibar keys ",
-            Style::new().fg(ACCENT),
+            Style::new().fg(accent_color()),
         ));
     let inner = block.inner(box_area).inner(Margin {
         horizontal: 1,
@@ -1340,9 +1405,9 @@ fn draw_help(frame: &mut Frame, area: Rect) {
             Line::from(vec![
                 Span::styled(
                     pad(key, 12),
-                    Style::new().fg(MATCH).add_modifier(Modifier::BOLD),
+                    Style::new().fg(match_color()).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(*text, Style::new().fg(MUTED)),
+                Span::styled(*text, Style::new().fg(muted_color())),
             ])
         })
         .collect();
@@ -1352,21 +1417,21 @@ fn draw_help(frame: &mut Frame, area: Rect) {
 /// The color of an agent kind.
 fn agent_color(kind: &str) -> Color {
     match kind {
-        "claude" => ORANGE,
-        "codex" => MATCH,
-        "opencode" => PINK,
-        _ => MUTED,
+        "claude" => orange_color(),
+        "codex" => match_color(),
+        "opencode" => pink_color(),
+        _ => muted_color(),
     }
 }
 
 /// The color of a status, like the glyphs of herdr.
 fn status_color(status: Status) -> Color {
     match status {
-        Status::Blocked => PINK,
-        Status::Working => YELLOW,
-        Status::Done => GREEN,
-        Status::Idle => DIM,
-        Status::Unknown => RULE,
+        Status::Blocked => pink_color(),
+        Status::Working => yellow_color(),
+        Status::Done => green_color(),
+        Status::Idle => dim_color(),
+        Status::Unknown => rule_color(),
     }
 }
 
@@ -1376,7 +1441,7 @@ fn highlighted(name: &str, positions: &[usize], width: usize, base: Style) -> Ve
     let mut spans = Vec::new();
     for (index, character) in shown.chars().enumerate() {
         let style = if positions.contains(&index) && character != '…' {
-            Style::new().fg(MATCH).add_modifier(Modifier::BOLD)
+            Style::new().fg(match_color()).add_modifier(Modifier::BOLD)
         } else {
             base
         };

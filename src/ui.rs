@@ -574,11 +574,7 @@ fn display_name(item: &Item, app: &App) -> String {
 fn context_of(item: &Item, app: &App) -> String {
     let name = app.create.name.trim();
     let place = app
-        .create
-        .place
-        .as_ref()
-        .filter(|_| creating(app))
-        .or_else(|| app.current_place())
+        .target_place()
         .map(|place| place.label.clone())
         .unwrap_or_default();
     let auto = if name.is_empty() { "auto name, " } else { "" };
@@ -592,9 +588,7 @@ fn context_of(item: &Item, app: &App) -> String {
             workspace_id,
         }) if !creating(app) => match (workspace_id, worktree) {
             (Some(id), _) => app
-                .open
-                .iter()
-                .find(|place| place.workspace_id.as_deref() == Some(id.as_str()))
+                .open_place(id)
                 .map(|place| place.label.clone())
                 .unwrap_or_else(|| branch.clone()),
             (None, Some(folder)) => rows::home(folder),
@@ -896,11 +890,7 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
             } else {
                 name.clone()
             };
-            let place = app
-                .create
-                .place
-                .clone()
-                .or_else(|| app.current_place().cloned());
+            let place = app.target_place().cloned();
             match (choice, place) {
                 (Choice::NewTab, Some(place)) => {
                     lines.push(Line::from(round(vec![pill_span(true, &place.label)], app)));
@@ -1106,11 +1096,7 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         format!("new tab “{name}”")
     };
-    let place = app
-        .create
-        .place
-        .clone()
-        .or_else(|| app.current_place().cloned());
+    let place = app.target_place();
     let place_label = place
         .as_ref()
         .map(|place| place.label.clone())
@@ -1159,7 +1145,7 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
         ),
         Item::Create(name) => (
             format!("create “{name}”: choose a tab or a worktree"),
-            place.as_ref().map(|place| pill_span(true, &place.label)),
+            place.map(|place| pill_span(true, &place.label)),
             false,
             false,
         ),
@@ -1182,10 +1168,7 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
                     false,
                     &format!(
                         "{} ▸ {branch}",
-                        place
-                            .as_ref()
-                            .map(|place| place.project.as_str())
-                            .unwrap_or("")
+                        place.map(|place| place.project.as_str()).unwrap_or("")
                     ),
                 )),
                 true,
@@ -1197,11 +1180,9 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
                 ..
             } => {
                 let label = app
-                    .open
-                    .iter()
-                    .find(|open| open.workspace_id.as_deref() == Some(id.as_str()))
+                    .open_place(id)
                     .map(|open| open.label.clone())
-                    .unwrap_or_else(|| worktree_label(place.as_ref(), branch));
+                    .unwrap_or_else(|| worktree_label(place, branch));
                 (
                     format!("go to the worktree {branch}"),
                     Some(pill_span(true, &label)),
@@ -1211,7 +1192,7 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
             }
             Choice::Existing { branch, .. } => (
                 format!("open the worktree {branch}"),
-                Some(pill_span(false, &worktree_label(place.as_ref(), branch))),
+                Some(pill_span(false, &worktree_label(place, branch))),
                 true,
                 false,
             ),

@@ -282,10 +282,25 @@ impl App {
 
     /// The place of the current workspace.
     pub fn current_place(&self) -> Option<&Place> {
-        let current = self.current.as_deref()?;
+        self.open_place(self.current.as_deref()?)
+    }
+
+    /// The place of the rows that create or open: the place of the step "what" in the creation,
+    /// else the current place. Outside the creation, the place of an old step "what" does not
+    /// count: a shortcut can leave the creation.
+    pub fn target_place(&self) -> Option<&Place> {
+        self.create
+            .place
+            .as_ref()
+            .filter(|_| self.filter == Filter::New)
+            .or_else(|| self.current_place())
+    }
+
+    /// The open workspace with this id, as a place.
+    pub fn open_place(&self, workspace_id: &str) -> Option<&Place> {
         self.open
             .iter()
-            .find(|place| place.workspace_id.as_deref() == Some(current))
+            .find(|place| place.workspace_id.as_deref() == Some(workspace_id))
     }
 
     /// Build the lines again. The selection stays on the row with this key, if it is still there.
@@ -459,7 +474,7 @@ impl App {
         if let Some(agent) = &self.create.agent {
             return agent.clone();
         }
-        self.agent_for(self.create.place.as_ref().or_else(|| self.current_place()))
+        self.agent_for(self.target_place())
     }
 
     /// The agent of a place: its last agent, else the agent of its tabs, else the first agent on
@@ -673,10 +688,7 @@ impl App {
             Item::Pane(pane) => pane.workspace_id.clone(),
             _ => return None,
         };
-        self.open
-            .iter()
-            .find(|place| place.workspace_id.as_deref() == Some(workspace_id.as_str()))
-            .cloned()
+        self.open_place(&workspace_id).cloned()
     }
 
     /// The label of the workspace where ctrl+Enter adds a tab.
@@ -713,12 +725,7 @@ impl App {
     /// The main checkout of the project of the branch rows: the place of the step "what", else
     /// the current place.
     fn project_main(&self) -> Option<PathBuf> {
-        self.create
-            .place
-            .as_ref()
-            .filter(|_| self.filter == Filter::New)
-            .or_else(|| self.current_place())
-            .and_then(|place| place.main.clone())
+        self.target_place().and_then(|place| place.main.clone())
     }
 
     /// True if ctrl+Backspace on the selected row removes a worktree: a branch with a worktree
@@ -1223,6 +1230,25 @@ mod tests {
         // An agent that is not on the PATH gives the first agent.
         app.remembered
             .insert("/work/atlas".to_string(), "aider".to_string());
+        assert_eq!(app.agent(), "claude");
+    }
+
+    #[test]
+    fn the_place_of_an_old_step_what_does_not_count_after_a_shortcut() {
+        let mut app = app(Filter::New);
+        app.remembered
+            .insert("/work/pac".to_string(), "codex".to_string());
+        type_text(&mut app, "pac");
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.create.step, Step::What);
+        assert_eq!(app.agent(), "codex");
+        // @ leaves the creation: the current place (atlas) counts again.
+        press(&mut app, KeyCode::Char('@'));
+        assert_eq!(app.filter, Filter::Agents);
+        assert_eq!(
+            app.target_place().map(|place| place.label.as_str()),
+            Some("atlas")
+        );
         assert_eq!(app.agent(), "claude");
     }
 

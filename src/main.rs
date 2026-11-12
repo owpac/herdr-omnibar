@@ -6,6 +6,7 @@
 //! starts the watcher of the automatic titles of the tabs.
 
 mod app;
+mod changes;
 mod config;
 mod context;
 mod create;

@@ -4,7 +4,7 @@
 
 ## The 2 doors
 
-- **`open`** goes to what exists. The list has the agents that need you first, then the other agents, the tabs without an agent, the worktrees of the current project, the other workspaces and the git projects. `↵` goes to the selected row. If you type a text, the last row is `create “<text>”…`: `↵` on it starts the creation in the current place, with this text as the name. A branch of the current project shows the state of its worktree: `▣` an open workspace, `□` a worktree without a workspace, `○` no worktree.
+- **`open`** goes to what exists. The list has the agents that need you first, then the other agents, the tabs without an agent, the worktrees of the current project, the other workspaces and the git projects. `↵` goes to the selected row. If you type a text, the last row is `create “<text>”…`: `↵` on it starts the creation in the current place, with this text as the name. A branch of the current project shows the git state of its worktree: `✓` no change, `●` changes that are not committed, `○` no worktree. Its right column tells if its workspace is open, and the age of its last commit.
 - **`new`** creates a tab or a worktree, in 2 steps:
   1. **Where:** the current place first, then the open workspaces, the git projects without a workspace and the other folders. Type `~` or `/` for any folder of the disk: `⇥` completes it.
   2. **What:** type the name. In a git project, `new worktree <name>` comes first: wt creates the branch, its worktree and its own workspace. `new tab` adds a tab to the workspace of the place. A name that is not a branch name selects `new tab`.

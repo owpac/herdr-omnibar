@@ -20,6 +20,7 @@ use ratatui::crossterm::event::{
 use ratatui::crossterm::{execute, terminal};
 use ratatui::layout::Rect;
 
+use crate::changes::Changes;
 use crate::config::{self, Config, Preview};
 use crate::context::Context;
 use crate::create::{self, Choice, Plan};
@@ -34,6 +35,9 @@ use crate::ui;
 
 /// The time between 2 reads of the herdr snapshot.
 const REFRESH: Duration = Duration::from_millis(1500);
+/// The time between 2 drawings without a key: the threads of the running times and of the git
+/// states give their results in the background.
+const REDRAW: Duration = Duration::from_millis(250);
 
 /// The step of a creation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +155,8 @@ pub struct App {
     previews: HashMap<String, String>,
     /// The running times of the panes (feature running_time).
     pub times: Option<Times>,
+    /// The git state of the worktrees of the branch rows.
+    pub changes: Changes,
 }
 
 /// What a key asks for.
@@ -208,6 +214,7 @@ impl App {
             current_base: None,
             previews: HashMap::new(),
             times: None,
+            changes: Changes::default(),
         };
         app.rebuild(None);
         app
@@ -351,6 +358,13 @@ impl App {
             let main = self.current_place().and_then(|place| place.main.clone());
             self.current_branches = Some(main.as_deref().map(places::branches).unwrap_or_default());
             self.current_base = main.as_deref().map(places::base_branch);
+            let worktrees = self
+                .current_branches
+                .iter()
+                .flatten()
+                .filter_map(|branch| branch.worktree.clone())
+                .collect::<Vec<_>>();
+            self.changes.ask(worktrees);
         }
         self.current_branches.clone().unwrap_or_default()
     }
@@ -474,6 +488,13 @@ impl App {
             .map(places::branches)
             .unwrap_or_default();
         self.create.base = place.main.as_deref().map(places::base_branch);
+        let worktrees = self
+            .create
+            .branches
+            .iter()
+            .filter_map(|branch| branch.worktree.clone())
+            .collect::<Vec<_>>();
+        self.changes.ask(worktrees);
         self.create.place = Some(place);
         self.create.step = Step::What;
         self.create.agent = None;
@@ -1060,7 +1081,7 @@ fn event_loop(
         terminal
             .draw(|frame| ui::draw(frame, app))
             .map_err(|error| error.to_string())?;
-        let timeout = REFRESH.saturating_sub(last_read.elapsed());
+        let timeout = REFRESH.saturating_sub(last_read.elapsed()).min(REDRAW);
         if event::poll(timeout).map_err(|error| error.to_string())? {
             let outcome = match event::read().map_err(|error| error.to_string())? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => app.on_key(key),
@@ -1077,7 +1098,7 @@ fn event_loop(
                     app.update_model(model);
                 }
             }
-        } else {
+        } else if last_read.elapsed() >= REFRESH {
             if let Ok(model) = model::load_cached(cache) {
                 app.update_model(model);
             }

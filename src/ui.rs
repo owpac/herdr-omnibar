@@ -470,18 +470,19 @@ fn glyph(item: &Item) -> Span<'static> {
     }
 }
 
-/// The glyph of a row of the list. Outside the creation, a branch shows the state of its
-/// worktree: ▣ an open workspace, □ a worktree without a workspace, ○ no worktree.
+/// The glyph of a row of the list. Outside the creation, a branch shows the git state of its
+/// worktree, like the mockup: ✓ no change, ● changes not committed, ○ no worktree. The right
+/// column tells its workspace.
 fn row_glyph(item: &Item, app: &App) -> Span<'static> {
     match item {
-        Item::Choice(Choice::Existing {
-            workspace_id,
-            worktree,
-            ..
-        }) if !creating(app) => match (workspace_id, worktree) {
-            (Some(_), _) => Span::styled("▣", Style::new().fg(accent_color())),
-            (None, Some(_)) => Span::styled("□", Style::new().fg(muted_color())),
-            (None, None) => Span::styled("○", Style::new().fg(dim_color())),
+        Item::Choice(Choice::Existing { worktree, .. }) if !creating(app) => match worktree {
+            None => Span::styled("○", Style::new().fg(dim_color())),
+            Some(folder) => match app.changes.of(folder) {
+                Some(false) => Span::styled("✓", Style::new().fg(green_color())),
+                Some(true) => Span::styled("●", Style::new().fg(yellow_color())),
+                // The thread did not read the worktree yet.
+                None => Span::styled("·", Style::new().fg(dim_color())),
+            },
         },
         _ => glyph(item),
     }
@@ -1378,8 +1379,8 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         ("⌃O", "Show or hide the preview."),
         ("⌃U  ⌃W", "Clear the text, or delete its last word."),
         (
-            "▣ □ ○",
-            "A branch: open workspace, worktree without a workspace, no worktree.",
+            "✓ ● ○",
+            "A branch: worktree without change, with changes, no worktree.",
         ),
         ("esc", "Close, or go back to the step where."),
         ("? F1", "This help."),

@@ -159,6 +159,9 @@ pub struct App {
     pub changes: Changes,
     /// Show the logos of the agents: the feature agent_logos, and the font is installed.
     pub logos: bool,
+    /// The last agent of each folder (agents.json), read one time when the popup opens. Empty in
+    /// the tests: they do not read the state of the machine.
+    remembered: HashMap<String, String>,
 }
 
 /// What a key asks for.
@@ -218,6 +221,7 @@ impl App {
             times: None,
             changes: Changes::default(),
             logos: false,
+            remembered: HashMap::new(),
         };
         app.rebuild(None);
         app
@@ -461,7 +465,11 @@ impl App {
     /// The agent of a place: its last agent, else the agent of its tabs, else the first agent on
     /// the PATH.
     fn agent_for(&self, place: Option<&Place>) -> String {
-        let remembered = place.and_then(|place| create::remembered_agent(&place.folder));
+        let remembered = place.and_then(|place| {
+            self.remembered
+                .get(&place.folder.display().to_string())
+                .cloned()
+        });
         let from_tabs = place.and_then(|place| place.tabs.iter().find_map(|tab| tab.agent.clone()));
         remembered
             .or(from_tabs)
@@ -1044,6 +1052,7 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
         app.ask_times();
     }
     app.logos = app.config.has("agent_logos") && crate::icons::font_installed();
+    app.remembered = create::remembered_agents();
     let mut terminal = ratatui::init();
     let enhanced = terminal::supports_keyboard_enhancement().unwrap_or(false);
     if enhanced {
@@ -1202,6 +1211,19 @@ mod tests {
 
     fn selected_name(app: &App) -> String {
         app.selected_item().map(Item::name).unwrap_or_default()
+    }
+
+    #[test]
+    fn the_agent_of_a_place_comes_from_the_memory_of_the_popup() {
+        let mut app = app(Filter::New);
+        assert_eq!(app.agent(), "claude");
+        app.remembered
+            .insert("/work/atlas".to_string(), "codex".to_string());
+        assert_eq!(app.agent(), "codex");
+        // An agent that is not on the PATH gives the first agent.
+        app.remembered
+            .insert("/work/atlas".to_string(), "aider".to_string());
+        assert_eq!(app.agent(), "claude");
     }
 
     #[test]

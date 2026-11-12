@@ -360,12 +360,12 @@ fn read_agents(file: &Path) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
-/// The last agent of a folder, if the omnibar knows it.
-pub fn remembered_agent(folder: &Path) -> Option<String> {
-    let file = agents_file()?;
-    read_agents(&file)
-        .get(&folder.display().to_string())
-        .cloned()
+/// The last agent of each folder that the omnibar knows, by folder. The popup reads the file one
+/// time: it does not read the disk at each drawing.
+pub fn remembered_agents() -> HashMap<String, String> {
+    agents_file()
+        .map(|file| read_agents(&file))
+        .unwrap_or_default()
 }
 
 fn remember_agent(folder: &Path, agent: &str) {

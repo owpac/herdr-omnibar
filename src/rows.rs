@@ -10,6 +10,7 @@ use std::path::Path;
 use crate::create::{self, Choice};
 use crate::filter::Filter;
 use crate::fuzzy;
+use crate::herdr::PluginAction;
 use crate::model::{AgentRow, Model, Space, Status, TabRow};
 use crate::places::{self, Branch, Kind, Place};
 
@@ -23,6 +24,8 @@ pub enum Item {
     Place(Place),
     /// A choice of the step "what", or a worktree of the filter Worktrees.
     Choice(Choice),
+    /// An action of a herdr plugin.
+    Action(PluginAction),
 }
 
 impl Item {
@@ -41,6 +44,8 @@ impl Item {
                 Choice::NewWorkspace => "new workspace".into(),
                 Choice::AnotherPlace => "another place…".into(),
             },
+            Item::Action(action) if action.title.is_empty() => action.action_id.clone(),
+            Item::Action(action) => action.title.clone(),
         }
     }
 
@@ -52,6 +57,7 @@ impl Item {
             Item::Workspace(space) => space.folder.as_deref().map(home).unwrap_or_default(),
             Item::Place(place) => home(&place.folder),
             Item::Choice(_) => String::new(),
+            Item::Action(action) => action.plugin_id.clone(),
         }
     }
 
@@ -63,6 +69,7 @@ impl Item {
             Item::Workspace(space) => format!("workspace:{}", space.workspace.workspace_id),
             Item::Place(place) => format!("place:{}", place.key()),
             Item::Choice(choice) => format!("choice:{choice:?}"),
+            Item::Action(action) => format!("action:{}:{}", action.plugin_id, action.action_id),
         }
     }
 
@@ -96,13 +103,14 @@ pub const FILTERS: [Filter; 7] = [
     Filter::Actions,
 ];
 
-/// True if the popup can show this filter in this version.
-pub fn is_ready(filter: Filter) -> bool {
-    filter != Filter::Actions
-}
-
 /// The lines of the filters that go somewhere (all the filters but New).
-pub fn build(model: &Model, others: &[Place], filter: Filter, query: &str) -> Vec<Line> {
+pub fn build(
+    model: &Model,
+    others: &[Place],
+    actions: &[PluginAction],
+    filter: Filter,
+    query: &str,
+) -> Vec<Line> {
     let mut lines = Vec::new();
     let query = query.trim();
     if matches!(filter, Filter::All | Filter::Agents) {
@@ -135,6 +143,10 @@ pub fn build(model: &Model, others: &[Place], filter: Filter, query: &str) -> Ve
             let folders = folders.into_iter().map(Item::Place).collect();
             group(&mut lines, "Folders", matches(folders, query));
         }
+    }
+    if filter == Filter::Actions {
+        let actions = actions.iter().cloned().map(Item::Action).collect();
+        group(&mut lines, "Actions", matches(actions, query));
     }
     lines
 }
@@ -422,7 +434,7 @@ mod tests {
     fn the_filter_all_shows_the_groups_in_the_order_of_urgency() {
         let others = [place(Kind::Project, "pac", None)];
         assert_eq!(
-            titles(&build(&model(), &others, Filter::All, "")),
+            titles(&build(&model(), &others, &[], Filter::All, "")),
             [
                 "# Needs you",
                 "fix the login",
@@ -441,7 +453,7 @@ mod tests {
     #[test]
     fn a_query_keeps_only_the_matches() {
         assert_eq!(
-            titles(&build(&model(), &[], Filter::All, "omni")),
+            titles(&build(&model(), &[], &[], Filter::All, "omni")),
             ["# Agents", "omnibar design"]
         );
     }
@@ -449,8 +461,22 @@ mod tests {
     #[test]
     fn the_filter_tabs_shows_only_the_tabs() {
         assert_eq!(
-            titles(&build(&model(), &[], Filter::Tabs, "")),
+            titles(&build(&model(), &[], &[], Filter::Tabs, "")),
             ["# Tabs", "logs"]
+        );
+    }
+
+    #[test]
+    fn the_filter_actions_lists_the_actions_of_the_plugins() {
+        let actions = [PluginAction {
+            action_id: "clean".into(),
+            plugin_id: "herdr-worktrunk".into(),
+            title: "Worktree: clean the worktrees".into(),
+            description: String::new(),
+        }];
+        assert_eq!(
+            titles(&build(&model(), &[], &actions, Filter::Actions, "clean")),
+            ["# Actions", "Worktree: clean the worktrees"]
         );
     }
 

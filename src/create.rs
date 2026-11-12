@@ -188,19 +188,46 @@ pub const PLAN_VARIABLE: &str = "OMNIBAR_PLAN";
 /// take some seconds (wt, the start of the agent): a popup that waits shows a black screen and
 /// takes no key.
 pub fn execute_detached(plan: &Plan) -> Result<(), String> {
+    let json = serde_json::to_string(plan).map_err(|error| error.to_string())?;
+    spawn_detached(&["execute"], &[(PLAN_VARIABLE, &json)])
+}
+
+/// Start this binary with these arguments in a detached process: it goes on after the popup
+/// closes.
+pub fn spawn_detached(arguments: &[&str], environment: &[(&str, &str)]) -> Result<(), String> {
     let executable =
         env::current_exe().map_err(|error| format!("cannot find the binary: {error}"))?;
-    let json = serde_json::to_string(plan).map_err(|error| error.to_string())?;
     Command::new(executable)
-        .arg("execute")
-        .env(PLAN_VARIABLE, json)
+        .args(arguments)
+        .envs(environment.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .process_group(0)
         .spawn()
-        .map_err(|error| format!("cannot start the creation: {error}"))?;
+        .map_err(|error| format!("cannot start {}: {error}", arguments.join(" ")))?;
     Ok(())
+}
+
+/// The detached process `invoke`: wait until the popup closes (its process ends), then run the
+/// action. herdr refuses a popup while another popup is open.
+pub fn invoke_later(plugin_id: &str, action_id: &str) -> Result<(), String> {
+    use std::os::unix::process::parent_id;
+    use std::thread::sleep;
+    use std::time::Duration;
+    let parent = parent_id();
+    for _ in 0..40 {
+        if parent_id() != parent {
+            break;
+        }
+        sleep(Duration::from_millis(50));
+    }
+    sleep(Duration::from_millis(150));
+    herdr::invoke_action(plugin_id, action_id).map_err(|error| {
+        let message = error.to_string();
+        let _ = herdr::show_notification("herdr-omnibar: the action failed", &message);
+        message
+    })
 }
 
 /// The detached process `execute`: run the plan of OMNIBAR_PLAN. The popup is closed: an error

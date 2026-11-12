@@ -255,7 +255,19 @@ pub fn branches(main: &Path) -> Vec<Branch> {
         .collect()
 }
 
-fn git(folder: &Path, arguments: &[&str]) -> String {
+/// The default branch of a repository, as git can compare with it: origin/HEAD, else main.
+pub fn base_branch(main: &Path) -> String {
+    let remote = git(main, &["rev-parse", "--abbrev-ref", "origin/HEAD"]);
+    let remote = remote.trim();
+    if remote.is_empty() || remote == "origin/HEAD" {
+        "main".to_string()
+    } else {
+        remote.to_string()
+    }
+}
+
+/// The standard output of a git command, or an empty text.
+pub fn git(folder: &Path, arguments: &[&str]) -> String {
     Command::new("git")
         .arg("-C")
         .arg(folder)

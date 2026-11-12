@@ -20,11 +20,11 @@ use ratatui::crossterm::event::{
 use ratatui::crossterm::{execute, terminal};
 use ratatui::layout::Rect;
 
-use crate::config::{self, Config};
+use crate::config::{self, Config, Preview};
 use crate::context::Context;
 use crate::create::{self, Choice, Plan};
 use crate::filter::Filter;
-use crate::herdr;
+use crate::herdr::{self, PluginAction};
 use crate::model::{self, Checkout, Model};
 use crate::places::{self, Branch, Place};
 use crate::rows::{self, Item, Line};
@@ -114,6 +114,12 @@ pub struct App {
     pub list_offset: usize,
     /// The last click: the line and the time, for a double click.
     last_click: Option<(usize, Instant)>,
+    /// The actions of the herdr plugins, read the first time that the filter Actions shows.
+    actions: Option<Vec<PluginAction>>,
+    /// The view of the preview of a worktree: 0 diff, 1 log, 2 changes.
+    pub view: usize,
+    /// The text of each view of each branch, read one time.
+    views: HashMap<(String, usize), String>,
     /// The branches of the current project, for the filter Worktrees.
     current_branches: Option<Vec<Branch>>,
     /// The text of each pane that the preview has read, by pane id.
@@ -127,6 +133,8 @@ pub enum Outcome {
     Quit,
     Go(Item),
     Create(Plan),
+    /// Run an action of a herdr plugin, after the popup closes.
+    Invoke(PluginAction),
 }
 
 impl App {
@@ -160,6 +168,9 @@ impl App {
             list_area: Rect::default(),
             list_offset: 0,
             last_click: None,
+            actions: None,
+            view: 0,
+            views: HashMap::new(),
             current_branches: None,
             previews: HashMap::new(),
         };
@@ -222,7 +233,18 @@ impl App {
                 let branches = self.current_branches();
                 rows::worktree_lines(&branches, &self.open, &project, &self.query)
             }
-            _ => rows::build(&self.model, &self.others, self.filter, &self.query),
+            _ => {
+                if self.filter == Filter::Actions && self.actions.is_none() {
+                    self.actions = Some(herdr::plugin_actions().unwrap_or_default());
+                }
+                rows::build(
+                    &self.model,
+                    &self.others,
+                    self.actions.as_deref().unwrap_or_default(),
+                    self.filter,
+                    &self.query,
+                )
+            }
         };
         let rows = self.row_indices();
         let mut selected = keep
@@ -425,8 +447,64 @@ impl App {
                     None => Outcome::Continue,
                 }
             }
+            (_, Item::Action(action)) => Outcome::Invoke(action),
             (_, item) => Outcome::Go(item),
         }
+    }
+
+    /// The text of a view of the preview of a branch of the current project: the diff since the
+    /// default branch, the log, or the changes not committed. With preview = "summary", one view
+    /// gives all.
+    pub fn branch_view(&mut self, branch: &str, worktree: Option<&PathBuf>) -> String {
+        let view = if self.config.preview == Preview::Summary {
+            3
+        } else {
+            self.view % 3
+        };
+        let key = (branch.to_string(), view);
+        if let Some(text) = self.views.get(&key) {
+            return text.clone();
+        }
+        let Some(main) = self.current_place().and_then(|place| place.main.clone()) else {
+            return String::new();
+        };
+        let base = places::base_branch(&main);
+        let range = format!("{base}..{branch}");
+        let text = match view {
+            0 => places::git(&main, &["diff", "--stat", &format!("{base}...{branch}")]),
+            1 => places::git(&main, &["log", "--oneline", "-n", "40", &range]),
+            2 => match worktree {
+                Some(folder) => {
+                    let status = places::git(folder, &["status", "--short"]);
+                    if status.trim().is_empty() {
+                        "no change".to_string()
+                    } else {
+                        status
+                    }
+                }
+                None => "no worktree".to_string(),
+            },
+            _ => {
+                let count = places::git(&main, &["rev-list", "--count", &range]);
+                let stat = places::git(
+                    &main,
+                    &["diff", "--shortstat", &format!("{base}...{branch}")],
+                );
+                let log = places::git(&main, &["log", "--oneline", "-n", "8", &range]);
+                format!(
+                    "{} commits ahead of {base}\n{}\n\n{log}",
+                    count.trim(),
+                    stat.trim()
+                )
+            }
+        };
+        let text = if text.trim().is_empty() {
+            format!("nothing since {base}")
+        } else {
+            text
+        };
+        self.views.insert(key, text.clone());
+        text
     }
 
     /// The workspace of the selected agent, tab or workspace, as a place.
@@ -566,6 +644,8 @@ impl App {
             return Outcome::Continue;
         }
         match key.code {
+            KeyCode::Left if ctrl => self.view = (self.view + 2) % 3,
+            KeyCode::Right if ctrl => self.view = (self.view + 1) % 3,
             KeyCode::Enter if ctrl && !creating => return self.new_tab_here(),
             KeyCode::Backspace if ctrl && !renaming => self.ask_close(),
             KeyCode::Char('r') if ctrl && !creating && self.config.has("rename_tab") => {
@@ -687,6 +767,9 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
     match outcome? {
         Outcome::Go(item) => go(&item).map_err(|error| error.to_string()),
         Outcome::Create(plan) => create::execute_detached(&plan),
+        Outcome::Invoke(action) => {
+            create::spawn_detached(&["invoke", &action.plugin_id, &action.action_id], &[])
+        }
         Outcome::Quit | Outcome::Continue => Ok(()),
     }
 }
@@ -736,7 +819,7 @@ fn go(item: &Item) -> Result<(), herdr::Error> {
         }
         Item::Tab(tab) => herdr::focus_tab(&tab.tab_id),
         Item::Workspace(space) => herdr::focus_workspace(&space.workspace.workspace_id),
-        Item::Place(_) | Item::Choice(_) => Ok(()),
+        Item::Place(_) | Item::Choice(_) | Item::Action(_) => Ok(()),
     }
 }
 

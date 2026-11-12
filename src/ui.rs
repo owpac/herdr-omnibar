@@ -215,6 +215,7 @@ fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
             vec![Span::styled(tabs_text(count), Style::new().fg(DIM))]
         }
         Item::Place(place) => place_right(place, app),
+        Item::Action(_) => Vec::new(),
         Item::Choice(choice) => match choice {
             Choice::Existing {
                 workspace_id,
@@ -275,6 +276,7 @@ fn glyph(item: &Item) -> Span<'static> {
         ),
         Item::Tab(_) => Span::styled("▪", Style::new().fg(DIM)),
         Item::Workspace(_) => Span::styled("▣", Style::new().fg(ACCENT)),
+        Item::Action(_) => Span::styled("›", Style::new().fg(ACCENT)),
         Item::Place(place) => match place.kind {
             Kind::Workspace => Span::styled("▣", Style::new().fg(ACCENT)),
             Kind::Project => Span::styled("□", Style::new().fg(MUTED)),
@@ -337,17 +339,6 @@ fn context_of(item: &Item, app: &App) -> String {
 }
 
 fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
-    if !rows::is_ready(app.filter) {
-        let text = format!(
-            "The filter {} comes in a next version. ⇥ changes the filter.",
-            app.filter.label()
-        );
-        frame.render_widget(
-            Paragraph::new(Span::styled(text, Style::new().fg(DIM))),
-            area,
-        );
-        return;
-    }
     if app.lines.is_empty() {
         let text = match (creating(app), app.create.step) {
             (true, Step::Where) => "No place. Type ~ or / for a folder of the disk.",
@@ -520,6 +511,46 @@ fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
             let content: Vec<&str> = text.trim_end().lines().collect();
             let start = content.len().saturating_sub(height.saturating_sub(1));
             for text_line in &content[start..] {
+                lines.push(muted(fit(text_line, width)));
+            }
+        }
+        Item::Action(action) => {
+            lines.push(title("ACTION"));
+            lines.push(muted(format!(
+                "{} · {}",
+                action.plugin_id, action.action_id
+            )));
+            lines.push(Line::raw(""));
+            for part in wrap(&action.description, width) {
+                lines.push(Line::raw(part));
+            }
+        }
+        Item::Choice(Choice::Existing {
+            branch, worktree, ..
+        }) if !creating(app) => {
+            let views = if app.config.preview == crate::config::Preview::Summary {
+                vec![Span::styled(
+                    "SUMMARY",
+                    Style::new().fg(DIM).add_modifier(Modifier::BOLD),
+                )]
+            } else {
+                let mut spans = Vec::new();
+                for (index, name) in ["DIFF", "LOG", "CHANGES"].iter().enumerate() {
+                    let style = if index == app.view % 3 {
+                        Style::new().fg(ACCENT).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::new().fg(DIM)
+                    };
+                    spans.push(Span::styled(*name, style));
+                    spans.push(Span::styled(" · ", Style::new().fg(RULE)));
+                }
+                spans.pop();
+                spans.push(Span::styled("  ⌃← ⌃→", Style::new().fg(MATCH)));
+                spans
+            };
+            lines.push(Line::from(views));
+            let text = app.branch_view(branch, worktree.as_ref());
+            for text_line in text.lines().take(height.saturating_sub(1)) {
                 lines.push(muted(fit(text_line, width)));
             }
         }
@@ -758,6 +789,12 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
             false,
             false,
         ),
+        Item::Action(action) => (
+            format!("run the action {}", action.title),
+            None,
+            false,
+            false,
+        ),
         Item::Place(place) => (
             "create".to_string(),
             Some(pill_span(place.kind == Kind::Workspace, &place.label)),
@@ -898,6 +935,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
             selected => {
                 let primary = match selected {
                     Some(Item::Place(_)) => "create in",
+                    Some(Item::Action(_)) => "run",
                     Some(Item::Choice(_)) => "open",
                     _ => "go",
                 };
@@ -1065,6 +1103,25 @@ pub fn fit(text: &str, width: usize) -> String {
     out
 }
 
+/// A text cut into lines of a width, at the spaces.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        if !line.is_empty() && line.width() + 1 + word.width() > width {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
 /// A text padded with spaces to a width.
 fn pad(text: &str, width: usize) -> String {
     let used = text.width();
@@ -1106,6 +1163,14 @@ mod tests {
     #[test]
     fn the_width_counts_wide_characters() {
         assert_eq!(fit("日本語のテキスト", 5), "日本…");
+    }
+
+    #[test]
+    fn a_description_wraps_at_the_spaces() {
+        assert_eq!(
+            wrap("open the cleaner of the worktrees", 16),
+            ["open the cleaner", "of the worktrees"]
+        );
     }
 
     #[test]

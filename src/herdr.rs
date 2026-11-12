@@ -177,6 +177,33 @@ pub fn show_notification(title: &str, body: &str) -> Result<(), Error> {
     run(&["notification", "show", title, "--body", body]).map(|_| ())
 }
 
+/// An action of a herdr plugin.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct PluginAction {
+    pub action_id: String,
+    pub plugin_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+/// The actions of all the herdr plugins.
+pub fn plugin_actions() -> Result<Vec<PluginAction>, Error> {
+    let arguments = ["plugin", "action", "list"];
+    let result = run_json(&arguments)?;
+    serde_json::from_value(result["actions"].clone())
+        .map_err(|error| Error::new(format!("herdr plugin action list: {error}")))
+}
+
+/// Run an action of a herdr plugin.
+pub fn invoke_action(plugin_id: &str, action_id: &str) -> Result<(), Error> {
+    run(&[
+        "plugin", "action", "invoke", action_id, "--plugin", plugin_id,
+    ])
+    .map(|_| ())
+}
+
 /// Close a tab, with its panes.
 pub fn close_tab(tab_id: &str) -> Result<(), Error> {
     run(&["tab", "close", tab_id]).map(|_| ())

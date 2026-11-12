@@ -626,7 +626,10 @@ impl App {
             }
         };
         let text = if text.trim().is_empty() {
-            format!("nothing since {base}")
+            format!(
+                "no commit ahead of {}",
+                base.strip_prefix("origin/").unwrap_or(&base)
+            )
         } else {
             text
         };

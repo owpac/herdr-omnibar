@@ -59,14 +59,20 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     .areas(area);
     draw_search(frame, search, app);
     draw_rule(frame, rule_top);
-    if app.preview && body.width >= PREVIEW_MIN_WIDTH {
+    let (list, preview) = if app.preview && body.width >= PREVIEW_MIN_WIDTH {
         let [list, preview] =
             Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
                 .areas(body);
-        draw_list(frame, list, app);
-        draw_preview(frame, preview, app);
+        (list, Some(preview))
     } else {
-        draw_list(frame, body, app);
+        (body, None)
+    };
+    // The mouse needs the place of the list and its first visible line.
+    app.list_area = list;
+    app.list_offset = scroll_offset(app.selected, list.height);
+    draw_list(frame, list, app);
+    if let Some(preview) = preview {
+        draw_preview(frame, preview, app);
     }
     draw_rule(frame, rule_bottom);
     draw_action(frame, action, app);
@@ -86,6 +92,13 @@ fn draw_rule(frame: &mut Frame, area: Rect) {
 
 fn creating(app: &App) -> bool {
     app.filter == Filter::New
+}
+
+/// The first visible line of the list: the selected row stays visible.
+fn scroll_offset(selected: Option<usize>, height: u16) -> usize {
+    selected
+        .unwrap_or(0)
+        .saturating_sub((height as usize).saturating_sub(1))
 }
 
 fn draw_search(frame: &mut Frame, area: Rect, app: &App) {
@@ -116,6 +129,13 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) {
     // The creation shows its step before the prompt: "new › where", or "new › <place>".
     let mut spans = Vec::new();
     let (prompt, placeholder) = match (creating(app), app.create.step) {
+        _ if app.rename.is_some() => {
+            spans.push(Span::styled(
+                " rename › tab ",
+                Style::new().fg(MUTED).bg(PILL),
+            ));
+            ("name ❯ ", "the new name of the tab")
+        }
         (true, Step::Where) => {
             spans.push(crumb(None));
             ("where ❯ ", "project, workspace or folder · ~ for a path")
@@ -365,9 +385,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
         .min(room * 3 / 5)
         .max(8.min(room));
     let context_width = room.saturating_sub(name_width);
-    // Scroll: the selected row stays visible.
-    let selected = app.selected.unwrap_or(0);
-    let offset = selected.saturating_sub(height.saturating_sub(1));
+    let offset = scroll_offset(app.selected, area.height);
     let lines: Vec<Line> = app
         .lines
         .iter()
@@ -665,6 +683,39 @@ fn pill_span(open: bool, label: &str) -> Span<'static> {
 }
 
 fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
+    let arrow =
+        |color: Color| Span::styled("→ ", Style::new().fg(color).add_modifier(Modifier::BOLD));
+    if let Some((_, name)) = &app.confirm {
+        let line = Line::from(vec![
+            arrow(RED),
+            Span::styled(
+                format!("close the tab {name}? ↵ yes · esc no"),
+                Style::new().fg(RED),
+            ),
+        ]);
+        frame.render_widget(Paragraph::new(line), area);
+        return;
+    }
+    if let Some(rename) = &app.rename {
+        let line = Line::from(vec![
+            arrow(ACCENT),
+            Span::raw(format!(
+                "rename the tab “{}” to “{}”",
+                rename.old,
+                rename.text.trim()
+            )),
+        ]);
+        frame.render_widget(Paragraph::new(line), area);
+        return;
+    }
+    if let Some(message) = &app.message {
+        let line = Line::from(vec![
+            arrow(DIM),
+            Span::styled(message.clone(), Style::new().fg(MUTED)),
+        ]);
+        frame.render_widget(Paragraph::new(line), area);
+        return;
+    }
     let Some(item) = app.selected_item() else {
         frame.render_widget(
             Paragraph::new(Span::styled("→ nothing selected", Style::new().fg(DIM))),
@@ -796,7 +847,11 @@ fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     let what = creating(app) && app.create.step == Step::What;
     let path = creating(app) && app.create.step == Step::Where && rows::is_path(&app.create.filter);
-    let hints: Vec<(&str, String)> = if what {
+    let hints: Vec<(&str, String)> = if app.confirm.is_some() {
+        vec![("↵", "yes".to_string()), ("esc", "no".to_string())]
+    } else if app.rename.is_some() {
+        vec![("↵", "save".to_string()), ("esc", "keep".to_string())]
+    } else if what {
         let selected = app.selected_item();
         let primary = match selected {
             Some(Item::Choice(Choice::AnotherPlace)) => "place",
@@ -825,17 +880,35 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
             ("esc", "close".to_string()),
         ]
     } else {
-        let primary = match app.selected_item() {
-            Some(Item::Place(_)) => "create in",
-            Some(Item::Choice(_)) => "open",
-            _ => "go",
-        };
-        vec![
-            ("↵", primary.to_string()),
-            ("⇥", "filter".to_string()),
-            ("⌃O", "preview".to_string()),
-            ("esc", "close".to_string()),
-        ]
+        match app.selected_item() {
+            Some(Item::Agent(_) | Item::Tab(_)) => vec![
+                ("↵", "go".to_string()),
+                ("⌃↵", "new tab here".to_string()),
+                ("⇥", "filter".to_string()),
+                ("⌃⌫", "close tab".to_string()),
+                ("esc", "close".to_string()),
+            ],
+            Some(Item::Workspace(_)) => vec![
+                ("↵", "go".to_string()),
+                ("⌃↵", "new tab here".to_string()),
+                ("⇥", "filter".to_string()),
+                ("⌃O", "preview".to_string()),
+                ("esc", "close".to_string()),
+            ],
+            selected => {
+                let primary = match selected {
+                    Some(Item::Place(_)) => "create in",
+                    Some(Item::Choice(_)) => "open",
+                    _ => "go",
+                };
+                vec![
+                    ("↵", primary.to_string()),
+                    ("⇥", "filter".to_string()),
+                    ("⌃O", "preview".to_string()),
+                    ("esc", "close".to_string()),
+                ]
+            }
+        }
     };
     let mut spans = Vec::new();
     for (key, label) in hints {
@@ -876,6 +949,19 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         (
             "⌃Y",
             "In the step what: start the agent without its permission prompts.",
+        ),
+        (
+            "⌃↵",
+            "A new tab, with its agent, in the workspace of the selected row.",
+        ),
+        ("⌃⌫", "Close the tab of the selected row, after a question."),
+        (
+            "⌃R",
+            "Rename the tab of the selected row. ↵ saves, esc keeps the name.",
+        ),
+        (
+            "mouse",
+            "A click selects a row, a double click runs it, the wheel moves.",
         ),
         ("⌃O", "Show or hide the preview."),
         ("⌃U  ⌃W", "Clear the text, or delete its last word."),

@@ -177,6 +177,11 @@ pub fn show_notification(title: &str, body: &str) -> Result<(), Error> {
     run(&["notification", "show", title, "--body", body]).map(|_| ())
 }
 
+/// Close a tab, with its panes.
+pub fn close_tab(tab_id: &str) -> Result<(), Error> {
+    run(&["tab", "close", tab_id]).map(|_| ())
+}
+
 /// Rename a tab.
 pub fn rename_tab(tab_id: &str, label: &str) -> Result<(), Error> {
     run(&["tab", "rename", tab_id, label]).map(|_| ())

@@ -13,10 +13,12 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::{
-    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, PopKeyboardEnhancementFlags,
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, MouseButton, MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags,
     PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::{execute, terminal};
+use ratatui::layout::Rect;
 
 use crate::config::{self, Config};
 use crate::context::Context;
@@ -69,6 +71,14 @@ impl Create {
     }
 }
 
+/// A tab to rename: its id, its old name, and the new name that the user types.
+#[derive(Clone, Debug)]
+pub struct Rename {
+    pub tab_id: String,
+    pub old: String,
+    pub text: String,
+}
+
 /// The state of the popup.
 pub struct App {
     pub model: Model,
@@ -89,6 +99,21 @@ pub struct App {
     pub current: Option<String>,
     /// The agents on the PATH, then "shell".
     pub agents: Vec<String>,
+    /// The options of config.toml.
+    pub config: Config,
+    /// The tab to close (its id and its name), while the action line asks the question.
+    pub confirm: Option<(String, String)>,
+    /// The tab to rename, while the search line holds its new name.
+    pub rename: Option<Rename>,
+    /// A message on the action line: the result of the last command.
+    pub message: Option<String>,
+    /// Read the snapshot again at the next turn of the loop.
+    pub reload: bool,
+    /// The area of the list and the index of its first visible line, for the mouse.
+    pub list_area: Rect,
+    pub list_offset: usize,
+    /// The last click: the line and the time, for a double click.
+    last_click: Option<(usize, Instant)>,
     /// The branches of the current project, for the filter Worktrees.
     current_branches: Option<Vec<Branch>>,
     /// The text of each pane that the preview has read, by pane id.
@@ -111,6 +136,7 @@ impl App {
         others: Vec<Place>,
         current: Option<String>,
         agents: Vec<String>,
+        config: Config,
     ) -> App {
         let open = places::workspaces(&model);
         let mut app = App {
@@ -126,6 +152,14 @@ impl App {
             others,
             current,
             agents,
+            config,
+            confirm: None,
+            rename: None,
+            message: None,
+            reload: false,
+            list_area: Rect::default(),
+            list_offset: 0,
+            last_click: None,
             current_branches: None,
             previews: HashMap::new(),
         };
@@ -135,6 +169,9 @@ impl App {
 
     /// The text of the search line: the query, or the text of the step of the creation.
     pub fn text(&self) -> &str {
+        if let Some(rename) = &self.rename {
+            return &rename.text;
+        }
         match (self.filter, self.create.step) {
             (Filter::New, Step::Where) => &self.create.filter,
             (Filter::New, Step::What) => &self.create.name,
@@ -143,6 +180,9 @@ impl App {
     }
 
     fn text_mut(&mut self) -> &mut String {
+        if let Some(rename) = &mut self.rename {
+            return &mut rename.text;
+        }
         match (self.filter, self.create.step) {
             (Filter::New, Step::Where) => &mut self.create.filter,
             (Filter::New, Step::What) => &mut self.create.name,
@@ -273,7 +313,10 @@ impl App {
 
     fn edit(&mut self, change: impl FnOnce(&mut String)) {
         change(self.text_mut());
-        self.rebuild(None);
+        // A new name of a tab does not filter the list.
+        if self.rename.is_none() {
+            self.rebuild(None);
+        }
     }
 
     /// The agent of the creation: the agent that the user chose, else the last agent of the
@@ -282,7 +325,12 @@ impl App {
         if let Some(agent) = &self.create.agent {
             return agent.clone();
         }
-        let place = self.create.place.as_ref().or_else(|| self.current_place());
+        self.agent_for(self.create.place.as_ref().or_else(|| self.current_place()))
+    }
+
+    /// The agent of a place: its last agent, else the agent of its tabs, else the first agent on
+    /// the PATH.
+    fn agent_for(&self, place: Option<&Place>) -> String {
         let remembered = place.and_then(|place| create::remembered_agent(&place.folder));
         let from_tabs = place.and_then(|place| place.tabs.iter().find_map(|tab| tab.agent.clone()));
         remembered
@@ -381,6 +429,122 @@ impl App {
         }
     }
 
+    /// The workspace of the selected agent, tab or workspace, as a place.
+    fn place_of_selected(&self) -> Option<Place> {
+        let workspace_id = match self.selected_item()? {
+            Item::Agent(agent) => agent.workspace_id.clone(),
+            Item::Tab(tab) => tab.workspace_id.clone(),
+            Item::Workspace(space) => space.workspace.workspace_id.clone(),
+            _ => return None,
+        };
+        self.open
+            .iter()
+            .find(|place| place.workspace_id.as_deref() == Some(workspace_id.as_str()))
+            .cloned()
+    }
+
+    /// ctrl+Enter: a new tab, with its agent, next to the selected row.
+    fn new_tab_here(&mut self) -> Outcome {
+        let Some(place) = self.place_of_selected() else {
+            return Outcome::Continue;
+        };
+        let agent = self.agent_for(Some(&place));
+        match create::plan(&place, &Choice::NewTab, "", &agent, false) {
+            Some(plan) => Outcome::Create(plan),
+            None => Outcome::Continue,
+        }
+    }
+
+    /// The tab of the selected agent or tab: its id and its name.
+    fn selected_tab(&self) -> Option<(String, String)> {
+        match self.selected_item()? {
+            Item::Agent(agent) => Some((agent.tab_id.clone(), agent.name.clone())),
+            Item::Tab(tab) => Some((tab.tab_id.clone(), tab.name.clone())),
+            _ => None,
+        }
+    }
+
+    /// ctrl+Backspace: ask before the close of the selected tab.
+    fn ask_close(&mut self) {
+        if let Some(tab) = self.selected_tab() {
+            self.confirm = Some(tab);
+        } else if let Some(Item::Choice(Choice::Existing { .. })) = self.selected_item() {
+            self.message = Some(
+                "The removal of a worktree comes with a command of herdr-worktrunk.".to_string(),
+            );
+        }
+    }
+
+    fn on_confirm_key(&mut self, key: KeyEvent) -> Outcome {
+        let Some((tab_id, name)) = self.confirm.take() else {
+            return Outcome::Continue;
+        };
+        if key.code == KeyCode::Enter {
+            self.message = Some(match herdr::close_tab(&tab_id) {
+                Ok(()) => format!("closed the tab {name}"),
+                Err(error) => format!("cannot close the tab {name}: {error}"),
+            });
+            self.reload = true;
+        }
+        Outcome::Continue
+    }
+
+    /// ctrl+R: rename the tab of the selected row, in the search line.
+    fn start_rename(&mut self) {
+        if let Some((tab_id, name)) = self.selected_tab() {
+            self.rename = Some(Rename {
+                tab_id,
+                old: name.clone(),
+                text: name,
+            });
+        }
+    }
+
+    fn finish_rename(&mut self, save: bool) {
+        let Some(rename) = self.rename.take() else {
+            return;
+        };
+        let text = rename.text.trim();
+        if save && !text.is_empty() && text != rename.old {
+            self.message = Some(match herdr::rename_tab(&rename.tab_id, text) {
+                Ok(()) => format!("renamed the tab {} to {text}", rename.old),
+                Err(error) => format!("cannot rename the tab: {error}"),
+            });
+            self.reload = true;
+        }
+    }
+
+    /// A click selects a row, a double click runs it, the wheel moves the selection.
+    pub fn on_mouse(&mut self, mouse: MouseEvent) -> Outcome {
+        match mouse.kind {
+            MouseEventKind::ScrollDown => self.move_by(1),
+            MouseEventKind::ScrollUp => self.move_by(-1),
+            MouseEventKind::Down(MouseButton::Left) => {
+                let area = self.list_area;
+                let inside = mouse.row >= area.y
+                    && mouse.row < area.y + area.height
+                    && mouse.column >= area.x
+                    && mouse.column < area.x + area.width;
+                if !inside || self.confirm.is_some() || self.rename.is_some() {
+                    return Outcome::Continue;
+                }
+                let index = self.list_offset + (mouse.row - area.y) as usize;
+                if matches!(self.lines.get(index), Some(Line::Row { .. })) {
+                    let double = self.last_click.is_some_and(|(line, time)| {
+                        line == index && time.elapsed() < Duration::from_millis(400)
+                    });
+                    self.selected = Some(index);
+                    self.last_click = Some((index, Instant::now()));
+                    if double {
+                        return self.enter();
+                    }
+                }
+            }
+            _ => {}
+        }
+        Outcome::Continue
+    }
+
     pub fn on_key(&mut self, key: KeyEvent) -> Outcome {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
@@ -392,7 +556,21 @@ impl App {
                 return Outcome::Continue;
             }
         }
+        if self.confirm.is_some() {
+            return self.on_confirm_key(key);
+        }
+        self.message = None;
+        let renaming = self.rename.is_some();
+        if renaming && matches!(key.code, KeyCode::Enter | KeyCode::Esc) {
+            self.finish_rename(key.code == KeyCode::Enter);
+            return Outcome::Continue;
+        }
         match key.code {
+            KeyCode::Enter if ctrl && !creating => return self.new_tab_here(),
+            KeyCode::Backspace if ctrl && !renaming => self.ask_close(),
+            KeyCode::Char('r') if ctrl && !creating && self.config.has("rename_tab") => {
+                self.start_rename()
+            }
             KeyCode::Esc if what => self.back_to_where(),
             KeyCode::Esc => return Outcome::Quit,
             KeyCode::Char('c' | 'g') if ctrl => return Outcome::Quit,
@@ -428,7 +606,7 @@ impl App {
                     '>' => Some(Filter::Actions),
                     _ => None,
                 };
-                let empty = self.text().is_empty();
+                let empty = self.text().is_empty() && !renaming;
                 if empty && character == '?' {
                     self.help = true;
                 } else if let (true, false, Some(filter)) = (empty, creating, shortcut) {
@@ -478,7 +656,15 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
         .workspace_id
         .clone()
         .or(model.focused_workspace_id.clone());
-    let mut app = App::new(model, filter, others, current, create::installed_agents());
+    let mouse = config.has("mouse");
+    let mut app = App::new(
+        model,
+        filter,
+        others,
+        current,
+        create::installed_agents(),
+        config,
+    );
     let mut terminal = ratatui::init();
     let enhanced = terminal::supports_keyboard_enhancement().unwrap_or(false);
     if enhanced {
@@ -487,7 +673,13 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
             PushKeyboardEnhancementFlags(crate::keys::flags())
         );
     }
+    if mouse {
+        let _ = execute!(io::stdout(), EnableMouseCapture);
+    }
     let outcome = event_loop(&mut terminal, &mut app, &mut cache);
+    if mouse {
+        let _ = execute!(io::stdout(), DisableMouseCapture);
+    }
     if enhanced {
         let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
     }
@@ -511,13 +703,19 @@ fn event_loop(
             .map_err(|error| error.to_string())?;
         let timeout = REFRESH.saturating_sub(last_read.elapsed());
         if event::poll(timeout).map_err(|error| error.to_string())? {
-            if let Event::Key(key) = event::read().map_err(|error| error.to_string())? {
-                if key.kind == KeyEventKind::Release {
-                    continue;
-                }
-                match app.on_key(key) {
-                    Outcome::Continue => {}
-                    outcome => return Ok(outcome),
+            let outcome = match event::read().map_err(|error| error.to_string())? {
+                Event::Key(key) if key.kind != KeyEventKind::Release => app.on_key(key),
+                Event::Mouse(mouse) => app.on_mouse(mouse),
+                _ => Outcome::Continue,
+            };
+            if !matches!(outcome, Outcome::Continue) {
+                return Ok(outcome);
+            }
+            // A command changed herdr: read the snapshot now.
+            if app.reload {
+                app.reload = false;
+                if let Ok(model) = model::load_cached(cache) {
+                    app.update_model(model);
                 }
             }
         } else {
@@ -587,6 +785,7 @@ mod tests {
             vec![place("prompts", None, Some("/work/prompts"))],
             Some("w1".into()),
             vec!["claude".into(), "codex".into(), "shell".into()],
+            Config::default(),
         );
         app.open = vec![
             place("atlas", Some("w1"), None),
@@ -696,6 +895,65 @@ mod tests {
             }
             other => panic!("no plan: {other:?}"),
         }
+    }
+
+    #[test]
+    fn ctrl_r_renames_the_tab_in_the_search_line_and_escape_keeps_the_name() {
+        let mut app = app(Filter::All);
+        app.on_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        assert_eq!(app.text(), "fix the login");
+        press(&mut app, KeyCode::Backspace);
+        type_text(&mut app, "?x");
+        assert_eq!(app.text(), "fix the logi?x");
+        assert!(!app.help);
+        assert_eq!(selected_name(&app), "fix the login");
+        press(&mut app, KeyCode::Esc);
+        assert!(app.rename.is_none());
+        assert_eq!(app.text(), "");
+    }
+
+    #[test]
+    fn ctrl_backspace_asks_and_escape_cancels() {
+        let mut app = app(Filter::All);
+        app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(
+            app.confirm,
+            Some(("t-fix the login".to_string(), "fix the login".to_string()))
+        );
+        press(&mut app, KeyCode::Esc);
+        assert!(app.confirm.is_none());
+        assert!(!app.reload);
+    }
+
+    #[test]
+    fn ctrl_enter_creates_a_tab_next_to_the_agent() {
+        let mut app = app(Filter::All);
+        match app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL)) {
+            Outcome::Create(plan) => assert_eq!(
+                plan.action,
+                create::Action::NewTab {
+                    workspace_id: "w1".into(),
+                    folder: "/work/atlas".into()
+                }
+            ),
+            other => panic!("no plan: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_click_selects_and_a_double_click_runs() {
+        let mut app = app(Filter::All);
+        app.list_area = Rect::new(0, 2, 80, 10);
+        let click = |row| MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 5,
+            row,
+            modifiers: KeyModifiers::NONE,
+        };
+        // Line 0 is the group, line 2 is the second agent.
+        assert!(matches!(app.on_mouse(click(4)), Outcome::Continue));
+        assert_eq!(selected_name(&app), "omnibar design");
+        assert!(matches!(app.on_mouse(click(4)), Outcome::Go(_)));
     }
 
     #[test]

@@ -24,16 +24,33 @@ use crate::rows::{self, Item, Line as ListLine};
 use crate::theme;
 
 // The colors come from the herdr theme (see theme.rs). Each role of the omnibar takes a color of
-// the palette of herdr, like the mockup on the theme dracula.
+// the palette of herdr, like the mockup on the theme dracula. The theme terminal uses the ANSI
+// colors of the terminal: its overlay1 is white and its surface0 is the color of the text, and some
+// terminal schemes give bright black a color near the background. Its greys stay fixed 256 colors.
+
+/// A color of the palette of the herdr theme.
+fn palette() -> &'static theme::Palette {
+    &theme::current().palette
+}
+
+/// A grey of the palette, or a fixed 256 color with the theme terminal.
+fn grey(color: Color, terminal: u8) -> Color {
+    if theme::current().terminal {
+        Color::Indexed(terminal)
+    } else {
+        color
+    }
+}
 
 /// The prompt, the pointer of the selected row, the current filter, an open workspace.
 fn accent_color() -> Color {
-    theme::palette().accent
+    palette().accent
 }
 
-/// The text on the accent: the current filter.
+/// The text on the accent: the background of the panels of herdr, dark on a dark theme and light
+/// on a light theme, else black.
 fn on_accent_color() -> Color {
-    match theme::palette().panel_bg {
+    match palette().panel_bg {
         Color::Reset => Color::Black,
         color => color,
     }
@@ -41,55 +58,55 @@ fn on_accent_color() -> Color {
 
 /// The letters of the query in a name, and the keys of the footer.
 fn match_color() -> Color {
-    theme::palette().teal
+    palette().teal
 }
 
 /// A creation: a new tab, a new worktree, a new workspace.
 fn green_color() -> Color {
-    theme::palette().green
+    palette().green
 }
 
 /// A name that cannot be a branch, and the flag without prompts.
 fn red_color() -> Color {
-    theme::palette().red
+    palette().red
 }
 
 /// The secondary text: the labels of the footer.
 fn muted_color() -> Color {
-    theme::palette().overlay1
+    grey(palette().overlay1, 249)
 }
 
 /// The titles of the groups, the context of a row, the text that helps.
 fn dim_color() -> Color {
-    theme::palette().overlay0
+    grey(palette().overlay0, 246)
 }
 
 /// The rules.
 fn rule_color() -> Color {
-    theme::palette().surface0
+    grey(palette().surface0, 239)
 }
 
 /// The background of the selected row.
 fn selected_color() -> Color {
-    theme::palette().active_row_bg
+    grey(palette().active_row_bg, 237)
 }
 
 /// The background of a place on the action line.
 fn pill_color() -> Color {
-    theme::palette().surface0
+    grey(palette().surface0, 236)
 }
 
 /// The colors of the agents and of the states.
 fn orange_color() -> Color {
-    theme::palette().peach
+    palette().peach
 }
 
 fn pink_color() -> Color {
-    theme::palette().mauve
+    palette().mauve
 }
 
 fn yellow_color() -> Color {
-    theme::palette().yellow
+    palette().yellow
 }
 
 /// The width of the popup under which the preview hides.

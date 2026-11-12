@@ -207,11 +207,15 @@ fn choice_action(app: &App, choice: &Choice) -> Action {
     let place = app.target_place();
     let place_label = place.map(|place| place.label.as_str()).unwrap_or_default();
     let name = app.create.name.trim();
-    let tab = if name.is_empty() {
-        "new tab (auto name)".to_string()
-    } else {
-        format!("new tab “{name}”")
+    // "new tab “name”", "new split (auto name)": the text of a new tab or of a new split.
+    let new = |what: &str| {
+        if name.is_empty() {
+            format!("new {what} (auto name)")
+        } else {
+            format!("new {what} “{name}”")
+        }
     };
+    let tab = new("tab");
     match choice {
         Choice::NewWorktree { branch } if branch.is_empty() => {
             Action::warning("type the branch name of the new worktree".into())
@@ -242,10 +246,7 @@ fn choice_action(app: &App, choice: &Choice) -> Action {
             pill_span(false, &worktree_label(place, branch)),
         ),
         Choice::NewTab => Action::create(tab, pill_span(true, place_label)),
-        Choice::NewSplit { .. } => Action::create(
-            tab.replacen("new tab", "new split", 1),
-            pill_span(true, place_label),
-        ),
+        Choice::NewSplit { .. } => Action::create(new("split"), pill_span(true, place_label)),
         Choice::NewWorkspace => Action::create(tab, pill_span(false, place_label)),
         Choice::AnotherPlace => Action::bare("choose another place"),
     }

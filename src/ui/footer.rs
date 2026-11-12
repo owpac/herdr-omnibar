@@ -73,11 +73,26 @@ fn hints(app: &App) -> Vec<Hint> {
         None => "new tab here".to_string(),
     };
     match app.selected_item() {
+        // An agent that herdr-fork can fork shows ⌃F in place of ⇥: the chips show the filters.
+        Some(Item::Agent(agent)) if matches!(agent.kind.as_str(), "claude" | "codex") => vec![
+            hint("↵", "go"),
+            ("⌃↵", new_tab),
+            hint("⌃F", "fork"),
+            hint("⌃⌫", "close tab"),
+            hint("esc", "close"),
+        ],
         Some(Item::Agent(_) | Item::Tab(_)) => vec![
             hint("↵", "go"),
             ("⌃↵", new_tab),
             hint("⇥", "filter"),
             hint("⌃⌫", "close tab"),
+            hint("esc", "close"),
+        ],
+        Some(Item::Pane(_)) => vec![
+            hint("↵", "go"),
+            ("⌃↵", new_tab),
+            hint("⇥", "filter"),
+            hint("⌃⌫", "close pane"),
             hint("esc", "close"),
         ],
         Some(Item::Workspace(_)) => vec![

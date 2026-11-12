@@ -84,6 +84,8 @@ pub struct Rename {
 pub enum Confirm {
     /// Close a tab: its id and its name.
     CloseTab { tab_id: String, name: String },
+    /// Close a pane (feature pane_rows): its id and its name.
+    ClosePane { pane_id: String, name: String },
     /// Remove a worktree: its folder, its branch, and the number of agents in its workspace.
     RemoveWorktree {
         folder: PathBuf,
@@ -1011,6 +1013,31 @@ mod tests {
             Outcome::Remove(folder) => assert_eq!(folder, PathBuf::from("/work/atlas.fix-login")),
             outcome => panic!("unexpected outcome {outcome:?}"),
         }
+    }
+
+    #[test]
+    fn ctrl_backspace_on_a_pane_asks_to_close_the_pane_only() {
+        let mut app = app(Filter::All);
+        app.model.panes = vec![crate::model::PaneRow {
+            pane_id: "w1:p2".into(),
+            tab_id: "w1:t1".into(),
+            workspace_id: "w1".into(),
+            name: "cargo watch".into(),
+            tab: "build".into(),
+            place: "atlas".into(),
+            agent: None,
+            status: Status::Unknown,
+        }];
+        app.filters.push(Filter::Panes);
+        app.set_filter(Filter::Panes);
+        app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert_eq!(
+            app.confirm,
+            Some(Confirm::ClosePane {
+                pane_id: "w1:p2".into(),
+                name: "cargo watch".into()
+            })
+        );
     }
 
     #[test]

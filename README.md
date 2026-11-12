@@ -51,7 +51,7 @@ command = "herdr-omnibar.new"
 | `⌃A` | On a row of `open` that opens a worktree: the next agent. |
 | `⌃F` | Fork the session of the selected agent (Claude Code or Codex) into a new tab, with the plugin herdr-fork. The popup closes, the agent gets the focus, then herdr-fork runs its action `tab`. |
 | `⌃↵` | A new tab, with its agent, in the open workspace of the selected row: an agent, a tab, a workspace or a worktree. |
-| `⌃⌫` | Close the tab of the selected row, or remove the worktree of the selected branch, after a question on the action line. The main checkout stays. See [Remove a worktree](#remove-a-worktree). |
+| `⌃⌫` | Close the tab of the selected row (the pane only, on a row of the filter Panes), or remove the worktree of the selected branch, after a question on the action line. The main checkout stays. See [Remove a worktree](#remove-a-worktree). |
 | `⌃R` | Rename the tab of the selected row. `↵` saves, `esc` keeps the old name. |
 | `⌃Y` | In the step "what": start the agent without its permission prompts, for this tab only. |
 | `⌃←`, `⌃→` | The view of the preview of a worktree: diff, log, changes. |

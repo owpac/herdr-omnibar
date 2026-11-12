@@ -234,6 +234,11 @@ pub fn invoke_action(plugin_id: &str, action_id: &str) -> Result<(), Error> {
     .map(|_| ())
 }
 
+/// Close a pane.
+pub fn close_pane(pane_id: &str) -> Result<(), Error> {
+    run(&["pane", "close", pane_id]).map(|_| ())
+}
+
 /// Close a tab, with its panes.
 pub fn close_tab(tab_id: &str) -> Result<(), Error> {
     run(&["tab", "close", tab_id]).map(|_| ())

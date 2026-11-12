@@ -103,6 +103,7 @@ fn arrow_line(arrow: Color, text: String, color: Color) -> Line<'static> {
 fn question(confirm: &Confirm) -> String {
     match confirm {
         Confirm::CloseTab { name, .. } => format!("close the tab {name}? ↵ yes · esc no"),
+        Confirm::ClosePane { name, .. } => format!("close the pane {name}? ↵ yes · esc no"),
         Confirm::RemoveWorktree { branch, agents, .. } => {
             let agents = match agents {
                 0 => String::new(),

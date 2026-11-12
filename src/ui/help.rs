@@ -42,7 +42,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         ),
         (
             "⌃⌫",
-            "Close the tab of the selected row, or remove its worktree, after a question.",
+            "Close the tab or the pane of the selected row, or remove its worktree, after a question.",
         ),
         (
             "⌃R",

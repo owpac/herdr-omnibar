@@ -118,9 +118,17 @@ impl App {
         Outcome::Fork { tab_id, pane_id }
     }
 
-    /// ctrl+Backspace: ask before the close of the selected tab, or before the removal of the
-    /// selected worktree.
+    /// ctrl+Backspace: ask before the close of the selected tab or pane, or before the removal of
+    /// the selected worktree.
     fn ask_close(&mut self) {
+        // A pane row closes its pane only: the other panes of its tab stay.
+        if let Some(Item::Pane(pane)) = self.selected_item() {
+            self.confirm = Some(Confirm::ClosePane {
+                pane_id: pane.pane_id.clone(),
+                name: pane.name.clone(),
+            });
+            return;
+        }
         if let Some((tab_id, name)) = self.selected_tab() {
             self.confirm = Some(Confirm::CloseTab { tab_id, name });
             return;
@@ -193,6 +201,13 @@ impl App {
                 self.message = Some(match herdr::close_tab(&tab_id) {
                     Ok(()) => format!("closed the tab {name}"),
                     Err(error) => format!("cannot close the tab {name}: {error}"),
+                });
+                self.reload = true;
+            }
+            Confirm::ClosePane { pane_id, name } => {
+                self.message = Some(match herdr::close_pane(&pane_id) {
+                    Ok(()) => format!("closed the pane {name}"),
+                    Err(error) => format!("cannot close the pane {name}: {error}"),
                 });
                 self.reload = true;
             }

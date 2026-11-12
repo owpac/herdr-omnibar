@@ -80,6 +80,34 @@ pub struct Rename {
     pub text: String,
 }
 
+/// A view of the preview of a worktree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum View {
+    /// The diff stat since the default branch.
+    Diff,
+    /// The commits since the default branch.
+    Log,
+    /// The changes that are not committed.
+    Changes,
+    /// The pull request of the branch (feature pull_requests).
+    Pull,
+    /// One view with the commits and the diff stat (preview = "summary").
+    Summary,
+}
+
+impl View {
+    /// The title of the view in the preview.
+    pub fn title(self) -> &'static str {
+        match self {
+            View::Diff => "DIFF",
+            View::Log => "LOG",
+            View::Changes => "CHANGES",
+            View::Pull => "PR",
+            View::Summary => "SUMMARY",
+        }
+    }
+}
+
 /// The question of the action line, before a close or a removal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Confirm {
@@ -137,10 +165,10 @@ pub struct App {
     last_click: Option<(usize, Instant)>,
     /// The actions of the herdr plugins, read the first time that the filter Actions shows.
     actions: Option<Vec<PluginAction>>,
-    /// The view of the preview of a worktree: 0 diff, 1 log, 2 changes.
+    /// The index of the current view of the preview of a worktree, in `views()`.
     pub view: usize,
-    /// The text of each view of each branch, read one time.
-    views: HashMap<(String, usize), String>,
+    /// The text of each git view of each branch, read one time.
+    view_texts: HashMap<(String, View), String>,
     /// The branches of the current project, for the filter Worktrees.
     current_branches: Option<Vec<Branch>>,
     /// The default branch of the current project, read with its branches.
@@ -220,7 +248,7 @@ impl App {
             last_click: None,
             actions: None,
             view: 0,
-            views: HashMap::new(),
+            view_texts: HashMap::new(),
             current_branches: None,
             current_base: None,
             previews: HashMap::new(),
@@ -408,14 +436,20 @@ impl App {
         Some(self.pulls.of(main, branch))
     }
 
-    /// The number of views of the preview of a worktree: diff, log, changes, and the pull request
-    /// with the feature pull_requests.
-    pub fn view_count(&self) -> usize {
-        if self.config.has("pull_requests") {
-            4
-        } else {
-            3
+    /// The views of the preview of a worktree, in the order of ⌃← and ⌃→: diff, log, changes, and
+    /// the pull request with the feature pull_requests. With preview = "summary", one view.
+    pub fn views(&self) -> &'static [View] {
+        match (self.config.preview, self.config.has("pull_requests")) {
+            (Preview::Summary, _) => &[View::Summary],
+            (Preview::Full, true) => &[View::Diff, View::Log, View::Changes, View::Pull],
+            (Preview::Full, false) => &[View::Diff, View::Log, View::Changes],
         }
+    }
+
+    /// The current view of the preview of a worktree.
+    pub fn current_view(&self) -> View {
+        let views = self.views();
+        views[self.view % views.len()]
     }
 
     fn row_indices(&self) -> Vec<usize> {
@@ -598,17 +632,15 @@ impl App {
         create::plan(place, choice, name, &self.agent(), self.create.no_prompts)
     }
 
-    /// The text of a view of the preview of a branch of the current project: the diff since the
-    /// default branch, the log, or the changes not committed. With preview = "summary", one view
-    /// gives all.
-    pub fn branch_view(&mut self, branch: &str, worktree: Option<&PathBuf>) -> String {
-        let view = if self.config.preview == Preview::Summary {
-            3
-        } else {
-            self.view % self.view_count()
-        };
+    /// The text of a git view of the preview of a branch of the current project: the diff since
+    /// the default branch, the log, the changes not committed, or the summary of all. The view of
+    /// the pull request comes from gh: it has no text here.
+    pub fn view_text(&mut self, branch: &str, worktree: Option<&PathBuf>, view: View) -> String {
+        if view == View::Pull {
+            return String::new();
+        }
         let key = (branch.to_string(), view);
-        if let Some(text) = self.views.get(&key) {
+        if let Some(text) = self.view_texts.get(&key) {
             return text.clone();
         }
         let Some(main) = self.current_place().and_then(|place| place.main.clone()) else {
@@ -621,9 +653,9 @@ impl App {
             .unwrap_or_else(|| places::base_branch(&main));
         let range = format!("{base}..{branch}");
         let text = match view {
-            0 => places::git(&main, &["diff", "--stat", &format!("{base}...{branch}")]),
-            1 => places::git(&main, &["log", "--oneline", "-n", "40", &range]),
-            2 => match worktree {
+            View::Diff => places::git(&main, &["diff", "--stat", &format!("{base}...{branch}")]),
+            View::Log => places::git(&main, &["log", "--oneline", "-n", "40", &range]),
+            View::Changes => match worktree {
                 Some(folder) => {
                     let status = places::git(folder, &["status", "--short"]);
                     if status.trim().is_empty() {
@@ -634,7 +666,9 @@ impl App {
                 }
                 None => "no worktree".to_string(),
             },
-            _ => {
+            // The return at the start of the function: the view PR has no git text.
+            View::Pull => String::new(),
+            View::Summary => {
                 let count = places::git(&main, &["rev-list", "--count", &range]);
                 let stat = places::git(
                     &main,
@@ -656,7 +690,7 @@ impl App {
         } else {
             text
         };
-        self.views.insert(key, text.clone());
+        self.view_texts.insert(key, text.clone());
         text
     }
 
@@ -1230,6 +1264,23 @@ mod tests {
         assert!(matches!(press(&mut app, KeyCode::Esc), Outcome::Continue));
         assert!(!app.help);
         assert!(matches!(press(&mut app, KeyCode::Esc), Outcome::Quit));
+    }
+
+    #[test]
+    fn ctrl_left_and_right_go_round_the_views_of_the_config() {
+        let mut app = app(Filter::All);
+        let ctrl = |code| KeyEvent::new(code, KeyModifiers::CONTROL);
+        assert_eq!(app.views(), [View::Diff, View::Log, View::Changes]);
+        app.on_key(ctrl(KeyCode::Left));
+        assert_eq!(app.current_view(), View::Changes);
+        app.on_key(ctrl(KeyCode::Right));
+        assert_eq!(app.current_view(), View::Diff);
+        app.config.features.push("pull_requests".into());
+        app.on_key(ctrl(KeyCode::Left));
+        assert_eq!(app.current_view(), View::Pull);
+        app.config.preview = Preview::Summary;
+        assert_eq!(app.views(), [View::Summary]);
+        assert_eq!(app.current_view(), View::Summary);
     }
 
     #[test]

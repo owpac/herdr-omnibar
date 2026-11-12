@@ -40,7 +40,8 @@ impl Size {
 /// The preview of a worktree.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Preview {
-    /// 3 views: the diff since the default branch, the log, the changes not committed.
+    /// The views of `App::views`: the diff since the default branch, the log, the changes not
+    /// committed, and the pull request with the feature pull_requests.
     #[default]
     Full,
     /// One view: the branch, its commits and its diff stat.

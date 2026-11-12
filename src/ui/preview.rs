@@ -8,8 +8,7 @@ use ratatui::Frame;
 
 use std::path::PathBuf;
 
-use crate::app::App;
-use crate::config::Preview;
+use crate::app::{App, View};
 use crate::create::{self, Choice};
 use crate::herdr::PluginAction;
 use crate::model::{Space, TabSummary};
@@ -119,41 +118,38 @@ fn branch_lines(
     width: usize,
     height: usize,
 ) -> Vec<Line<'static>> {
-    let views = if app.config.preview == Preview::Summary {
-        vec![Span::styled(
-            "SUMMARY",
-            Style::new().fg(dim_color()).add_modifier(Modifier::BOLD),
-        )]
-    } else {
-        let mut spans = Vec::new();
-        let names = ["DIFF", "LOG", "CHANGES", "PR"];
-        for (index, name) in names.iter().take(app.view_count()).enumerate() {
-            let style = if index == app.view % app.view_count() {
-                Style::new().fg(accent_color()).add_modifier(Modifier::BOLD)
-            } else {
-                Style::new().fg(dim_color())
-            };
-            spans.push(Span::styled(*name, style));
-            spans.push(Span::styled(" · ", Style::new().fg(rule_color())));
-        }
-        spans.pop();
-        spans.push(Span::styled("  ⌃← ⌃→", Style::new().fg(match_color())));
-        spans
-    };
-    let mut lines = vec![Line::from(views)];
+    let views = app.views();
+    let current = app.current_view();
+    // The titles of the views: the current view in the accent color. A single view (the summary)
+    // has no key to change it.
+    let mut titles = Vec::new();
+    for view in views {
+        let style = match (views.len(), *view == current) {
+            (1, _) => Style::new().fg(dim_color()).add_modifier(Modifier::BOLD),
+            (_, true) => Style::new().fg(accent_color()).add_modifier(Modifier::BOLD),
+            _ => Style::new().fg(dim_color()),
+        };
+        titles.push(Span::styled(view.title(), style));
+        titles.push(Span::styled(" · ", Style::new().fg(rule_color())));
+    }
+    titles.pop();
+    if views.len() > 1 {
+        titles.push(Span::styled("  ⌃← ⌃→", Style::new().fg(match_color())));
+    }
+    let mut lines = vec![Line::from(titles)];
     let pull = app.pull(branch);
     // The view PR (feature pull_requests) comes from gh, not from git.
-    if app.config.preview != Preview::Summary && app.view % app.view_count() == 3 {
+    if current == View::Pull {
         if let Some(pull) = &pull {
             lines.extend(super::pull::lines(pull, width));
         }
         return lines;
     }
     // The summary starts with the pull request, when the branch has one.
-    if let (Preview::Summary, Some(found @ Lookup::Found(_))) = (app.config.preview, &pull) {
+    if let (View::Summary, Some(found @ Lookup::Found(_))) = (current, &pull) {
         lines.extend(super::pull::lines(found, width).into_iter().take(1));
     }
-    let text = app.branch_view(branch, worktree);
+    let text = app.view_text(branch, worktree, current);
     lines.extend(
         text.lines()
             .take(height.saturating_sub(1))

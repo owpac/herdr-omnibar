@@ -317,9 +317,10 @@ impl App {
         }
         match key.code {
             KeyCode::Left if ctrl => {
-                self.view = (self.view + self.view_count() - 1) % self.view_count()
+                let count = self.views().len();
+                self.view = (self.view + count - 1) % count
             }
-            KeyCode::Right if ctrl => self.view = (self.view + 1) % self.view_count(),
+            KeyCode::Right if ctrl => self.view = (self.view + 1) % self.views().len(),
             KeyCode::Enter if ctrl && !creating => return self.new_tab_here(),
             KeyCode::Backspace if ctrl && !renaming => self.ask_close(),
             KeyCode::Char('r') if ctrl && !creating && self.config.has("rename_tab") => {

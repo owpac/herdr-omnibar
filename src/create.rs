@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -319,15 +320,19 @@ fn agent_name(plan: &Plan) -> String {
     )
 }
 
-/// wt switch, without a terminal: return the folder of the worktree. The hooks of wt run.
-fn wt_switch(main: &Path, branch: &str, create: bool) -> Result<PathBuf, String> {
-    let mut command = Command::new("wt");
-    command.arg("-C").arg(main).arg("switch");
-    if create {
-        command.arg("--create");
-    }
-    let output = command
-        .args([branch, "--no-cd", "--format", "json"])
+/// Run wt in a repository, without a terminal: stdin is closed, so wt never waits for an answer.
+/// Return the standard output, or the last line of the error of wt.
+pub fn wt(main: &Path, arguments: &[&OsStr]) -> Result<Vec<u8>, String> {
+    let name = arguments
+        .iter()
+        .take(2)
+        .map(|argument| argument.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let output = Command::new("wt")
+        .arg("-C")
+        .arg(main)
+        .args(arguments)
         .stdin(Stdio::null())
         .output()
         .map_err(|error| format!("cannot run wt: {error}"))?;
@@ -338,9 +343,20 @@ fn wt_switch(main: &Path, branch: &str, create: bool) -> Result<PathBuf, String>
             .rev()
             .find(|line| !line.trim().is_empty())
             .unwrap_or("no message");
-        return Err(format!("wt switch {branch}: {}", last.trim()));
+        return Err(format!("wt {name}: {}", last.trim()));
     }
-    let result: serde_json::Value = serde_json::from_slice(&output.stdout)
+    Ok(output.stdout)
+}
+
+/// wt switch, without a terminal: return the folder of the worktree. The hooks of wt run.
+fn wt_switch(main: &Path, branch: &str, create: bool) -> Result<PathBuf, String> {
+    let mut arguments: Vec<&OsStr> = vec![OsStr::new("switch")];
+    if create {
+        arguments.push(OsStr::new("--create"));
+    }
+    arguments.extend([branch, "--no-cd", "--format", "json"].map(OsStr::new));
+    let stdout = wt(main, &arguments)?;
+    let result: serde_json::Value = serde_json::from_slice(&stdout)
         .map_err(|error| format!("wt switch: invalid JSON: {error}"))?;
     result["path"]
         .as_str()
@@ -548,5 +564,18 @@ mod tests {
             ["--dangerously-bypass-approvals-and-sandbox"]
         );
         assert!(no_prompt_arguments("shell").is_empty());
+    }
+
+    #[test]
+    fn a_failed_wt_gives_its_command_and_its_message() {
+        let folder = std::env::temp_dir().join(format!("omnibar-no-repo-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let error = wt(&folder, &[OsStr::new("switch"), OsStr::new("x")]).unwrap_err();
+        std::fs::remove_dir_all(&folder).unwrap();
+        // Without wt on the PATH, the error tells it.
+        assert!(
+            error.starts_with("wt switch x: ") || error.starts_with("cannot run wt"),
+            "{error}"
+        );
     }
 }

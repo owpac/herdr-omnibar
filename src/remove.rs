@@ -7,9 +7,11 @@
 //! the workspace. Without it, `wt remove` removes the worktree, and the omnibar closes the
 //! workspace. A herdr notification gives the result.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::create;
 use crate::herdr;
 use crate::model;
 
@@ -98,22 +100,14 @@ fn remove_with_wt(folder: &Path) -> Result<String, String> {
     let main = model::checkout_of(folder)
         .map(|checkout| checkout.main())
         .ok_or_else(|| format!("{} is not a git checkout", folder.display()))?;
-    let output = Command::new("wt")
-        .arg("-C")
-        .arg(&main)
-        .args(["remove", "--foreground"])
-        .arg(folder)
-        .output()
-        .map_err(|error| format!("cannot run wt: {error}"))?;
-    if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr);
-        let last = error
-            .lines()
-            .rev()
-            .find(|line| !line.trim().is_empty())
-            .unwrap_or("no message");
-        return Err(format!("wt remove: {}", last.trim()));
-    }
+    create::wt(
+        &main,
+        &[
+            OsStr::new("remove"),
+            OsStr::new("--foreground"),
+            folder.as_os_str(),
+        ],
+    )?;
     if let Some(workspace) = workspace {
         herdr::close_workspace(&workspace).map_err(|error| error.to_string())?;
     }

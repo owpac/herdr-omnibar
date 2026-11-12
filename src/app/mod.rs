@@ -21,6 +21,7 @@ use crate::filter::Filter;
 use crate::herdr::{self, PluginAction};
 use crate::model::Model;
 use crate::places::{self, Branch, Place};
+use crate::pulls::{Lookup, Pulls};
 use crate::recent::{self, Recent};
 use crate::rows::{self, Item, Line};
 use crate::times::{self, Times};
@@ -150,6 +151,8 @@ pub struct App {
     pub times: Option<Times>,
     /// The git state of the worktrees of the branch rows.
     pub changes: Changes,
+    /// The pull requests of the projects (feature pull_requests).
+    pub pulls: Pulls,
     /// Show the logos of the agents: the feature agent_logos, and the font is installed.
     pub logos: bool,
     /// The focused pane of the current workspace, when the popup opens: a split goes next to it.
@@ -223,6 +226,7 @@ impl App {
             previews: HashMap::new(),
             times: None,
             changes: Changes::default(),
+            pulls: Pulls::default(),
             logos: false,
             remembered: HashMap::new(),
             recent: Recent::new(),
@@ -398,6 +402,28 @@ impl App {
                 .filter_map(|branch| branch.worktree.clone())
                 .collect::<Vec<_>>();
             self.changes.ask(worktrees);
+            if let Some(main) = main.filter(|_| self.config.has("pull_requests")) {
+                self.pulls.ask(&main);
+            }
+        }
+    }
+
+    /// The pull request of a branch of the current project (feature pull_requests).
+    pub fn pull(&self, branch: &str) -> Option<Lookup> {
+        if !self.config.has("pull_requests") {
+            return None;
+        }
+        let main = self.current_place()?.main.as_deref()?;
+        Some(self.pulls.of(main, branch))
+    }
+
+    /// The number of views of the preview of a worktree: diff, log, changes, and the pull request
+    /// with the feature pull_requests.
+    pub fn view_count(&self) -> usize {
+        if self.config.has("pull_requests") {
+            4
+        } else {
+            3
         }
     }
 
@@ -575,7 +601,7 @@ impl App {
         let view = if self.config.preview == Preview::Summary {
             3
         } else {
-            self.view % 3
+            self.view % self.view_count()
         };
         let key = (branch.to_string(), view);
         if let Some(text) = self.views.get(&key) {

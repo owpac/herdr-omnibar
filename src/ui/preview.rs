@@ -14,6 +14,7 @@ use crate::create::{self, Choice};
 use crate::herdr::PluginAction;
 use crate::model::{Space, TabSummary};
 use crate::places::{Kind, Place};
+use crate::pulls::Lookup;
 use crate::rows::{self, Item};
 
 use super::{creating, style::*, text::*};
@@ -125,8 +126,9 @@ fn branch_lines(
         )]
     } else {
         let mut spans = Vec::new();
-        for (index, name) in ["DIFF", "LOG", "CHANGES"].iter().enumerate() {
-            let style = if index == app.view % 3 {
+        let names = ["DIFF", "LOG", "CHANGES", "PR"];
+        for (index, name) in names.iter().take(app.view_count()).enumerate() {
+            let style = if index == app.view % app.view_count() {
                 Style::new().fg(accent_color()).add_modifier(Modifier::BOLD)
             } else {
                 Style::new().fg(dim_color())
@@ -139,6 +141,18 @@ fn branch_lines(
         spans
     };
     let mut lines = vec![Line::from(views)];
+    let pull = app.pull(branch);
+    // The view PR (feature pull_requests) comes from gh, not from git.
+    if app.config.preview != Preview::Summary && app.view % app.view_count() == 3 {
+        if let Some(pull) = &pull {
+            lines.extend(super::pull::lines(pull, width));
+        }
+        return lines;
+    }
+    // The summary starts with the pull request, when the branch has one.
+    if let (Preview::Summary, Some(found @ Lookup::Found(_))) = (app.config.preview, &pull) {
+        lines.extend(super::pull::lines(found, width).into_iter().take(1));
+    }
     let text = app.branch_view(branch, worktree);
     lines.extend(
         text.lines()

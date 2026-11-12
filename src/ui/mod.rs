@@ -13,6 +13,7 @@ mod footer;
 mod help;
 mod list;
 mod preview;
+mod pull;
 mod search;
 mod style;
 mod text;

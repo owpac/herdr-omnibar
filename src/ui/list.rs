@@ -11,6 +11,7 @@ use crate::app::{App, Step};
 use crate::create::{self, Choice};
 use crate::model::Status;
 use crate::places::{Kind, Place};
+use crate::pulls::Lookup;
 use crate::rows::{self, Item, Line as ListLine};
 
 use super::{creating, style::*, text::*};
@@ -173,7 +174,12 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
                     (None, Some(_)) => ("no workspace", dim_color()),
                     (None, None) => ("no worktree", dim_color()),
                 };
-                let mut spans = vec![Span::styled(text, Style::new().fg(color))];
+                // The pull request of the branch (feature pull_requests), then its workspace.
+                let mut spans = match app.pull(branch) {
+                    Some(Lookup::Found(pull)) => super::pull::badge(&pull),
+                    _ => Vec::new(),
+                };
+                spans.push(Span::styled(text, Style::new().fg(color)));
                 // The age of the last commit of the branch.
                 if let Some(age) = app.branch_age(branch) {
                     spans.push(Span::styled(

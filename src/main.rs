@@ -17,6 +17,7 @@ mod icons;
 mod keys;
 mod model;
 mod places;
+mod pulls;
 mod recent;
 mod remove;
 mod rows;

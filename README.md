@@ -114,9 +114,10 @@ curl -fsSL -o ~/Library/Fonts/HerdrAgentIconsMax-Regular.ttf \
   https://raw.githubusercontent.com/hhdebb/herdr-radar/main/dist/HerdrAgentIconsMax-Regular.ttf
 ```
 
-2 features are off by default. Add their names to `features` to turn them on:
+3 features are off by default. Add their names to `features` to turn them on:
 
 - `pane_rows`: the filter Panes, with one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
+- `pull_requests`: the pull request of each branch of the current project. A branch row shows the number of its pull request in the color of its state (open, draft, merged, closed), and the glyph of its checks (✓ passed, ✗ failed, ◐ running). The preview of a worktree gets a 4th view, PR: its title, its state, its size, its checks, its review, its merge state and its last update. One `gh pr list` for each project reads the last 50 pull requests in the background: the network takes 1 to 2 s. gh must be installed and logged in.
 - `running_time`: the running time of each agent and of each command, at the right of its row: `47s`, `12m`, `2h04m`, `3d`. A thread reads it in the background, one time for each pane: `herdr pane process-info`, then `ps`. The times show some time after the popup opens.
 
 zoxide adds its folders to the projects and the folders, when it is installed.

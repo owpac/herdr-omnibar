@@ -321,8 +321,10 @@ impl App {
             return Outcome::Continue;
         }
         match key.code {
-            KeyCode::Left if ctrl => self.view = (self.view + 2) % 3,
-            KeyCode::Right if ctrl => self.view = (self.view + 1) % 3,
+            KeyCode::Left if ctrl => {
+                self.view = (self.view + self.view_count() - 1) % self.view_count()
+            }
+            KeyCode::Right if ctrl => self.view = (self.view + 1) % self.view_count(),
             KeyCode::Enter if ctrl && !creating => return self.new_tab_here(),
             KeyCode::Backspace if ctrl && !renaming => self.ask_close(),
             KeyCode::Char('r') if ctrl && !creating && self.config.has("rename_tab") => {

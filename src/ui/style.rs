@@ -83,7 +83,7 @@ fn orange_color() -> Color {
     palette().peach
 }
 
-fn pink_color() -> Color {
+pub(super) fn pink_color() -> Color {
     palette().mauve
 }
 

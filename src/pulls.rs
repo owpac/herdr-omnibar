@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
@@ -190,14 +189,6 @@ fn parse_time(text: &str) -> Option<u64> {
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     let days = era * 146_097 + day_of_era - 719_468;
     u64::try_from(days * 86_400 + hour * 3_600 + minute * 60 + second).ok()
-}
-
-/// The age of a time, in seconds.
-pub fn age(time: u64) -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|now| now.as_secs().saturating_sub(time))
-        .unwrap_or_default()
 }
 
 #[cfg(test)]

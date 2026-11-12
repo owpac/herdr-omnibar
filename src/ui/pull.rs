@@ -142,11 +142,11 @@ pub(super) fn lines(lookup: &Lookup, width: usize) -> Vec<Line<'static>> {
         lines.push(row("merge", vec![muted(merge.into())]));
     }
     if let Some(updated) = pull.updated {
-        let age = crate::pulls::age(updated);
-        let text = if age < 60 {
-            "now".to_string()
+        let age = times::ago(updated);
+        let text = if age == "now" {
+            age
         } else {
-            format!("{} ago", times::short(std::time::Duration::from_secs(age)))
+            format!("{age} ago")
         };
         lines.push(row("updated", vec![muted(text)]));
     }

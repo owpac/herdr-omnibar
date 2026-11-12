@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use ratatui::layout::Rect;
 
@@ -268,16 +268,7 @@ impl App {
             self.current_branches.as_ref()
         }?;
         let time = branches.iter().find(|branch| branch.name == name)?.time?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()?
-            .as_secs();
-        let age = Duration::from_secs(now.saturating_sub(time));
-        Some(if age.as_secs() < 60 {
-            "now".to_string()
-        } else {
-            times::short(age)
-        })
+        Some(times::ago(time))
     }
 
     /// The default branch of the project of the branch rows, without "origin/": "main".

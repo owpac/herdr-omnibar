@@ -4,25 +4,17 @@
 //! The watcher writes the time of each change of the focused tab in recent.json, in the state
 //! folder. Each opening of the popup also writes the time of the tab that it leaves.
 
+use crate::model::{Model, Snapshot};
+use crate::times::now_seconds;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::model::{Model, Snapshot};
 
 /// The last time of use of each tab, in seconds since 1970, by tab id.
 pub type Recent = HashMap<String, u64>;
 
 fn path(state_dir: &Path) -> PathBuf {
     state_dir.join("recent.json")
-}
-
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or_default()
 }
 
 /// The times of use of the tabs. Empty without the file.
@@ -44,7 +36,7 @@ fn save(state_dir: &Path, recent: &Recent) {
 /// Write the time of use of a tab: now.
 pub fn touch(state_dir: &Path, tab_id: &str) {
     let mut recent = load(state_dir);
-    recent.insert(tab_id.to_string(), now());
+    recent.insert(tab_id.to_string(), now_seconds());
     save(state_dir, &recent);
 }
 
@@ -58,7 +50,7 @@ pub fn follow(state_dir: &Path, snapshot: &Snapshot, focused: &mut Option<String
         return;
     }
     let mut recent = load(state_dir);
-    let time = now();
+    let time = now_seconds();
     if let Some(left) = focused.replace(tab.clone()) {
         recent.insert(left, time);
     }

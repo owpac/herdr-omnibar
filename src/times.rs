@@ -9,7 +9,7 @@ use std::process::Command;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::herdr;
 
@@ -114,6 +114,25 @@ fn parse_elapsed(text: &str) -> Option<Duration> {
     Some(Duration::from_secs(days * 86_400 + seconds))
 }
 
+/// The time now, in seconds since 1970.
+pub fn now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|now| now.as_secs())
+        .unwrap_or_default()
+}
+
+/// The age of a time in seconds since 1970, as a short text: "now" under 1 minute, else 12m,
+/// 2h04m, 3d.
+pub fn ago(time: u64) -> String {
+    let age = now_seconds().saturating_sub(time);
+    if age < 60 {
+        "now".to_string()
+    } else {
+        short(Duration::from_secs(age))
+    }
+}
+
 /// A short running time: 47s, 12m, 2h04m, 3d.
 pub fn short(time: Duration) -> String {
     let seconds = time.as_secs();
@@ -146,6 +165,13 @@ mod tests {
         assert_eq!(short(Duration::from_secs(12 * 60 + 5)), "12m");
         assert_eq!(short(Duration::from_secs(2 * 3_600 + 4 * 60)), "2h04m");
         assert_eq!(short(Duration::from_secs(3 * 86_400 + 5)), "3d");
+    }
+
+    #[test]
+    fn an_age_under_1_minute_is_now() {
+        assert_eq!(ago(now_seconds()), "now");
+        assert_eq!(ago(now_seconds() - 3 * 3_600), "3h00m");
+        assert_eq!(ago(now_seconds() + 60), "now");
     }
 
     #[test]

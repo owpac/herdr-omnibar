@@ -9,13 +9,14 @@ mod context;
 mod filter;
 mod herdr;
 mod keys;
+mod model;
 
 use std::env;
 use std::process::ExitCode;
 
 use filter::Filter;
 
-const USAGE: &str = "usage: herdr-omnibar open <filter> | run | keys | --version
+const USAGE: &str = "usage: herdr-omnibar open <filter> | run | keys | list | --version
 filters: all, new, agents, tabs, worktrees, folders, actions, keys";
 
 /// The variable that gives the filter of the popup.
@@ -29,6 +30,7 @@ fn main() -> ExitCode {
         Some("open") => open(arguments.get(1).map(String::as_str).unwrap_or("all")),
         Some("run") => run(),
         Some("keys") => keys::run().map_err(|error| error.to_string()),
+        Some("list") => list(),
         Some("--version") => {
             println!("herdr-omnibar {}", env!("CARGO_PKG_VERSION"));
             Ok(())
@@ -63,6 +65,51 @@ fn open(name: &str) -> Result<(), String> {
         &[(FILTER_VARIABLE, filter.name()), (CONTEXT_VARIABLE, &raw)],
     )
     .map_err(|error| error.to_string())
+}
+
+/// Print the workspaces, the agents and the tabs, as the popup sees them. A tool to check the
+/// model in a running herdr.
+fn list() -> Result<(), String> {
+    let model = model::load().map_err(|error| error.to_string())?;
+    let focused = model.focused_workspace_id.as_deref().unwrap_or("");
+    for space in &model.spaces {
+        let folder = space
+            .folder
+            .as_ref()
+            .map(|folder| folder.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mark = if space.workspace.workspace_id == focused {
+            "*"
+        } else {
+            " "
+        };
+        println!(
+            "{mark} workspace {:<6} {} {:<40} {folder}",
+            space.workspace.workspace_id,
+            space.workspace.agent_status.glyph(),
+            space.label()
+        );
+    }
+    for agent in &model.agents {
+        println!(
+            "  agent {:<8} {:<8} {:<6} {} {:<9} {:<7} {:<40} {}",
+            agent.pane_id,
+            agent.tab_id,
+            agent.workspace_id,
+            agent.status.glyph(),
+            agent.status.label(),
+            agent.kind,
+            agent.name,
+            agent.place
+        );
+    }
+    for tab in &model.tabs {
+        println!(
+            "  tab   {:<8} {:<6} {:<40} {:<30} {}",
+            tab.tab_id, tab.workspace_id, tab.name, tab.command, tab.place
+        );
+    }
+    Ok(())
 }
 
 /// The popup.

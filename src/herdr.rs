@@ -44,6 +44,15 @@ fn run(arguments: &[&str]) -> Result<String, Error> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// The herdr snapshot: the workspaces, the tabs, the panes and the agents.
+pub fn snapshot() -> Result<crate::model::Snapshot, Error> {
+    let text = run(&["api", "snapshot"])?;
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| Error(format!("herdr api snapshot: {error}")))?;
+    serde_json::from_value(value["result"]["snapshot"].clone())
+        .map_err(|error| Error(format!("herdr api snapshot: {error}")))
+}
+
 /// Open a pane of herdr-plugin.toml in the folder of the context, with these environment
 /// variables. The manifest gives the placement of the pane: a popup.
 pub fn open_plugin_pane(

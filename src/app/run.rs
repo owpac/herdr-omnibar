@@ -18,6 +18,7 @@ use crate::filter::Filter;
 use crate::herdr;
 use crate::model::{self, Checkout};
 use crate::places;
+use crate::recent::{self, Recent};
 use crate::rows::Item;
 use crate::times::Times;
 use crate::ui;
@@ -42,6 +43,22 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
         .clone()
         .or(model.focused_workspace_id.clone());
     let mouse = config.has("mouse");
+    // The order of use: the tab of the popup gets the time now, then the rows of the model take
+    // the order of use (feature recent_first).
+    let state_dir = config::state_dir();
+    let recent_first = config.has("recent_first");
+    if let (true, Some(tab)) = (recent_first, context.tab_id.as_deref()) {
+        recent::touch(&state_dir, tab);
+    }
+    let recent = if recent_first {
+        recent::load(&state_dir)
+    } else {
+        Recent::new()
+    };
+    let mut model = model;
+    if recent_first {
+        recent::order(&mut model, &recent, context.tab_id.as_deref());
+    }
     let mut app = App::new(
         model,
         filter,
@@ -50,6 +67,8 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
         create::installed_agents(),
         config,
     );
+    app.recent = recent;
+    app.current_tab = context.tab_id.clone();
     if app.config.has("running_time") {
         app.times = Some(Times::start());
         app.ask_times();

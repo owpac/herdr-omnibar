@@ -26,6 +26,7 @@ use crate::config;
 use crate::create;
 use crate::herdr::{self, Plugin};
 use crate::model::{self, Snapshot};
+use crate::recent;
 
 /// The time between 2 reads of the snapshot.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -123,9 +124,15 @@ fn bar_config() -> Option<String> {
     fs::read_to_string(folder.parent()?.join(HERDR_BAR).join("config.json")).ok()
 }
 
-/// Start the watcher if the feature auto_titles is on and no watcher runs. Return at once.
+/// True if the watcher has work: the titles of the tabs (feature auto_titles), or the order of
+/// use of the tabs (feature recent_first).
+fn has_work(config: &config::Config) -> bool {
+    config.has("auto_titles") || config.has("recent_first")
+}
+
+/// Start the watcher if it has work and if no watcher runs. Return at once.
 pub fn start() -> Result<(), String> {
-    if !config::current().has("auto_titles") {
+    if !has_work(&config::current()) {
         return Ok(());
     }
     let state_dir = config::state_dir();
@@ -142,8 +149,8 @@ pub fn start() -> Result<(), String> {
     create::spawn_detached(&["watch", "--run"], &[])
 }
 
-/// Run the watcher until herdr stops, until the feature auto_titles is off, or until the plugin
-/// is disabled. If another watcher has the lock, return at once.
+/// Run the watcher until herdr stops, until it has no work, or until the plugin is disabled. If
+/// another watcher has the lock, return at once.
 pub fn run() -> Result<(), String> {
     let state_dir = config::state_dir();
     let lock = open_lock(&state_dir)?;
@@ -159,9 +166,11 @@ pub fn run() -> Result<(), String> {
     let mut failures = 0;
     let mut plugins_read: Option<Instant> = None;
     let mut waiting: Option<String> = Some("start".to_string());
+    let mut focused: Option<String> = None;
     loop {
-        if !config::current().has("auto_titles") {
-            log.write("auto_titles is off: watcher stopped");
+        let config = config::current();
+        if !has_work(&config) {
+            log.write("auto_titles and recent_first are off: watcher stopped");
             return Ok(());
         }
         if plugins_read.is_none_or(|time| time.elapsed() >= PLUGINS_INTERVAL) {
@@ -190,7 +199,10 @@ pub fn run() -> Result<(), String> {
         match herdr::snapshot() {
             Ok(snapshot) => {
                 failures = 0;
-                if waiting.is_none() {
+                if config.has("recent_first") {
+                    recent::follow(&state_dir, &snapshot, &mut focused);
+                }
+                if waiting.is_none() && config.has("auto_titles") {
                     rename(&snapshot, &mut written, &state_dir, &log);
                 }
             }

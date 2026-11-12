@@ -101,8 +101,10 @@ preview = "full"   # "full": the 3 views of a worktree. "summary": one view.
 # "square": half blocks, square corners. "round": half circles of a Nerd Font. "flat": a space.
 pills = "square"
 # The optional features. Remove a name to turn its feature off.
-features = ["mouse", "rename_tab", "auto_titles", "agent_logos"]
+features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
 ```
+
+`recent_first` sorts the agents, the tabs, the panes and the workspaces by their last use: the tab of the popup goes after the others, so the first row is the tab before, like alt-tab (`⌘P` then `↵`). The group "Needs you" stays first. The watcher writes the time of each change of the focused tab in `recent.json`, in the state folder.
 
 `agent_logos` shows the logo of each agent before its name, if the font Herdr Agent Icons Max of [herdr-radar](https://github.com/hhdebb/herdr-radar) is installed, like herdr-bar. The omnibar never installs a font. On macOS:
 

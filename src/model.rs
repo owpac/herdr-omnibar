@@ -72,6 +72,9 @@ pub struct Snapshot {
     pub panes: Vec<Pane>,
     #[serde(default)]
     pub focused_workspace_id: Option<String>,
+    /// The focused tab, for the order of use (feature recent_first).
+    #[serde(default)]
+    pub focused_tab_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

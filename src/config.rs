@@ -7,7 +7,7 @@
 //! preview = "full"   # "full": diff, log, changes of a worktree (ctrl+Left, ctrl+Right). "summary".
 //! pills = "square"   # the ends of the pills: "square", "round" (a Nerd Font), "flat".
 //! # The optional features. Remove a name to turn its feature off.
-//! features = ["mouse", "rename_tab", "auto_titles", "agent_logos"]
+//! features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
 //! ```
 //!
 //! A missing file, a missing key or a wrong value gives the default.
@@ -60,7 +60,13 @@ pub enum Pills {
 }
 
 /// The features that are on by default.
-pub const DEFAULT_FEATURES: [&str; 4] = ["mouse", "rename_tab", "auto_titles", "agent_logos"];
+pub const DEFAULT_FEATURES: [&str; 5] = [
+    "mouse",
+    "rename_tab",
+    "auto_titles",
+    "agent_logos",
+    "recent_first",
+];
 
 /// The options of the plugin.
 #[derive(Clone, Debug, PartialEq)]

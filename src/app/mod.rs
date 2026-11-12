@@ -21,6 +21,7 @@ use crate::filter::Filter;
 use crate::herdr::{self, PluginAction};
 use crate::model::Model;
 use crate::places::{self, Branch, Place};
+use crate::recent::{self, Recent};
 use crate::rows::{self, Item, Line};
 use crate::times::{self, Times};
 
@@ -149,6 +150,9 @@ pub struct App {
     pub changes: Changes,
     /// Show the logos of the agents: the feature agent_logos, and the font is installed.
     pub logos: bool,
+    /// The times of use of the tabs, and the tab of the popup (feature recent_first).
+    pub recent: Recent,
+    pub current_tab: Option<String>,
     /// The last agent of each folder (agents.json), read one time when the popup opens. Empty in
     /// the tests: they do not read the state of the machine.
     remembered: HashMap<String, String>,
@@ -212,6 +216,8 @@ impl App {
             changes: Changes::default(),
             logos: false,
             remembered: HashMap::new(),
+            recent: Recent::new(),
+            current_tab: None,
         };
         app.rebuild(None);
         app
@@ -408,8 +414,16 @@ impl App {
     }
 
     /// Take a new model: the snapshot changed.
-    pub fn update_model(&mut self, model: Model) {
+    /// Sort the rows of a model by their use (feature recent_first).
+    pub fn order(&self, model: &mut Model) {
+        if self.config.has("recent_first") {
+            recent::order(model, &self.recent, self.current_tab.as_deref());
+        }
+    }
+
+    pub fn update_model(&mut self, mut model: Model) {
         let key = self.selected_item().map(Item::key);
+        self.order(&mut model);
         self.open = places::workspaces(&model);
         self.model = model;
         self.ask_times();

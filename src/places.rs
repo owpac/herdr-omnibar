@@ -231,13 +231,20 @@ pub struct Branch {
     pub name: String,
     /// The folder of its worktree, if it has one.
     pub worktree: Option<PathBuf>,
+    /// The time of its last commit, in seconds since 1970.
+    pub time: Option<u64>,
 }
 
-/// The local branches of a git repository, with their worktrees.
+/// The local branches of a git repository, with their worktrees. The branch of the main checkout
+/// comes first.
 pub fn branches(main: &Path) -> Vec<Branch> {
     let names = git(
         main,
-        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)%09%(committerdate:unix)",
+            "refs/heads",
+        ],
     );
     let worktrees = git(main, &["worktree", "list", "--porcelain"]);
     let mut by_branch = Vec::new();
@@ -251,17 +258,22 @@ pub fn branches(main: &Path) -> Vec<Branch> {
             }
         }
     }
-    names
+    let mut branches: Vec<Branch> = names
         .lines()
-        .filter(|name| !name.is_empty())
-        .map(|name| Branch {
-            name: name.to_string(),
-            worktree: by_branch
-                .iter()
-                .find(|(branch, _)| branch == name)
-                .map(|(_, folder)| folder.clone()),
+        .filter_map(|line| {
+            let (name, time) = line.split_once('\t').unwrap_or((line, ""));
+            (!name.is_empty()).then(|| Branch {
+                name: name.to_string(),
+                worktree: by_branch
+                    .iter()
+                    .find(|(branch, _)| branch == name)
+                    .map(|(_, folder)| folder.clone()),
+                time: time.parse().ok(),
+            })
         })
-        .collect()
+        .collect();
+    branches.sort_by_key(|branch| branch.worktree.as_deref() != Some(main));
+    branches
 }
 
 /// The default branch of a repository, as git can compare with it: origin/HEAD, else main.

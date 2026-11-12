@@ -57,6 +57,8 @@ pub struct Create {
     pub no_prompts: bool,
     /// The local branches of the git project of the place.
     pub branches: Vec<Branch>,
+    /// The default branch of the git project of the place: a new branch starts there.
+    pub base: Option<String>,
 }
 
 impl Create {
@@ -69,6 +71,7 @@ impl Create {
             agent: None,
             no_prompts: false,
             branches: Vec::new(),
+            base: None,
         }
     }
 }
@@ -142,6 +145,8 @@ pub struct App {
     views: HashMap<(String, usize), String>,
     /// The branches of the current project, for the filter Worktrees.
     current_branches: Option<Vec<Branch>>,
+    /// The default branch of the current project, read with its branches.
+    current_base: Option<String>,
     /// The text of each pane that the preview has read, by pane id.
     previews: HashMap<String, String>,
     /// The running times of the panes (feature running_time).
@@ -200,6 +205,7 @@ impl App {
             view: 0,
             views: HashMap::new(),
             current_branches: None,
+            current_base: None,
             previews: HashMap::new(),
             times: None,
         };
@@ -228,6 +234,36 @@ impl App {
             (Filter::New, Step::What) => &mut self.create.name,
             _ => &mut self.query,
         }
+    }
+
+    /// The age of the last commit of a branch of the branch rows: now, 12m, 2h04m, 3d.
+    pub fn branch_age(&self, name: &str) -> Option<String> {
+        let branches = if self.filter == Filter::New {
+            Some(&self.create.branches)
+        } else {
+            self.current_branches.as_ref()
+        }?;
+        let time = branches.iter().find(|branch| branch.name == name)?.time?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        let age = Duration::from_secs(now.saturating_sub(time));
+        Some(if age.as_secs() < 60 {
+            "now".to_string()
+        } else {
+            times::short(age)
+        })
+    }
+
+    /// The default branch of the project of the branch rows, without "origin/": "main".
+    pub fn base_branch(&self) -> Option<&str> {
+        let base = if self.filter == Filter::New {
+            self.create.base.as_deref()
+        } else {
+            self.current_base.as_deref()
+        }?;
+        Some(base.strip_prefix("origin/").unwrap_or(base))
     }
 
     /// The place of the current workspace.
@@ -314,6 +350,7 @@ impl App {
         if self.current_branches.is_none() {
             let main = self.current_place().and_then(|place| place.main.clone());
             self.current_branches = Some(main.as_deref().map(places::branches).unwrap_or_default());
+            self.current_base = main.as_deref().map(places::base_branch);
         }
         self.current_branches.clone().unwrap_or_default()
     }
@@ -436,6 +473,7 @@ impl App {
             .as_deref()
             .map(places::branches)
             .unwrap_or_default();
+        self.create.base = place.main.as_deref().map(places::base_branch);
         self.create.place = Some(place);
         self.create.step = Step::What;
         self.create.agent = None;
@@ -604,6 +642,11 @@ impl App {
             .iter()
             .find(|place| place.workspace_id.as_deref() == Some(workspace_id.as_str()))
             .cloned()
+    }
+
+    /// The label of the workspace where ctrl+Enter adds a tab.
+    pub fn new_tab_place(&self) -> Option<String> {
+        self.place_of_selected().map(|place| place.label)
     }
 
     /// True if ctrl+Enter adds a tab next to the selected row: the row has an open workspace.
@@ -1177,6 +1220,7 @@ mod tests {
         app.current_branches = Some(vec![Branch {
             name: "fix-login".into(),
             worktree: None,
+            time: None,
         }]);
         app.rebuild(None);
         type_text(&mut app, "fix-l");
@@ -1316,10 +1360,12 @@ mod tests {
             Branch {
                 name: "main".into(),
                 worktree: Some("/work/atlas".into()),
+                time: None,
             },
             Branch {
                 name: "fix-login".into(),
                 worktree: Some("/work/atlas.fix-login".into()),
+                time: None,
             },
         ]);
         app.rebuild(None);
@@ -1350,6 +1396,7 @@ mod tests {
         app.current_branches = Some(vec![Branch {
             name: "fix-login".into(),
             worktree: Some("/work/atlas.fix-login".into()),
+            time: None,
         }]);
         app.rebuild(None);
         assert_eq!(selected_name(&app), "fix-login");
@@ -1384,6 +1431,7 @@ mod tests {
         app.current_branches = Some(vec![Branch {
             name: "main".into(),
             worktree: Some("/work/atlas".into()),
+            time: None,
         }]);
         app.rebuild(None);
         // The 3 agents, then the group of the worktrees.

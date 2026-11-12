@@ -104,6 +104,8 @@ impl Item {
 pub enum Line {
     /// The title of a group.
     Group(String),
+    /// An empty line before a group, after another group.
+    Gap,
     /// A row, with the positions of the letters of the query in its name.
     Row { item: Item, positions: Vec<usize> },
 }
@@ -418,6 +420,9 @@ fn group(lines: &mut Vec<Line>, title: &str, rows: Vec<(Item, Vec<usize>)>) {
     if rows.is_empty() {
         return;
     }
+    if !lines.is_empty() {
+        lines.push(Line::Gap);
+    }
     lines.push(Line::Group(title.to_string()));
     lines.extend(
         rows.into_iter()
@@ -511,11 +516,13 @@ mod tests {
     }
 
     fn titles(lines: &[Line]) -> Vec<String> {
+        // The gaps are only for the eye.
         lines
             .iter()
-            .map(|line| match line {
-                Line::Group(title) => format!("# {title}"),
-                Line::Row { item, .. } => item.name(),
+            .filter_map(|line| match line {
+                Line::Group(title) => Some(format!("# {title}")),
+                Line::Gap => None,
+                Line::Row { item, .. } => Some(item.name()),
             })
             .collect()
     }
@@ -556,10 +563,12 @@ mod tests {
             Branch {
                 name: "main".into(),
                 worktree: Some("/work/atlas".into()),
+                time: None,
             },
             Branch {
                 name: "fix-login".into(),
                 worktree: None,
+                time: None,
             },
         ];
         let sources = Sources {
@@ -663,6 +672,7 @@ mod tests {
         let branches = [Branch {
             name: "main".into(),
             worktree: Some("/work/atlas".into()),
+            time: None,
         }];
         let lines = worktree_lines(&branches, &[], "atlas", "fix-login");
         assert_eq!(

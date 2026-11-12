@@ -402,14 +402,17 @@ mod tests {
             Branch {
                 name: "main".into(),
                 worktree: Some("/work/atlas".into()),
+                time: None,
             },
             Branch {
                 name: "fix-login".into(),
                 worktree: Some("/work/atlas.fix-login".into()),
+                time: None,
             },
             Branch {
                 name: "old".into(),
                 worktree: None,
+                time: None,
             },
         ]
     }

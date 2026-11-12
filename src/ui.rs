@@ -10,7 +10,7 @@
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use ratatui::Frame;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -21,24 +21,31 @@ use crate::model::{Status, TabSummary};
 use crate::places::{Kind, Place};
 use crate::rows::{self, Item, Line as ListLine};
 
+// The colors of the mockup: the palette Dracula, in RGB. A terminal with another theme shows the
+// same colors.
+
 /// The prompt, the pointer of the selected row, the current filter, an open workspace.
-const ACCENT: Color = Color::Indexed(12);
+const ACCENT: Color = Color::Rgb(0xbd, 0x93, 0xf9);
 /// The letters of the query in a name, and the keys of the footer.
-const MATCH: Color = Color::Indexed(14);
+const MATCH: Color = Color::Rgb(0x8b, 0xe9, 0xfd);
 /// A creation: a new tab, a new worktree, a new workspace.
-const GREEN: Color = Color::Indexed(10);
+const GREEN: Color = Color::Rgb(0x50, 0xfa, 0x7b);
 /// A name that cannot be a branch, and the flag without prompts.
-const RED: Color = Color::Indexed(9);
-/// The secondary text: the context of a row, the labels of the footer.
-const MUTED: Color = Color::Indexed(249);
-/// The titles of the groups, the text that helps.
-const DIM: Color = Color::Indexed(246);
+const RED: Color = Color::Rgb(0xff, 0x55, 0x55);
+/// The secondary text: the labels of the footer.
+const MUTED: Color = Color::Rgb(0xa4, 0xab, 0xc6);
+/// The titles of the groups, the context of a row, the text that helps.
+const DIM: Color = Color::Rgb(0x62, 0x72, 0xa4);
 /// The rules.
-const RULE: Color = Color::Indexed(239);
+const RULE: Color = Color::Rgb(0x44, 0x47, 0x5a);
 /// The background of the selected row.
-const SELECTED: Color = Color::Indexed(237);
+const SELECTED: Color = Color::Rgb(0x3a, 0x3c, 0x4e);
 /// The background of a place on the action line.
-const PILL: Color = Color::Indexed(236);
+const PILL: Color = Color::Rgb(0x34, 0x37, 0x46);
+/// The colors of the agents and of the states.
+const ORANGE: Color = Color::Rgb(0xff, 0xb8, 0x6c);
+const PINK: Color = Color::Rgb(0xff, 0x79, 0xc6);
+const YELLOW: Color = Color::Rgb(0xf1, 0xfa, 0x8c);
 
 /// The width of the popup under which the preview hides.
 const PREVIEW_MIN_WIDTH: u16 = 70;
@@ -79,7 +86,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     draw_action(frame, action, app);
     app.hint_areas = draw_footer(frame, footer, app);
     if app.help {
-        draw_help(frame, frame.area());
+        draw_help(frame, body);
     }
 }
 
@@ -164,14 +171,14 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> 
     let mut spans = Vec::new();
     let (prompt, placeholder) = match (creating(app), app.create.step) {
         _ if app.rename.is_some() => {
-            spans.push(Span::styled(
-                " rename › tab ",
-                Style::new().fg(MUTED).bg(PILL),
-            ));
+            spans.extend([
+                Span::styled(" rename › tab ", Style::new().fg(MUTED).bg(PILL)),
+                gap(),
+            ]);
             ("name ❯ ", "the new name of the tab")
         }
         (true, Step::Where) => {
-            spans.push(crumb(None));
+            spans.extend([crumb(None), gap()]);
             ("where ❯ ", "project, workspace or folder · ~ for a path")
         }
         (true, Step::What) => {
@@ -181,7 +188,7 @@ fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> 
                 .as_ref()
                 .map(|place| place.label.clone())
                 .unwrap_or_default();
-            spans.push(crumb(Some(&place)));
+            spans.extend([crumb(Some(&place)), gap()]);
             ("name ❯ ", "tab or branch name")
         }
         // Each filter tells what its text finds.
@@ -244,6 +251,11 @@ fn crumb(place: Option<&str>) -> Span<'static> {
     Span::styled(text, Style::new().fg(MUTED).bg(PILL))
 }
 
+/// The space after the crumb.
+fn gap() -> Span<'static> {
+    Span::raw(" ")
+}
+
 /// The right part of a row.
 fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
     let mut spans = right_spans(item, app);
@@ -263,6 +275,15 @@ fn right_side(item: &Item, app: &App) -> Vec<Span<'static>> {
     spans
 }
 
+/// The kind of an agent. With running times, it has a fixed width: the times make a column.
+fn kind_text(kind: &str, app: &App) -> String {
+    if app.times.is_some() {
+        format!("{kind:<8}")
+    } else {
+        kind.to_string()
+    }
+}
+
 /// The label of a status. With running times, it has a fixed width: the times make a column.
 fn status_text(status: Status, app: &App) -> String {
     if app.times.is_some() {
@@ -276,7 +297,7 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
     match item {
         Item::Pane(pane) => match &pane.agent {
             Some(kind) => vec![
-                Span::styled(kind.clone(), Style::new().fg(agent_color(kind))),
+                Span::styled(kind_text(kind, app), Style::new().fg(agent_color(kind))),
                 Span::raw(" "),
                 Span::styled(
                     status_text(pane.status, app),
@@ -287,7 +308,7 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
         },
         Item::Agent(agent) => vec![
             Span::styled(
-                agent.kind.clone(),
+                kind_text(&agent.kind, app),
                 Style::new().fg(agent_color(&agent.kind)),
             ),
             Span::raw(" "),
@@ -310,16 +331,21 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
         Item::Action(_) | Item::Create(_) => Vec::new(),
         Item::Choice(choice) => match choice {
             Choice::Existing {
+                branch,
                 workspace_id,
                 worktree,
-                ..
             } => {
                 let (text, color) = match (workspace_id, worktree) {
                     (Some(_), _) => ("workspace", ACCENT),
                     (None, Some(_)) => ("no workspace", DIM),
                     (None, None) => ("no worktree", DIM),
                 };
-                vec![Span::styled(text, Style::new().fg(color))]
+                let mut spans = vec![Span::styled(text, Style::new().fg(color))];
+                // The age of the last commit of the branch.
+                if let Some(age) = app.branch_age(branch) {
+                    spans.push(Span::styled(format!(" {age:>5}"), Style::new().fg(DIM)));
+                }
+                spans
             }
             Choice::AnotherPlace => Vec::new(),
             _ => {
@@ -419,17 +445,33 @@ fn name_style(item: &Item) -> Style {
     }
 }
 
+/// The name of a row on the screen. A new tab or workspace shows the typed name.
+fn display_name(item: &Item, app: &App) -> String {
+    let name = app.create.name.trim();
+    match item {
+        Item::Choice(Choice::NewTab) if !name.is_empty() => format!("new tab “{name}”"),
+        Item::Choice(Choice::NewWorkspace) if !name.is_empty() => {
+            format!("new workspace “{name}”")
+        }
+        _ => item.name(),
+    }
+}
+
 /// The context of a row. A choice tells what it creates.
 fn context_of(item: &Item, app: &App) -> String {
     let name = app.create.name.trim();
-    let named = |empty: &str| {
-        if name.is_empty() {
-            empty.to_string()
-        } else {
-            format!("“{name}”")
-        }
-    };
+    let place = app
+        .create
+        .place
+        .as_ref()
+        .filter(|_| creating(app))
+        .or_else(|| app.current_place())
+        .map(|place| place.label.clone())
+        .unwrap_or_default();
+    let auto = if name.is_empty() { "auto name, " } else { "" };
     match item {
+        // An open workspace tells its number of tabs, like its preview.
+        Item::Place(place) if place.kind == Kind::Workspace => tabs_text(place.tabs.len()),
         // Outside the creation, a branch tells where its worktree is.
         Item::Choice(Choice::Existing {
             branch,
@@ -450,7 +492,10 @@ fn context_of(item: &Item, app: &App) -> String {
             Choice::NewWorktree { branch } if !create::is_branch_name(branch) => {
                 "not a branch name".into()
             }
-            Choice::NewWorktree { .. } => "a branch and its own workspace".into(),
+            Choice::NewWorktree { .. } => format!(
+                "branch from {}, in its own workspace",
+                app.base_branch().unwrap_or("the default branch")
+            ),
             Choice::Existing {
                 workspace_id: Some(_),
                 ..
@@ -459,8 +504,8 @@ fn context_of(item: &Item, app: &App) -> String {
                 worktree: Some(_), ..
             } => "open its worktree".into(),
             Choice::Existing { .. } => "create its worktree".into(),
-            Choice::NewTab => named("auto name"),
-            Choice::NewWorkspace => format!("with the tab {}", named("(auto name)")),
+            Choice::NewTab => format!("{auto}in {place}"),
+            Choice::NewWorkspace => format!("{auto}in a new workspace {place}"),
             Choice::AnotherPlace => "a project, a workspace or a folder".into(),
         },
         Item::Create(_) => "a tab or a worktree: choose in the next step".into(),
@@ -488,7 +533,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
         .iter()
         .filter_map(|line| match line {
             ListLine::Row { item, .. } => Some(spans_width(&right_side(item, app))),
-            ListLine::Group(_) => None,
+            _ => None,
         })
         .max()
         .unwrap_or(0)
@@ -498,8 +543,8 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
         .lines
         .iter()
         .filter_map(|line| match line {
-            ListLine::Row { item, .. } => Some(item.name().width()),
-            ListLine::Group(_) => None,
+            ListLine::Row { item, .. } => Some(display_name(item, app).width()),
+            _ => None,
         })
         .max()
         .unwrap_or(0)
@@ -514,6 +559,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
         .skip(offset)
         .take(height)
         .map(|(index, line)| match line {
+            ListLine::Gap => Line::raw(""),
             ListLine::Group(title) => Line::from(Span::styled(
                 format!(" {}", title.to_uppercase()),
                 Style::new().fg(DIM).add_modifier(Modifier::BOLD),
@@ -530,7 +576,7 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
                     Span::raw(" "),
                 ];
                 spans.extend(highlighted(
-                    &item.name(),
+                    &display_name(item, app),
                     positions,
                     name_width,
                     name_style(item),
@@ -809,38 +855,57 @@ fn project_lines(
         Span::styled("project ", Style::new().fg(DIM)),
         Span::raw(place.project.clone()),
     ])];
+    // The open workspaces of the project: the main checkout, then "▸ branch" for a worktree.
+    let column = 24.min(width.saturating_sub(12));
     for other in app
         .open
         .iter()
         .filter(|other| other.main == place.main && other.main.is_some())
     {
+        let name = match other.label.split_once(" ▸ ") {
+            Some((_, worktree)) => format!("▸ {worktree}"),
+            None => other.label.clone(),
+        };
         lines.push(Line::from(vec![
             Span::styled("  ▣ ", Style::new().fg(ACCENT)),
+            Span::styled(pad(&fit(&name, column), column), Style::new().fg(MUTED)),
             Span::styled(
-                fit(&other.label, width.saturating_sub(14)),
-                Style::new().fg(MUTED),
-            ),
-            Span::styled(
-                format!("  {}", tabs_text(other.tabs.len())),
+                format!(" {}", tabs_text(other.tabs.len())),
                 Style::new().fg(DIM),
             ),
         ]));
     }
-    lines.push(Line::from(Span::styled(
-        format!(
-            "+ ▣ {} ▸ {}  new workspace · {agent}",
-            place.project,
-            fit(branch, width.saturating_sub(30))
+    lines.push(Line::from(vec![
+        Span::styled("+ ▣ ", Style::new().fg(GREEN)),
+        Span::styled(
+            pad(&fit(&format!("▸ {branch}"), column), column),
+            Style::new().fg(GREEN),
         ),
-        Style::new().fg(GREEN),
-    )));
+        Span::styled(
+            fit(
+                &format!(" new workspace · 1 tab {agent}"),
+                width.saturating_sub(column + 4),
+            ),
+            Style::new().fg(GREEN),
+        ),
+    ]));
     if let Some(main) = &place.main {
+        // The folder of wt by default: <main>.<branch>, with - in place of /.
+        let folder = format!("{}.{}", rows::home(main), branch.replace('/', "-"));
+        let base = app.base_branch().unwrap_or("the default branch");
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![
             Span::styled("worktree ", Style::new().fg(DIM)),
             Span::styled(
+                fit(&folder, width.saturating_sub(9)),
+                Style::new().fg(MUTED),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("branch   ", Style::new().fg(DIM)),
+            Span::styled(
                 fit(
-                    &format!("{}.{branch}", rows::home(main)),
+                    &format!("{branch} (new, from {base})"),
                     width.saturating_sub(9),
                 ),
                 Style::new().fg(MUTED),
@@ -1084,6 +1149,11 @@ fn worktree_label(place: Option<&Place>, branch: &str) -> String {
 
 /// Draw the footer. Return the area of each key, with its key, for the mouse.
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, String)> {
+    // ctrl+Enter names the workspace of its new tab.
+    let new_tab = match app.new_tab_place() {
+        Some(label) => format!("new tab in {}", fit(&label, 28)),
+        None => "new tab here".to_string(),
+    };
     let what = creating(app) && app.create.step == Step::What;
     let path = creating(app) && app.create.step == Step::Where && rows::is_path(&app.create.filter);
     let hints: Vec<(&str, String)> = if app.confirm.is_some() {
@@ -1122,14 +1192,14 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, String)> 
         match app.selected_item() {
             Some(Item::Agent(_) | Item::Tab(_)) => vec![
                 ("↵", "go".to_string()),
-                ("⌃↵", "new tab here".to_string()),
+                ("⌃↵", new_tab.clone()),
                 ("⇥", "filter".to_string()),
                 ("⌃⌫", "close tab".to_string()),
                 ("esc", "close".to_string()),
             ],
             Some(Item::Workspace(_)) => vec![
                 ("↵", "go".to_string()),
-                ("⌃↵", "new tab here".to_string()),
+                ("⌃↵", new_tab.clone()),
                 ("⇥", "filter".to_string()),
                 ("⌃O", "preview".to_string()),
                 ("esc", "close".to_string()),
@@ -1149,7 +1219,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, String)> 
                 };
                 let mut hints = vec![("↵", primary.to_string())];
                 if app.adds_tab_here() {
-                    hints.push(("⌃↵", "new tab here".to_string()));
+                    hints.push(("⌃↵", new_tab.clone()));
                 }
                 if app.opens_worktree() {
                     hints.push(("⌃A", "agent".to_string()));
@@ -1249,16 +1319,11 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         ("esc", "Close, or go back to the step where."),
         ("? F1", "This help."),
     ];
-    let width = (area.width * 7 / 10).max(40).min(area.width);
-    let height = (keys.len() as u16 + 4).min(area.height);
-    let box_area = Rect {
-        x: area.x + (area.width - width) / 2,
-        y: area.y + (area.height - height) / 2,
-        width,
-        height,
-    };
+    // The help covers the list and the preview, like the mockup.
+    let box_area = area;
     frame.render_widget(Clear, box_area);
     let block = Block::bordered()
+        .border_type(BorderType::Rounded)
         .border_style(Style::new().fg(RULE))
         .title(Span::styled(
             " herdr-omnibar keys ",
@@ -1287,9 +1352,9 @@ fn draw_help(frame: &mut Frame, area: Rect) {
 /// The color of an agent kind.
 fn agent_color(kind: &str) -> Color {
     match kind {
-        "claude" => Color::Indexed(215),
-        "codex" => Color::Indexed(14),
-        "opencode" => Color::Indexed(13),
+        "claude" => ORANGE,
+        "codex" => MATCH,
+        "opencode" => PINK,
         _ => MUTED,
     }
 }
@@ -1297,8 +1362,8 @@ fn agent_color(kind: &str) -> Color {
 /// The color of a status, like the glyphs of herdr.
 fn status_color(status: Status) -> Color {
     match status {
-        Status::Blocked => Color::Indexed(13),
-        Status::Working => Color::Indexed(11),
+        Status::Blocked => PINK,
+        Status::Working => YELLOW,
         Status::Done => GREEN,
         Status::Idle => DIM,
         Status::Unknown => RULE,

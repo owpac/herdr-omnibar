@@ -314,14 +314,24 @@ fn display_name(item: &Item, app: &App) -> String {
     }
 }
 
+/// "auto name, " if the creation has no name: herdr names the tab.
+fn auto_name(app: &App) -> &'static str {
+    if app.create.name.trim().is_empty() {
+        "auto name, "
+    } else {
+        ""
+    }
+}
+
+/// The label of the place of the creation.
+fn target_label(app: &App) -> &str {
+    app.target_place()
+        .map(|place| place.label.as_str())
+        .unwrap_or_default()
+}
+
 /// The context of a row. A choice tells what it creates.
 fn context_of(item: &Item, app: &App) -> String {
-    let name = app.create.name.trim();
-    let place = app
-        .target_place()
-        .map(|place| place.label.clone())
-        .unwrap_or_default();
-    let auto = if name.is_empty() { "auto name, " } else { "" };
     match item {
         // An open workspace tells its number of tabs, like its preview.
         Item::Place(place) if place.kind == Kind::Workspace => tabs_text(place.tabs.len()),
@@ -355,8 +365,10 @@ fn context_of(item: &Item, app: &App) -> String {
                 worktree: Some(_), ..
             } => "open its worktree".into(),
             Choice::Existing { .. } => "create its worktree".into(),
-            Choice::NewTab => format!("{auto}in {place}"),
-            Choice::NewWorkspace => format!("{auto}in a new workspace {place}"),
+            Choice::NewTab => format!("{}in {}", auto_name(app), target_label(app)),
+            Choice::NewWorkspace => {
+                format!("{}in a new workspace {}", auto_name(app), target_label(app))
+            }
             Choice::AnotherPlace => "a project, a workspace or a folder".into(),
         },
         Item::Create(_) => "a tab or a worktree: choose in the next step".into(),

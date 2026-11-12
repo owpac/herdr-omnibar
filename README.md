@@ -120,7 +120,9 @@ zoxide adds its folders to the projects and the folders, when it is installed.
 
 ## Colors
 
-The omnibar takes the colors of the herdr theme. herdr gives no color to its plugins: the omnibar reads `[theme]` and `[ui] accent` in the config of herdr (`HERDR_CONFIG_PATH`, else `~/.config/herdr/config.toml`). It builds the palette with the rules of herdr: the theme `name`, `dark_name` and `light_name` with `auto_switch`, `[theme.custom]`, then `[theme.custom.dark]` or `[theme.custom.light]`. With `auto_switch`, the omnibar asks macOS for its appearance. The popup reads the config at each opening: after a change of theme, the next opening has the new colors.
+The omnibar takes the colors of the herdr theme. herdr gives no color to its plugins: the omnibar reads `[theme]` and `[ui] accent` in the config of herdr (`HERDR_CONFIG_PATH`, else `~/.config/herdr/config.toml`). It builds the palette with the rules of herdr: the theme `name`, `dark_name` and `light_name` with `auto_switch`, `[theme.custom]`, then `[theme.custom.dark]` or `[theme.custom.light]`. With the theme `terminal`, the omnibar uses the ANSI colors of the terminal, and fixed greys for the secondary text, the rules and the selected row. The popup reads the config at each opening: after a change of theme, the next opening has the new colors.
+
+With `auto_switch`, herdr asks the terminal for its appearance (dark or light), but the omnibar asks macOS. If the appearance of the terminal differs from the appearance of macOS, the omnibar can use the other theme of the pair. On Linux, the omnibar takes the dark theme. A key with a wrong type in the config of herdr stays without effect.
 
 ## The keyboard
 

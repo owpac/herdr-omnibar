@@ -396,6 +396,10 @@ pub fn complete_path(query: &str, lines: &[Line]) -> Option<String> {
 /// The items that match the query, with the positions in their names. With a query, the best
 /// matches come first.
 fn matches(items: Vec<Item>, query: &str) -> Vec<(Item, Vec<usize>)> {
+    // An empty query keeps all the items, in their order.
+    if query.is_empty() {
+        return items.into_iter().map(|item| (item, Vec::new())).collect();
+    }
     let mut found: Vec<(Item, Vec<usize>, i32)> = items
         .into_iter()
         .filter_map(|item| {
@@ -407,9 +411,7 @@ fn matches(items: Vec<Item>, query: &str) -> Vec<(Item, Vec<usize>)> {
             Some((item, positions, all.score))
         })
         .collect();
-    if !query.is_empty() {
-        found.sort_by_key(|(_, _, score)| std::cmp::Reverse(*score));
-    }
+    found.sort_by_key(|(_, _, score)| std::cmp::Reverse(*score));
     found
         .into_iter()
         .map(|(item, positions, _)| (item, positions))

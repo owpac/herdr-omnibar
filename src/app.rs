@@ -305,6 +305,17 @@ impl App {
 
     /// Build the lines again. The selection stays on the row with this key, if it is still there.
     fn rebuild(&mut self, keep: Option<String>) {
+        if matches!(self.filter, Filter::All | Filter::Worktrees) {
+            self.load_current_branches();
+        }
+        if self.filter == Filter::Actions && self.actions.is_none() {
+            self.actions = Some(herdr::plugin_actions().unwrap_or_default());
+        }
+        let branches = self.current_branches.as_deref().unwrap_or_default();
+        let project = self
+            .current_place()
+            .map(|place| place.project.as_str())
+            .unwrap_or_default();
         self.lines = match (self.filter, self.create.step) {
             (Filter::New, Step::Where) => rows::where_lines(
                 &self.open,
@@ -320,33 +331,20 @@ impl App {
                 None => Vec::new(),
             },
             (Filter::Worktrees, _) => {
-                let project = self
-                    .current_place()
-                    .map(|place| place.project.clone())
-                    .unwrap_or_default();
-                let branches = self.current_branches();
-                rows::worktree_lines(&branches, &self.open, &project, &self.query)
+                rows::worktree_lines(branches, &self.open, project, &self.query)
             }
             _ => {
-                if self.filter == Filter::Actions && self.actions.is_none() {
-                    self.actions = Some(herdr::plugin_actions().unwrap_or_default());
-                }
-                let branches = if self.filter == Filter::All {
-                    self.current_branches()
-                } else {
-                    Vec::new()
-                };
-                let project = self
-                    .current_place()
-                    .map(|place| place.project.clone())
-                    .unwrap_or_default();
                 let sources = rows::Sources {
                     model: &self.model,
                     others: &self.others,
                     actions: self.actions.as_deref().unwrap_or_default(),
                     open: &self.open,
-                    project: &project,
-                    branches: &branches,
+                    project,
+                    branches: if self.filter == Filter::All {
+                        branches
+                    } else {
+                        &[]
+                    },
                 };
                 rows::build(&sources, self.filter, &self.query)
             }
@@ -374,8 +372,9 @@ impl App {
         self.selected = selected;
     }
 
-    /// The branches of the current project, read one time.
-    fn current_branches(&mut self) -> Vec<Branch> {
+    /// Read the branches of the current project, one time, and ask for the git state of their
+    /// worktrees.
+    fn load_current_branches(&mut self) {
         if self.current_branches.is_none() {
             let main = self.current_place().and_then(|place| place.main.clone());
             self.current_branches = Some(main.as_deref().map(places::branches).unwrap_or_default());
@@ -388,7 +387,6 @@ impl App {
                 .collect::<Vec<_>>();
             self.changes.ask(worktrees);
         }
-        self.current_branches.clone().unwrap_or_default()
     }
 
     fn row_indices(&self) -> Vec<usize> {
@@ -618,7 +616,11 @@ impl App {
         let Some(main) = self.current_place().and_then(|place| place.main.clone()) else {
             return String::new();
         };
-        let base = places::base_branch(&main);
+        // The default branch was read with the branches of the current project.
+        let base = self
+            .current_base
+            .clone()
+            .unwrap_or_else(|| places::base_branch(&main));
         let range = format!("{base}..{branch}");
         let text = match view {
             0 => places::git(&main, &["diff", "--stat", &format!("{base}...{branch}")]),
@@ -675,25 +677,25 @@ impl App {
 
     /// The workspace of the selected row, as a place: the workspace of an agent or of a tab, a
     /// workspace, the open workspace of a worktree, or an open place.
-    fn place_of_selected(&self) -> Option<Place> {
+    fn place_of_selected(&self) -> Option<&Place> {
         let workspace_id = match self.selected_item()? {
-            Item::Agent(agent) => agent.workspace_id.clone(),
-            Item::Tab(tab) => tab.workspace_id.clone(),
-            Item::Workspace(space) => space.workspace.workspace_id.clone(),
+            Item::Agent(agent) => &agent.workspace_id,
+            Item::Tab(tab) => &tab.workspace_id,
+            Item::Workspace(space) => &space.workspace.workspace_id,
             Item::Choice(Choice::Existing {
                 workspace_id: Some(id),
                 ..
-            }) => id.clone(),
-            Item::Place(place) => place.workspace_id.clone()?,
-            Item::Pane(pane) => pane.workspace_id.clone(),
+            }) => id,
+            Item::Place(place) => place.workspace_id.as_ref()?,
+            Item::Pane(pane) => &pane.workspace_id,
             _ => return None,
         };
-        self.open_place(&workspace_id).cloned()
+        self.open_place(workspace_id)
     }
 
     /// The label of the workspace where ctrl+Enter adds a tab.
     pub fn new_tab_place(&self) -> Option<String> {
-        self.place_of_selected().map(|place| place.label)
+        self.place_of_selected().map(|place| place.label.clone())
     }
 
     /// True if ctrl+Enter adds a tab next to the selected row: the row has an open workspace.
@@ -706,8 +708,8 @@ impl App {
         let Some(place) = self.place_of_selected() else {
             return Outcome::Continue;
         };
-        let agent = self.agent_for(Some(&place));
-        match create::plan(&place, &Choice::NewTab, "", &agent, false) {
+        let agent = self.agent_for(Some(place));
+        match create::plan(place, &Choice::NewTab, "", &agent, false) {
             Some(plan) => Outcome::Create(plan),
             None => Outcome::Continue,
         }

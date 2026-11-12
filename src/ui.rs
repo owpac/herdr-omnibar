@@ -634,25 +634,29 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
     }
     let width = area.width as usize;
     let height = area.height as usize;
-    // The widths of the columns: the same for each row.
-    let right_width = app
+    // One pass over the rows: the name and the right side of each row, for the widths of the
+    // columns and for the drawing.
+    let cells: Vec<Option<(String, Vec<Span<'static>>)>> = app
         .lines
         .iter()
-        .filter_map(|line| match line {
-            ListLine::Row { item, .. } => Some(spans_width(&right_side(item, app))),
+        .map(|line| match line {
+            ListLine::Row { item, .. } => Some((display_name(item, app), right_side(item, app))),
             _ => None,
         })
+        .collect();
+    // The widths of the columns: the same for each row.
+    let right_width = cells
+        .iter()
+        .flatten()
+        .map(|(_, right)| spans_width(right))
         .max()
         .unwrap_or(0)
         .min(width / 3);
     let room = width.saturating_sub(4 + right_width + 4);
-    let name_width = app
-        .lines
+    let name_width = cells
         .iter()
-        .filter_map(|line| match line {
-            ListLine::Row { item, .. } => Some(display_name(item, app).width()),
-            _ => None,
-        })
+        .flatten()
+        .map(|(name, _)| name.width())
         .max()
         .unwrap_or(0)
         .min(room * 3 / 5)
@@ -662,16 +666,18 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
     let lines: Vec<Line> = app
         .lines
         .iter()
+        .zip(cells)
         .enumerate()
         .skip(offset)
         .take(height)
-        .map(|(index, line)| match line {
-            ListLine::Gap => Line::raw(""),
-            ListLine::Group(title) => Line::from(Span::styled(
+        .map(|(index, (line, cell))| match (line, cell) {
+            (ListLine::Gap, _) => Line::raw(""),
+            (ListLine::Group(title), _) => Line::from(Span::styled(
                 format!(" {}", title.to_uppercase()),
                 Style::new().fg(dim_color()).add_modifier(Modifier::BOLD),
             )),
-            ListLine::Row { item, positions } => {
+            (ListLine::Row { .. }, None) => Line::raw(""),
+            (ListLine::Row { item, positions }, Some((name, right))) => {
                 let is_selected = Some(index) == app.selected;
                 let mut spans = vec![
                     if is_selected {
@@ -682,19 +688,14 @@ fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
                     row_glyph(item, app),
                     Span::raw(" "),
                 ];
-                spans.extend(highlighted(
-                    &display_name(item, app),
-                    positions,
-                    name_width,
-                    name_style(item),
-                ));
+                spans.extend(highlighted(&name, positions, name_width, name_style(item)));
                 spans.push(Span::raw("  "));
                 spans.push(Span::styled(
                     pad(&fit(&context_of(item, app), context_width), context_width),
                     Style::new().fg(dim_color()),
                 ));
                 spans.push(Span::raw("  "));
-                spans.extend(fit_spans(right_side(item, app), right_width));
+                spans.extend(fit_spans(right, right_width));
                 let used = spans_width(&spans);
                 spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
                 let line = Line::from(spans);

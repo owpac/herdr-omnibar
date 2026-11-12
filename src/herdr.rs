@@ -75,9 +75,9 @@ fn run(arguments: &[&str]) -> Result<String, Error> {
 /// Run a herdr command that answers in JSON. Return the field `result`.
 fn run_json(arguments: &[&str]) -> Result<serde_json::Value, Error> {
     let text = run(arguments)?;
-    let value: serde_json::Value = serde_json::from_str(&text)
+    let mut value: serde_json::Value = serde_json::from_str(&text)
         .map_err(|error| Error::new(format!("herdr {}: {error}", arguments.join(" "))))?;
-    Ok(value["result"].clone())
+    Ok(value["result"].take())
 }
 
 fn field(value: &serde_json::Value, pointer: &str, arguments: &[&str]) -> Result<String, Error> {
@@ -91,9 +91,9 @@ fn field(value: &serde_json::Value, pointer: &str, arguments: &[&str]) -> Result
 /// The herdr snapshot: the workspaces, the tabs, the panes and the agents.
 pub fn snapshot() -> Result<crate::model::Snapshot, Error> {
     let text = run(&["api", "snapshot"])?;
-    let value: serde_json::Value = serde_json::from_str(&text)
+    let mut value: serde_json::Value = serde_json::from_str(&text)
         .map_err(|error| Error::new(format!("herdr api snapshot: {error}")))?;
-    serde_json::from_value(value["result"]["snapshot"].clone())
+    serde_json::from_value(value["result"]["snapshot"].take())
         .map_err(|error| Error::new(format!("herdr api snapshot: {error}")))
 }
 

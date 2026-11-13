@@ -679,10 +679,25 @@ mod tests {
             None
         );
         assert_eq!(
-            useful_title("codex resume abc", "codex", None, folder),
+            useful_title("codex --model gpt abc", "codex", None, folder),
             None
         );
-        assert_eq!(useful_title("opencode run", "opencode", None, folder), None);
+        assert_eq!(
+            useful_title("opencode -c --port 1", "opencode", None, folder),
+            None
+        );
+        // A title is a command line only if an option follows the command.
+        assert_eq!(
+            useful_title("Amp up the cache", "amp", None, folder).as_deref(),
+            Some("Amp up the cache")
+        );
+        assert_eq!(
+            useful_title("opencode run", "opencode", None, folder).as_deref(),
+            Some("opencode run")
+        );
+        // The kind of the agent and the known names are not titles, in any case.
+        assert_eq!(useful_title("AMP", "amp", None, folder), None);
+        assert_eq!(useful_title("CLAUDE code", "amp", None, folder), None);
         // The same text is a title for another agent without this name.
         assert_eq!(
             useful_title("task-a2p", "claude", None, folder).as_deref(),

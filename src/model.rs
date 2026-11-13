@@ -115,7 +115,7 @@ pub fn is_agent_name(title: &str, kind: &str) -> bool {
 }
 
 /// True if the title of the terminal of an agent is noise, not a task: the herdr name of the
-/// agent, or the command line of the agent (an agent name, then a space:
+/// agent, or the command line of the agent (an agent name, a space, then an option:
 /// `claude --name x`). Claude Code writes its `--name` in the title for all the session.
 pub fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
     let title = title.trim();
@@ -125,7 +125,7 @@ pub fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
     agent_names(kind).any(|command| {
         title
             .strip_prefix(command)
-            .is_some_and(|rest| rest.starts_with(' '))
+            .is_some_and(|rest| rest.starts_with(" -"))
     })
 }
 

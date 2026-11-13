@@ -1,6 +1,5 @@
-//! The order of use of the tabs (criterion visit of the key list_order). The tab that the user
-//! used last comes first, after the current tab: ⌘P then ↵ goes back to the tab before, like
-//! alt-tab.
+//! The times of use of the tabs, for the criterion visit of the key list_order (src/rank.rs
+//! sorts the rows with them).
 //!
 //! The watcher writes the time of each change of the focused tab in recent.json, in the state
 //! folder. Each opening of the popup also writes the time of the tab that it leaves.

@@ -680,9 +680,14 @@ impl App {
         self.model = model;
         self.order();
         let open = places::workspaces(&self.model);
-        // A workspace of another project opened or closed: read the other projects again.
+        // A workspace of another project opened or closed: read the other projects again. The
+        // order of list_order changes at each refresh: a new order of the same workspaces is not
+        // a change.
         let mains = |places: &[Place]| -> Vec<Option<PathBuf>> {
-            places.iter().map(|place| place.main.clone()).collect()
+            let mut mains: Vec<Option<PathBuf>> =
+                places.iter().map(|place| place.main.clone()).collect();
+            mains.sort();
+            mains
         };
         if mains(&open) != mains(&self.open) {
             self.projects.others = None;
@@ -1471,6 +1476,42 @@ mod tests {
         // release notes 7, fix the login 5, then the current tab (omnibar design, 9).
         assert_eq!(names, ["release notes", "fix the login", "omnibar design"]);
         assert_eq!(selected_name(&app), "release notes");
+    }
+
+    #[test]
+    fn a_new_order_of_the_same_workspaces_keeps_the_other_projects() {
+        let space = |id: &str, main: &str, agent_status: Status| crate::model::Space {
+            workspace: crate::model::Workspace {
+                agent_status,
+                ..crate::order::tests::workspace(id, id, None)
+            },
+            folder: Some(main.into()),
+            checkout: Some(crate::model::Checkout {
+                root: main.into(),
+                common: PathBuf::from(main).join(".git"),
+                branch: Some("main".into()),
+            }),
+        };
+        let model = |first: Status, second: Status| Model {
+            spaces: vec![
+                space("w2", "/work/pac", first),
+                space("w3", "/work/prompts", second),
+            ],
+            ..Model::default()
+        };
+        let mut app = app(Filter::Agents);
+        app.update_model(model(Status::Blocked, Status::Idle));
+        app.projects.others = Some(Vec::new());
+        // The attention changes: the same workspaces come in another order.
+        app.update_model(model(Status::Idle, Status::Blocked));
+        assert_eq!(app.open[0].workspace_id.as_deref(), Some("w3"));
+        assert!(app.projects.others.is_some());
+        // A workspace of another project closes: the other projects are read again.
+        app.update_model(Model {
+            spaces: vec![space("w2", "/work/pac", Status::Idle)],
+            ..Model::default()
+        });
+        assert!(app.projects.others.is_none());
     }
 
     #[test]

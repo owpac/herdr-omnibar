@@ -70,11 +70,51 @@ pub struct Snapshot {
     pub tabs: Vec<Tab>,
     #[serde(default)]
     pub panes: Vec<Pane>,
+    /// The agents that herdr detects. `name` is the herdr name of a named agent.
+    #[serde(default)]
+    pub agents: Vec<AgentInfo>,
     #[serde(default)]
     pub focused_workspace_id: Option<String>,
     /// The focused tab, for the order of use (feature recent_first).
     #[serde(default)]
     pub focused_tab_id: Option<String>,
+}
+
+/// An agent of the snapshot, by pane. Only the herdr name is read.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AgentInfo {
+    pub pane_id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+impl Snapshot {
+    /// The herdr name of the agent of a pane (`herdr agent start <name>`), if it has one.
+    pub fn agent_name(&self, pane_id: &str) -> Option<&str> {
+        self.agents
+            .iter()
+            .find(|agent| agent.pane_id == pane_id)
+            .and_then(|agent| agent.name.as_deref())
+            .filter(|name| !name.is_empty())
+    }
+}
+
+/// True if the title of the terminal of an agent is noise, not a task: the herdr name of the
+/// agent, or the command line of the agent (the kind of agent, then a space: `claude --name x`).
+/// Claude Code writes its `--name` in the title for all the session.
+pub fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
+    let title = title.trim();
+    if name.is_some_and(|name| name.eq_ignore_ascii_case(title)) {
+        return true;
+    }
+    ["claude", "codex", "opencode", kind]
+        .iter()
+        .filter(|command| !command.is_empty())
+        .any(|command| {
+            title
+                .strip_prefix(command)
+                .is_some_and(|rest| rest.starts_with(' '))
+        })
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -397,9 +437,23 @@ impl Model {
             let tab = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id);
             let label = tab.map(|tab| tab.label.clone()).unwrap_or_default();
             let numbered = tab.is_none_or(Tab::has_default_label);
+            // The agent of the tab: its herdr name and its command are not a task.
+            let agent_pane = snapshot
+                .panes
+                .iter()
+                .find(|pane| pane.tab_id == tab_id && pane.agent.is_some());
+            let noise = |title: &str| {
+                agent_pane.is_some_and(|pane| {
+                    is_agent_noise(
+                        title,
+                        pane.agent.as_deref().unwrap_or_default(),
+                        snapshot.agent_name(&pane.pane_id),
+                    )
+                })
+            };
             match title.map(str::trim).filter(|title| !title.is_empty()) {
                 Some(title) if numbered && is_prompt_title(title) => "shell".to_string(),
-                Some(title) if numbered => title.to_string(),
+                Some(title) if numbered && !noise(title) => title.to_string(),
                 _ => label,
             }
         };

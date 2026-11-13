@@ -1,6 +1,9 @@
 //! The command `herdr-omnibar sort`: sort the workspaces of the herdr sidebar.
 //! `sort --print` prints the old and the new order, and changes nothing.
 
+use std::path::PathBuf;
+
+use crate::config;
 use crate::herdr;
 use crate::model::Workspace;
 use crate::order;
@@ -27,7 +30,11 @@ pub fn run(print_only: bool) -> Result<(), String> {
         .iter()
         .map(|workspace| workspace.workspace_id.clone())
         .collect();
-    let wanted = order::sorted(workspaces);
+    let config = config::current();
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let wanted = order::sorted(workspaces, &config.sort_order, &home);
     if print_only {
         let shown = order::screen_order(workspaces);
         print!(

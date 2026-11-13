@@ -128,6 +128,8 @@ pills = "square"
 features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
 # The filters of the chips, in the order of ⇥. Remove a name to hide its filter.
 filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]
+# The order of the sort of the workspaces (see below).
+sort_order = ["git", "other"]
 ```
 
 `rename_tab` turns on `⌃R`: it renames the tab, the workspace or the pane of the selected row. The filter `panes` shows the label that herdr gives to a pane. A git workspace with a name that you gave shows this name: `<project> ▸ <name>` for a linked worktree.
@@ -181,7 +183,17 @@ shellcheck scripts/*.sh
 
 `docs/make-images` makes the images of this README with VHS (`brew install vhs`): a demo folder with 2 git projects, a herdr snapshot of example and the screens of its panes. With `OMNIBAR_DEMO=<folder>`, the omnibar reads them, and asks nothing to herdr.
 
-`herdr-omnibar sort` sorts the workspaces of the herdr sidebar, with one call of the socket of herdr (`workspace.move_block`): it works inside herdr, where `HERDR_SOCKET_PATH` is set. The git workspaces come first, grouped by repository and sorted by the name of the repository. In a group, the main workspace comes first, then the linked worktrees sorted by label. The workspaces without git come last, sorted by label. The Actions filter shows it as "Omnibar: sort the workspaces". `herdr-omnibar sort --print` prints the old and the new order, and changes nothing.
+`herdr-omnibar sort` sorts the workspaces of the herdr sidebar, with one call of the socket of herdr (`workspace.move_block`): it works inside herdr, where `HERDR_SOCKET_PATH` is set. The git workspaces come first, grouped by repository and sorted by the name of the repository. In a group, the main workspace comes first, then the linked worktrees sorted by label. The workspaces without git come last, sorted by label. The Actions filter shows it as "Omnibar: sort the workspaces". The key `sort_order` of `config.toml` changes this order. It is a list of entries, and each entry takes the workspaces that no earlier entry took:
+
+- `"git"` takes the git workspaces, and `"other"` takes the workspaces without git. The default is `["git", "other"]`.
+- An entry with a `/` is a folder (`~` is the home folder). It takes the git projects with a repository root in this folder, at any depth. If 2 folders match a project, the first entry wins.
+- Any other entry is the exact label of a herdr workspace. `"~"` is the workspace with the label `~`, not the home folder. If the label is the label of a linked worktree, the full group goes there.
+
+A git workspace always moves with its group: the main workspace and the linked worktrees of the same repository. In each entry, the order is the default order. The workspaces that no entry takes go at the end, in the default order. An entry that takes nothing does nothing. For example:
+
+```toml
+sort_order = ["~", "~/Workspace/owpac", "~/Workspace/keplair", "git", "other"]
+``` `herdr-omnibar sort --print` prints the old and the new order, and changes nothing.
 
 `herdr-omnibar list` prints the workspaces, the agents and the tabs, as the popup sees them. `herdr-omnibar titles` prints the renames of the watcher of the titles.
 

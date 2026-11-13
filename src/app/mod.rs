@@ -23,7 +23,8 @@ use crate::herdr::{self, PluginAction};
 use crate::model::Model;
 use crate::places::{self, Place, Project};
 use crate::pulls::{Lookup, Pulls};
-use crate::recent::{self, Recent};
+use crate::rank::Ranker;
+use crate::recent::Recent;
 use crate::rows::{self, Item, Line};
 use crate::times::{self, Times};
 
@@ -195,7 +196,9 @@ pub struct App {
     pub logos: bool,
     /// The focused pane of the current workspace, when the popup opens: a split goes next to it.
     pub focused_pane: Option<String>,
-    /// The times of use of the tabs, and the tab of the popup (feature recent_first).
+    /// The order of the lists: the ranks of the rows (key `order` of the config).
+    ranker: Ranker,
+    /// The times of use of the tabs, and the tab of the popup (criterion visit).
     recent: Recent,
     current_tab: Option<String>,
     /// The last agent of each folder (agents.json), read one time when the popup opens. Empty in
@@ -268,6 +271,7 @@ impl App {
             remembered: HashMap::new(),
             recent: Recent::new(),
             current_tab: None,
+            ranker: Ranker::default(),
             focused_pane: None,
         };
         app.rebuild(None);
@@ -415,9 +419,8 @@ impl App {
             },
             (Filter::Worktrees, _) => rows::worktree_lines(
                 self.projects.current.as_ref(),
-                &rows::order_projects(
+                &self.ranker.projects(
                     self.projects.others.as_deref().unwrap_or_default(),
-                    &self.model,
                     &self.open,
                 ),
                 &self.open,
@@ -435,6 +438,7 @@ impl App {
                         .as_ref()
                         .filter(|_| self.filter == Filter::All),
                     sidebar_order: self.config.has("move_workspaces"),
+                    attention: crate::rank::has(&self.config.order, "attention"),
                 };
                 rows::build(&sources, self.filter, &self.query)
             }
@@ -585,7 +589,7 @@ impl App {
     }
 
     /// Take the times of use of the tabs, and the tab of the popup: the rows take their order of
-    /// use (feature recent_first).
+    /// use (criterion visit).
     /// The selection goes to the first row.
     pub fn use_recent(&mut self, recent: Recent, current_tab: Option<String>) {
         self.recent = recent;
@@ -597,13 +601,18 @@ impl App {
         self.rebuild(None);
     }
 
-    /// Sort the rows of a model. The agents go by their last activity, with or without the
-    /// feature recent_first. With it, the other rows go by their use.
-    fn order(&self, model: &mut Model) {
-        crate::model::order_agents(&mut model.agents, self.current_tab.as_deref());
-        if self.config.has("recent_first") {
-            recent::order(model, &self.recent, self.current_tab.as_deref());
-        }
+    /// Sort the rows of a model with the key `order` of the config, then keep the ranks for the
+    /// groups of the filter Worktrees.
+    fn order(&mut self, model: &mut Model) {
+        let ranker = Ranker::new(
+            model,
+            &self.config.order,
+            &self.recent,
+            self.current_tab.as_deref(),
+            self.current.as_deref(),
+        );
+        ranker.sort(model);
+        self.ranker = ranker;
     }
 
     /// Take the tab of the popup: the agent of this tab goes at the end of its part of the list.

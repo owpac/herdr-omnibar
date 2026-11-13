@@ -21,6 +21,7 @@ mod model;
 mod order;
 mod places;
 mod pulls;
+mod rank;
 mod recent;
 mod remove;
 mod rows;

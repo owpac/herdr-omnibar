@@ -48,16 +48,6 @@ impl Status {
             Status::Unknown => "",
         }
     }
-
-    /// The part of the list of the agents: the agents that need the user, then the agents that
-    /// are done and not seen, then the other agents.
-    pub fn part(self) -> u8 {
-        match self {
-            Status::Blocked => 0,
-            Status::Done => 1,
-            _ => 2,
-        }
-    }
 }
 
 /// The herdr snapshot: `herdr api snapshot`.
@@ -74,7 +64,7 @@ pub struct Snapshot {
     pub agents: Vec<AgentInfo>,
     #[serde(default)]
     pub focused_workspace_id: Option<String>,
-    /// The focused tab, for the order of use (feature recent_first).
+    /// The focused tab, for the order of use (criterion visit).
     #[serde(default)]
     pub focused_tab_id: Option<String>,
 }
@@ -86,21 +76,6 @@ pub struct AgentInfo {
     /// A counter of herdr that grows at each change of state of an agent: the last activity.
     #[serde(default)]
     pub state_change_seq: Option<u64>,
-}
-
-/// Sort the agents: first the agents that need the user, then the agents that are done, then the
-/// others. In each part, the last activity comes first (the highest `seq`), and an agent without
-/// a `seq` goes last. The agent of the current tab goes at the end of its part. The sort is
-/// stable.
-pub fn order_agents(agents: &mut [AgentRow], current_tab: Option<&str>) {
-    agents.sort_by_key(|agent| {
-        (
-            agent.status.part(),
-            Some(agent.tab_id.as_str()) == current_tab,
-            agent.seq.is_none(),
-            std::cmp::Reverse(agent.seq),
-        )
-    });
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -361,6 +336,10 @@ pub struct Model {
     pub focused_workspace_id: Option<String>,
     /// The workspaces in the flat order of the snapshot: the sidebar order comes from it.
     pub flat_workspaces: Vec<Workspace>,
+    /// The number of each tab in its workspace, by tab id: the order of herdr.
+    pub tab_numbers: HashMap<String, u32>,
+    /// The position of each pane in the snapshot, by pane id: the order of herdr.
+    pub pane_index: HashMap<String, usize>,
     /// The tabs of each workspace, by workspace id, in their order.
     pub workspace_tabs: HashMap<String, Vec<TabSummary>>,
 }
@@ -403,7 +382,7 @@ impl Model {
                 _ => label,
             }
         };
-        let mut agents: Vec<AgentRow> = snapshot
+        let agents: Vec<AgentRow> = snapshot
             .panes
             .iter()
             .filter_map(|pane| {
@@ -425,7 +404,7 @@ impl Model {
                 })
             })
             .collect();
-        order_agents(&mut agents, None);
+
         let panes = snapshot
             .panes
             .iter()
@@ -509,6 +488,17 @@ impl Model {
             panes,
             focused_workspace_id: snapshot.focused_workspace_id.clone(),
             flat_workspaces: snapshot.workspaces.clone(),
+            tab_numbers: snapshot
+                .tabs
+                .iter()
+                .filter_map(|tab| Some((tab.tab_id.clone(), tab.number?)))
+                .collect(),
+            pane_index: snapshot
+                .panes
+                .iter()
+                .enumerate()
+                .map(|(index, pane)| (pane.pane_id.clone(), index))
+                .collect(),
             workspace_tabs,
         }
     }
@@ -625,7 +615,9 @@ mod tests {
 
     #[test]
     fn the_agents_that_need_the_user_come_first() {
-        let model = Model::build(&snapshot(), &checkouts());
+        let mut model = Model::build(&snapshot(), &checkouts());
+        let order: Vec<String> = ["attention"].iter().map(|s| s.to_string()).collect();
+        crate::rank::Ranker::new(&model, &order, &HashMap::new(), None, None).sort(&mut model);
         let agents: Vec<(&str, &str, &str)> = model
             .agents
             .iter()
@@ -646,49 +638,6 @@ mod tests {
             ]
         );
         assert_eq!(model.agents[0].status, Status::Blocked);
-    }
-
-    fn row(name: &str, status: Status, seq: Option<u64>, tab: &str) -> AgentRow {
-        AgentRow {
-            pane_id: format!("p-{name}"),
-            tab_id: tab.into(),
-            workspace_id: "w1".into(),
-            name: name.into(),
-            kind: "claude".into(),
-            status,
-            place: "atlas".into(),
-            cwd: None,
-            seq,
-        }
-    }
-
-    #[test]
-    fn the_agents_go_by_need_then_done_then_the_last_activity() {
-        let mut agents = vec![
-            row("idle-old", Status::Idle, Some(10), "t1"),
-            row("working-new", Status::Working, Some(90), "t2"),
-            row("done-old", Status::Done, Some(20), "t3"),
-            row("blocked", Status::Blocked, Some(5), "t4"),
-            row("done-new", Status::Done, Some(80), "t5"),
-            row("no-seq", Status::Idle, None, "t6"),
-            row("done-current", Status::Done, Some(99), "t7"),
-        ];
-        order_agents(&mut agents, Some("t7"));
-        let names: Vec<&str> = agents.iter().map(|agent| agent.name.as_str()).collect();
-        // The blocked agent first, then the done agents (the current tab last of its part), then
-        // the others by activity: an agent without a value goes last.
-        assert_eq!(
-            names,
-            [
-                "blocked",
-                "done-new",
-                "done-old",
-                "done-current",
-                "working-new",
-                "idle-old",
-                "no-seq"
-            ]
-        );
     }
 
     #[test]

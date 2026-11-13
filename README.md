@@ -16,7 +16,7 @@ The install downloads the release binary for your machine, and checks it with th
 
 ## The 2 doors
 
-- **`open`** goes to what exists. The list has the agents that need you first, then the other agents (the agents that are done come first, then the last activity: the agent of the current tab goes last of its part), the tabs without an agent, the worktrees of the current project, the other workspaces and the git projects. `↵` goes to the selected row. If you type a text, the last row is `create “<text>”…`: `↵` on it starts the creation in the current place, with this text as the name. A branch of the current project shows the git state of its worktree: `✓` no change, `●` changes that are not committed, `○` no worktree. Its right column tells if its workspace is open, and the age of its last commit.
+- **`open`** goes to what exists. The list has the agents that need you first, then the other agents (by the key `order`: see [Configuration](#configuration)), the tabs without an agent, the worktrees of the current project, the other workspaces and the git projects. `↵` goes to the selected row. If you type a text, the last row is `create “<text>”…`: `↵` on it starts the creation in the current place, with this text as the name. A branch of the current project shows the git state of its worktree: `✓` no change, `●` changes that are not committed, `○` no worktree. Its right column tells if its workspace is open, and the age of its last commit.
 - **`new`** creates a tab or a worktree, in 2 steps:
   1. **Where:** the current place first, then the open workspaces, the git projects without a workspace and the other folders. Type `~` or `/` for any folder of the disk: `⇥` completes it.
   2. **What:** type the name. In a git project, `new worktree <name>` comes first: wt creates the branch, its worktree and its own workspace. `new tab` adds a tab to the workspace of the place. In the current workspace, `new split` adds a pane next to the focused pane: to the right of a wide pane, below a tall pane. A name that is not a branch name selects `new tab`.
@@ -124,18 +124,27 @@ preview = "full"   # "full": the 3 views of a worktree. "summary": one view.
 # "square": half blocks, square corners. "round": half circles of a Nerd Font. "flat": a space.
 pills = "square"
 # The optional features. Remove a name to turn its feature off.
-features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
+features = ["mouse", "rename_tab", "auto_titles", "agent_logos"]
 # The filters of the chips, in the order of ⇥. Remove a name to hide its filter.
 filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]
 # The order of the sort of the workspaces (see below).
 sort_order = ["git", "other"]
+# The order of all the lists (see below).
+order = ["attention", "activity", "visit"]
 ```
 
 `move_workspaces` is off by default: add it to `features` to turn it on. The filter `workspaces` then shows the order of the herdr sidebar, not the order of use. `⌥↑` and `⌥↓` move the selected workspace. A main workspace moves with its worktrees, and a workspace without a group moves alone. A linked worktree moves only among the worktrees of its project. At the first or the last position, the key does nothing. The move uses the socket of herdr (`workspace.move_block`). The sidebar groups the worktrees of a project: the number of a workspace is not its position on the screen. Run `herdr-omnibar.keys` to check that your terminal sends `⌥↑` and `⌥↓`.
 
 `filters` gives the chips of the search line, in the order of `⇥` and `⇧⇥`. A filter outside the list has no chip and no shortcut, but its action still opens it: its chip then shows until `⇥` leaves it. The filter `panes` is off by default: it has one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
 
-`recent_first` sorts the tabs, the panes and the workspaces by their last use: the tab of the popup goes after the others, so the first row is the tab before, like alt-tab (`⌘P` then `↵`). The agents do not follow it: they always go by need, then by last activity. The group "Needs you" has the agents that wait for you. In the group "Agents", the agents that are done come first. In each part, the last change of state of an agent (`state_change_seq` of herdr) comes first, and the agent of the current tab goes last. In the filter `worktrees`, the current project stays first. The other projects go by the same rule: a project with an agent that needs you, then a project with an agent that is done, then the last activity of its agents, then the projects without an agent in their order. The watcher writes the time of each change of the focused tab in `recent.json`, in the state folder.
+`order` sorts all the lists: the agents, the tabs, the panes, the workspaces, the groups of the filter `worktrees` and the open workspaces of the step "where". It is a list of criteria. The first criterion sorts, and the next criterion sorts the rows that are equal. The default is `["attention", "activity", "visit"]`:
+
+- `attention`: the agents that need you first (the group "Needs you"), then the agents that are done and that you have not seen, then the others. A workspace has the status that herdr gives, and a group of worktrees has the best status of its workspaces. Without `attention`, the group "Needs you" does not exist: all the agents are in the group "Agents".
+- `activity`: the last activity first, with `state_change_seq` of herdr. A row without an agent has no activity: the next criterion sorts it.
+- `visit`: the last visit of the tab first. The watcher writes the time of each change of the focused tab in `recent.json`, in the state folder, and the popup writes the time of its tab when it opens. Without `visit`, nothing is written.
+- `herdr`: the order of herdr: the workspaces as the sidebar shows them, then the number of the tab, then the order of the panes. It is always the last criterion, also if the list does not have it. An empty list gives the order `herdr`. An unknown entry does nothing.
+
+The current tab goes at the end of its section, with its agent, its panes and its workspace, for each order. With a typed text, the score of the match sorts first, and `order` sorts the rows with the same score. In the filter `worktrees`, the current project stays first. With `move_workspaces`, the filter `workspaces` keeps the order of the sidebar. The old feature `recent_first` does nothing: `order` replaces it, and `visit` is the same criterion.
 
 `auto_sort` is off by default, because it changes the order of the sidebar. The watcher then sorts the workspaces with `sort_order`, at its start and each time the set of the workspaces changes: a workspace opens or closes. A move of your own (a drag in the sidebar, `⌥↑`, `⌥↓`) stays until the next change of the set. If the order is already right, the watcher makes no call to herdr. It writes each sort in `watch.log`. The watcher needs the socket of herdr: it works when herdr starts it.
 

@@ -52,8 +52,8 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
         config,
     );
     app.focused_pane = context.focused_pane_id.clone();
-    // The order of use (feature recent_first): the tab of the popup gets the time now.
-    if app.config.has("recent_first") {
+    // The order of use (criterion visit): the tab of the popup gets the time now.
+    if app.config.orders_by_visit() {
         let recent = recent::open(&config::state_dir(), context.tab_id.as_deref());
         app.use_recent(recent, context.tab_id.clone());
     } else {

@@ -79,9 +79,11 @@ impl Place {
 
     /// A key that stays the same between 2 refreshes.
     pub fn key(&self) -> String {
-        match &self.workspace_id {
-            Some(id) => format!("workspace:{id}"),
-            None => format!("folder:{}", self.folder.display()),
+        match (&self.workspace_id, self.kind) {
+            (Some(id), _) => format!("workspace:{id}"),
+            // The row "new workspace…" and the folder ~ have the same folder: not the same key.
+            (None, Kind::Home) => "home".to_string(),
+            (None, _) => format!("folder:{}", self.folder.display()),
         }
     }
 }

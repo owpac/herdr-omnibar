@@ -431,15 +431,18 @@ impl Model {
         // The name of a tab. herdr names a new tab with its number: then the title of the terminal
         // is a better name, because an agent writes its task there. The title of an idle shell
         // is its prompt (user@host:folder): the name is then "shell".
-        let label_of = |tab_id: &str, title: Option<&str>| {
+        let label_of = |tab_id: &str, title: Option<&str>, title_pane: Option<&str>| {
             let tab = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id);
             let label = tab.map(|tab| tab.label.clone()).unwrap_or_default();
             let numbered = tab.is_none_or(Tab::has_default_label);
-            // The agent of the tab: its herdr name and its command are not a task.
-            let agent_pane = snapshot
-                .panes
-                .iter()
-                .find(|pane| pane.tab_id == tab_id && pane.agent.is_some());
+            // The pane of the title, if it holds an agent: the herdr name and the command of this
+            // agent are not a task.
+            let agent_pane = title_pane.and_then(|id| {
+                snapshot
+                    .panes
+                    .iter()
+                    .find(|pane| pane.pane_id == id && pane.agent.is_some())
+            });
             let noise = |title: &str| {
                 agent_pane.is_some_and(|pane| {
                     is_agent_noise(
@@ -464,7 +467,11 @@ impl Model {
                     pane_id: pane.pane_id.clone(),
                     tab_id: pane.tab_id.clone(),
                     workspace_id: pane.workspace_id.clone(),
-                    name: label_of(&pane.tab_id, pane.terminal_title_stripped.as_deref()),
+                    name: label_of(
+                        &pane.tab_id,
+                        pane.terminal_title_stripped.as_deref(),
+                        Some(&pane.pane_id),
+                    ),
                     kind,
                     status: pane.agent_status,
                     place: place_of(&pane.workspace_id),
@@ -499,7 +506,11 @@ impl Model {
                     tab_id: pane.tab_id.clone(),
                     workspace_id: pane.workspace_id.clone(),
                     name,
-                    tab: label_of(&pane.tab_id, pane.terminal_title_stripped.as_deref()),
+                    tab: label_of(
+                        &pane.tab_id,
+                        pane.terminal_title_stripped.as_deref(),
+                        Some(&pane.pane_id),
+                    ),
                     place: place_of(&pane.workspace_id),
                     agent: pane.agent.clone(),
                     status: pane.agent_status,
@@ -529,7 +540,7 @@ impl Model {
                 TabRow {
                     tab_id: tab.tab_id.clone(),
                     workspace_id: tab.workspace_id.clone(),
-                    name: label_of(&tab.tab_id, Some(&title)),
+                    name: label_of(&tab.tab_id, Some(&title), None),
                     command,
                     place: place_of(&tab.workspace_id),
                     pane_id: first.map(|pane| pane.pane_id.clone()),
@@ -542,16 +553,13 @@ impl Model {
                 .panes
                 .iter()
                 .find(|pane| pane.tab_id == tab.tab_id && pane.agent.is_some());
-            let title = snapshot
-                .panes
-                .iter()
-                .find(|pane| pane.tab_id == tab.tab_id)
-                .and_then(|pane| pane.terminal_title_stripped.as_deref());
+            let first = snapshot.panes.iter().find(|pane| pane.tab_id == tab.tab_id);
+            let title = first.and_then(|pane| pane.terminal_title_stripped.as_deref());
             workspace_tabs
                 .entry(tab.workspace_id.clone())
                 .or_default()
                 .push(TabSummary {
-                    name: label_of(&tab.tab_id, title),
+                    name: label_of(&tab.tab_id, title, first.map(|pane| pane.pane_id.as_str())),
                     agent: agent_pane.and_then(|pane| pane.agent.clone()),
                     status: agent_pane.map(|pane| pane.agent_status).unwrap_or_default(),
                 });

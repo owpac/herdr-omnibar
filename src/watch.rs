@@ -103,11 +103,9 @@ pub fn useful_title(
             title = head.trim();
         }
     }
-    let lower = title.to_lowercase();
-    let agent_names = [agent, "claude", "claude code", "codex", "opencode"];
     if title.is_empty()
         || model::is_prompt_title(title)
-        || agent_names.iter().any(|name| name.to_lowercase() == lower)
+        || model::is_agent_name(title, agent)
         || folder_name.as_deref() == Some(title)
         || model::is_agent_noise(title, agent, name)
     {

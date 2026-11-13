@@ -99,22 +99,34 @@ impl Snapshot {
     }
 }
 
+/// The names that a terminal title can give to an agent, besides its kind.
+const AGENT_NAMES: [&str; 4] = ["claude", "claude code", "codex", "opencode"];
+
+/// The known names of the agents, then the kind of this agent.
+fn agent_names(kind: &str) -> impl Iterator<Item = &str> {
+    AGENT_NAMES
+        .into_iter()
+        .chain(Some(kind).filter(|kind| !kind.is_empty()))
+}
+
+/// True if the title is the name of the agent, in any case: `Claude Code`, `OpenCode`.
+pub fn is_agent_name(title: &str, kind: &str) -> bool {
+    agent_names(kind).any(|name| name.eq_ignore_ascii_case(title))
+}
+
 /// True if the title of the terminal of an agent is noise, not a task: the herdr name of the
-/// agent, or the command line of the agent (the kind of agent, then a space: `claude --name x`).
-/// Claude Code writes its `--name` in the title for all the session.
+/// agent, or the command line of the agent (an agent name, then a space:
+/// `claude --name x`). Claude Code writes its `--name` in the title for all the session.
 pub fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
     let title = title.trim();
     if name.is_some_and(|name| name.eq_ignore_ascii_case(title)) {
         return true;
     }
-    ["claude", "codex", "opencode", kind]
-        .iter()
-        .filter(|command| !command.is_empty())
-        .any(|command| {
-            title
-                .strip_prefix(command)
-                .is_some_and(|rest| rest.starts_with(' '))
-        })
+    agent_names(kind).any(|command| {
+        title
+            .strip_prefix(command)
+            .is_some_and(|rest| rest.starts_with(' '))
+    })
 }
 
 #[derive(Clone, Debug, Deserialize)]

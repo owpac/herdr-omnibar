@@ -7,7 +7,7 @@
 //! list: the main workspace first, then the linked worktrees in the flat order. Any other
 //! workspace shows at its flat position.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::model::Workspace;
@@ -52,35 +52,26 @@ fn repo_key(workspace: &Workspace) -> Option<&str> {
 
 /// The entries of the sidebar, from the flat list of the workspaces.
 pub fn sidebar(workspaces: &[Workspace]) -> Vec<Entry> {
-    // The keys that have a main workspace and a linked worktree.
-    let mut grouped: HashMap<&str, (bool, bool)> = HashMap::new();
-    for workspace in workspaces {
-        if let Some(key) = repo_key(workspace) {
-            let seen = grouped.entry(key).or_default();
-            if is_linked(workspace) {
-                seen.1 = true;
-            } else {
-                seen.0 = true;
-            }
-        }
-    }
-    let is_group = |key: &str| {
-        grouped
-            .get(key)
-            .is_some_and(|(main, linked)| *main && *linked)
+    // The keys of the main workspaces, and the keys of the linked worktrees.
+    let keys = |linked: bool| -> HashSet<&str> {
+        workspaces
+            .iter()
+            .filter(|workspace| is_linked(workspace) == linked)
+            .filter_map(repo_key)
+            .collect()
     };
+    let (mains, linked) = (keys(false), keys(true));
+    let is_group = |key: &&str| mains.contains(key) && linked.contains(key);
     let mut entries: Vec<Entry> = Vec::new();
-    let mut done: Vec<&str> = Vec::new();
+    let mut done: HashSet<&str> = HashSet::new();
     for workspace in workspaces {
-        let id = workspace.workspace_id.clone();
-        let Some(key) = repo_key(workspace).filter(|key| is_group(key)) else {
-            entries.push(Entry::Single(id));
+        let Some(key) = repo_key(workspace).filter(is_group) else {
+            entries.push(Entry::Single(workspace.workspace_id.clone()));
             continue;
         };
-        if done.contains(&key) {
+        if !done.insert(key) {
             continue;
         }
-        done.push(key);
         let members = || {
             workspaces
                 .iter()
@@ -184,29 +175,28 @@ fn takes(entry: &str, members: &[&Workspace], home: &Path) -> bool {
 /// default order.
 pub fn sorted(workspaces: &[Workspace], spec: &[String], home: &Path) -> Vec<String> {
     // The units: the workspaces of one `repo_key` go together. Any other workspace is alone.
-    let unit_of = |workspace: &Workspace| match repo_key(workspace) {
-        Some(key) => format!("key:{key}"),
-        None => format!("id:{}", workspace.workspace_id),
-    };
-    let mut units: HashMap<String, Vec<&Workspace>> = HashMap::new();
+    let mut groups: HashMap<&str, Vec<&Workspace>> = HashMap::new();
     for workspace in workspaces {
-        units.entry(unit_of(workspace)).or_default().push(workspace);
+        if let Some(key) = repo_key(workspace) {
+            groups.entry(key).or_default().push(workspace);
+        }
     }
     let bucket = |workspace: &Workspace| {
-        let members = &units[&unit_of(workspace)];
+        let members = match repo_key(workspace) {
+            Some(key) => groups[key].as_slice(),
+            None => std::slice::from_ref(&workspace),
+        };
         spec.iter()
             .position(|entry| takes(entry, members, home))
             .unwrap_or(spec.len())
     };
-    let mut keyed: Vec<(usize, DefaultKey, &Workspace)> = workspaces
-        .iter()
-        .enumerate()
-        .map(|(index, workspace)| (bucket(workspace), default_key(index, workspace), workspace))
-        .collect();
-    keyed.sort_by(|left, right| (left.0, &left.1).cmp(&(right.0, &right.1)));
-    keyed
+    let mut order: Vec<(usize, &Workspace)> = workspaces.iter().enumerate().collect();
+    order.sort_by_cached_key(|&(index, workspace)| {
+        (bucket(workspace), default_key(index, workspace))
+    });
+    order
         .into_iter()
-        .map(|(_, _, workspace)| workspace.workspace_id.clone())
+        .map(|(_, workspace)| workspace.workspace_id.clone())
         .collect()
 }
 
@@ -228,11 +218,7 @@ pub(crate) mod tests {
     }
 
     fn sorted_by_default(workspaces: &[Workspace]) -> Vec<String> {
-        let spec: Vec<String> = DEFAULT_SIDEBAR_ORDER
-            .iter()
-            .map(|e| e.to_string())
-            .collect();
-        sorted(workspaces, &spec, Path::new("/home/u"))
+        by(&DEFAULT_SIDEBAR_ORDER, workspaces)
     }
 
     /// A git workspace with its repository root.

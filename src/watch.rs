@@ -16,6 +16,7 @@ use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
@@ -185,6 +186,7 @@ pub fn run() -> Result<(), String> {
                             .plugin_root
                             .as_ref()
                             .map(|root| canonical(&root.join(BINARY_IN_ROOT)));
+                        watch.share_active_version(&state_dir);
                     }
                     other_writer(&plugins, bar_config().as_deref())
                 }
@@ -222,7 +224,6 @@ pub fn run() -> Result<(), String> {
             }
         }
         if let Some(watch) = binary.as_mut() {
-            watch.share_active_version(&state_dir);
             if let Some(next) = watch.binary_to_run(&state_dir) {
                 log.write(&format!("new binary: {}", next.display()));
                 // The lock file closes at the exec (close-on-exec): the new process takes the
@@ -314,9 +315,10 @@ fn canonical(path: &Path) -> PathBuf {
 /// The file with the path of the binary of the last `watch` command.
 ///
 /// herdr installs each version of the plugin in a new folder. The watcher takes the binary of the
-/// active version from the list of the plugins of herdr. If herdr does not answer, this file gives
-/// the binary of the last `watch` command: at the start of herdr, for a new agent, and at each
-/// opening of the popup.
+/// active version from the list of the plugins of herdr, every 10 s, and writes it in this file for
+/// an older binary that reads only this file. If herdr does not answer, this file gives the binary
+/// of the last `watch` command: at the start of herdr, for a new agent, and at each opening of the
+/// popup.
 fn wanted_binary_path(state_dir: &Path) -> PathBuf {
     state_dir.join("watch.binary")
 }
@@ -337,6 +339,21 @@ fn write_wanted_binary(state_dir: &Path, binary: &Path) -> Result<(), String> {
 fn read_wanted_binary(state_dir: &Path) -> Option<PathBuf> {
     let bytes = fs::read(wanted_binary_path(state_dir)).ok()?;
     (!bytes.is_empty()).then(|| PathBuf::from(OsStr::from_bytes(&bytes)))
+}
+
+/// True for a binary that the watcher can run: a file with an execute bit, without a change for
+/// REBUILD_SETTLE_TIME. During an install, the new binary can be partial, or still without its
+/// execute bit: an `exec` fails, and the watcher refuses the binary until its end.
+fn is_ready(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    let settled = metadata
+        .modified()
+        .ok()
+        .and_then(|time| SystemTime::now().duration_since(time).ok())
+        .is_some_and(|age| age >= REBUILD_SETTLE_TIME);
+    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0 && settled
 }
 
 fn modification_time(path: &Path) -> Option<SystemTime> {
@@ -371,7 +388,7 @@ impl BinaryWatch {
     /// A binary older than this logic reads only this file: without this write, after a
     /// downgrade, the old binary and this binary run each other in a loop.
     fn share_active_version(&self, state_dir: &Path) {
-        let Some(active) = self.active.as_ref().filter(|path| path.is_file()) else {
+        let Some(active) = self.active.as_ref().filter(|path| is_ready(path)) else {
             return;
         };
         let written = read_wanted_binary(state_dir).map(|path| canonical(&path));
@@ -384,7 +401,7 @@ impl BinaryWatch {
     /// binary of the last `watch` command, or its own binary after a rebuild. None keeps the
     /// process.
     fn binary_to_run(&self, state_dir: &Path) -> Option<PathBuf> {
-        let usable = |path: &PathBuf| path.is_file() && self.refused.as_ref() != Some(path);
+        let usable = |path: &PathBuf| is_ready(path) && self.refused.as_ref() != Some(path);
         let wanted = self.active.clone().filter(usable).or_else(|| {
             read_wanted_binary(state_dir)
                 .map(|path| canonical(&path))
@@ -446,6 +463,38 @@ impl Log {
 mod tests {
     use super::*;
 
+    /// A binary that the watcher can run: an execute bit, and no change for 1 minute.
+    fn ready_binary(path: &Path) {
+        fs::write(path, "").unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(60))
+            .unwrap();
+    }
+
+    #[test]
+    fn a_binary_in_writing_or_without_an_execute_bit_waits() {
+        let folder =
+            canonical(&std::env::temp_dir()).join(format!("omnibar-not-ready-{}", process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let current = folder.join("current");
+        let active = folder.join("active");
+        ready_binary(&current);
+        // A new version during its install: just written, without an execute bit.
+        fs::write(&active, "").unwrap();
+        let mut watch = BinaryWatch::new(current.clone());
+        watch.active = Some(active.clone());
+        let during = watch.binary_to_run(&folder);
+        ready_binary(&active);
+        let after = watch.binary_to_run(&folder);
+        let _ = fs::remove_dir_all(&folder);
+        assert_eq!(during, None);
+        assert_eq!(after, Some(active));
+    }
+
     #[test]
     fn the_active_version_of_herdr_comes_before_the_last_watch() {
         let folder =
@@ -453,7 +502,7 @@ mod tests {
         fs::create_dir_all(&folder).unwrap();
         let [current, active, old] = ["current", "active", "old"].map(|name| folder.join(name));
         for binary in [&current, &active, &old] {
-            fs::write(binary, "").unwrap();
+            ready_binary(binary);
         }
         write_wanted_binary(&folder, &old).unwrap();
         let mut watch = BinaryWatch::new(current.clone());

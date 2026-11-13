@@ -117,7 +117,23 @@ fn open(name: &str) -> Result<(), String> {
 /// Print the workspaces, the agents and the tabs, as the popup sees them. A tool to check the
 /// model in a running herdr.
 fn list() -> Result<(), String> {
-    let model = model::load().map_err(|error| error.to_string())?;
+    let mut model = model::load().map_err(|error| error.to_string())?;
+    // The order of the popup: the key list_order of the config. The list reads the times of use,
+    // and writes none.
+    let config = config::current();
+    let recent = if config.orders_by_visit() {
+        recent::load(&config::state_dir())
+    } else {
+        recent::Recent::new()
+    };
+    rank::Ranker::new(
+        &model,
+        &config.list_order,
+        &recent,
+        None,
+        model.focused_workspace_id.as_deref(),
+    )
+    .sort(&mut model);
     let focused = model.focused_workspace_id.as_deref().unwrap_or("");
     for space in &model.spaces {
         let folder = space

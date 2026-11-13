@@ -10,6 +10,11 @@
 //! features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
 //! # The filters of the chips, in the order of Tab. Remove a name to hide its filter.
 //! filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]
+//! # The order of the sort of the workspaces: each entry takes the workspaces that no earlier
+//! # entry took. "git": the git workspaces. "other": the workspaces without git. An entry with a
+//! # "/": the git projects in this folder, at any depth (~ is the home folder). Any other entry:
+//! # the workspace with this label, with its worktrees if it is a git workspace.
+//! sort_order = ["git", "other"]
 //! ```
 //!
 //! A missing file, a missing key or a wrong value gives the default.
@@ -95,6 +100,8 @@ pub struct Config {
     pub features: Vec<String>,
     /// The names of the filters of the chips, in the order of Tab.
     pub filters: Vec<String>,
+    /// The entries of the sort of the workspaces, in order (see order::sorted).
+    pub sort_order: Vec<String>,
 }
 
 impl Config {
@@ -122,6 +129,10 @@ impl Default for Config {
                 .iter()
                 .map(|name| name.to_string())
                 .collect(),
+            sort_order: crate::order::DEFAULT_SORT_ORDER
+                .iter()
+                .map(|entry| entry.to_string())
+                .collect(),
         }
     }
 }
@@ -136,6 +147,7 @@ struct File {
     pills: Option<String>,
     features: Option<Vec<String>>,
     filters: Option<Vec<String>>,
+    sort_order: Option<Vec<String>>,
 }
 
 /// The config folder of the plugin.
@@ -189,6 +201,7 @@ fn parse(text: &str) -> Config {
         },
         features: file.features.unwrap_or(defaults.features),
         filters: file.filters.unwrap_or(defaults.filters),
+        sort_order: file.sort_order.unwrap_or(defaults.sort_order),
     }
 }
 
@@ -234,6 +247,16 @@ mod tests {
             parse("filters = [\"agents\", \"panes\"]").filters,
             ["agents", "panes"]
         );
+    }
+
+    #[test]
+    fn sort_order_replaces_the_default_order_and_a_wrong_value_gives_the_default() {
+        assert_eq!(parse("").sort_order, ["git", "other"]);
+        assert_eq!(
+            parse("sort_order = [\"~\", \"~/Workspace/owpac\", \"git\", \"other\"]").sort_order,
+            ["~", "~/Workspace/owpac", "git", "other"]
+        );
+        assert_eq!(parse("sort_order = 3").sort_order, ["git", "other"]);
     }
 
     #[test]

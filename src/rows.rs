@@ -501,6 +501,7 @@ mod tests {
                 workspace_id: "w1".into(),
                 label: "atlas".into(),
                 agent_status: Status::Working,
+                worktree: None,
             },
             folder: None,
             checkout: None,

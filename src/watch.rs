@@ -138,9 +138,10 @@ fn bar_config() -> Option<String> {
 }
 
 /// True if the watcher has work: the titles of the tabs (feature auto_titles), or the order of
-/// use of the tabs (feature recent_first).
+/// use of the tabs (criterion visit of the key order), or the sort of the workspaces (feature
+/// auto_sort).
 fn has_work(config: &config::Config) -> bool {
-    config.has("auto_titles") || config.has("recent_first") || config.has("auto_sort")
+    config.has("auto_titles") || config.orders_by_visit() || config.has("auto_sort")
 }
 
 /// True if the watcher sorts the workspaces: at its start (no previous ids), or when the set of
@@ -218,7 +219,7 @@ pub fn run() -> Result<(), String> {
     loop {
         let config = config::current();
         if !has_work(&config) {
-            log.write("auto_titles, recent_first and auto_sort are off: watcher stopped");
+            log.write("auto_titles, auto_sort and the criterion visit are off: watcher stopped");
             return Ok(());
         }
         if plugins_read.is_none_or(|time| time.elapsed() >= PLUGINS_INTERVAL) {
@@ -258,7 +259,7 @@ pub fn run() -> Result<(), String> {
         match herdr::snapshot() {
             Ok(snapshot) => {
                 failures = 0;
-                if config.has("recent_first") {
+                if config.orders_by_visit() {
                     recent::follow(&state_dir, &snapshot, &mut focused);
                 }
                 if config.has("auto_sort") {

@@ -152,6 +152,8 @@ pub struct Sources<'a> {
     pub project: Option<&'a Project>,
     /// True if the filter Workspaces shows the order of the sidebar (feature move_workspaces).
     pub sidebar_order: bool,
+    /// True if the order has the criterion attention: the agents that need you have their group.
+    pub attention: bool,
 }
 
 /// The lines of the filters that go somewhere (all the filters but New).
@@ -164,9 +166,10 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
             model.agents.iter().cloned().map(Item::Agent).collect(),
             query,
         );
+        // Without the criterion attention, the group "Needs you" does not exist.
         let (needs, rest): (Vec<_>, Vec<_>) = agents
             .into_iter()
-            .partition(|(item, _)| item.status() == Status::Blocked);
+            .partition(|(item, _)| sources.attention && item.status() == Status::Blocked);
         group(&mut lines, "Needs you", needs);
         group(&mut lines, "Agents", rest);
     }
@@ -271,43 +274,6 @@ fn existing(project: &Project, open: &[Place]) -> Vec<Item> {
             })
         })
         .collect()
-}
-
-/// The other projects, in the order of their agents: first the projects with an agent that needs
-/// the user in one of their workspaces, then the projects with an agent that is done, then the
-/// other projects with an agent by their last activity (the highest `seq`). The projects without
-/// an agent keep their order. The order of the branches in a project does not change.
-pub fn order_projects<'a>(
-    projects: &'a [Project],
-    model: &Model,
-    open: &[Place],
-) -> Vec<&'a Project> {
-    let key = |project: &Project| {
-        let workspaces: Vec<&str> = open
-            .iter()
-            .filter(|place| place.main.as_deref() == Some(project.main.as_path()))
-            .filter_map(|place| place.workspace_id.as_deref())
-            .collect();
-        let agents: Vec<_> = model
-            .agents
-            .iter()
-            .filter(|agent| workspaces.contains(&agent.workspace_id.as_str()))
-            .collect();
-        let part = if agents.iter().any(|agent| agent.status == Status::Blocked) {
-            0
-        } else if agents.iter().any(|agent| agent.status == Status::Done) {
-            1
-        } else if !agents.is_empty() {
-            2
-        } else {
-            3
-        };
-        let seq = agents.iter().filter_map(|agent| agent.seq).max();
-        (part, seq.is_none(), std::cmp::Reverse(seq))
-    };
-    let mut ordered: Vec<&Project> = projects.iter().collect();
-    ordered.sort_by_key(|project| key(project));
-    ordered
 }
 
 /// The lines of the filter Worktrees: a group for each project. The current project comes first,
@@ -616,6 +582,7 @@ mod tests {
             open: &[],
             project: None,
             sidebar_order: false,
+            attention: true,
         };
         build(&sources, filter, query)
     }
@@ -666,6 +633,7 @@ mod tests {
                 open: &[],
                 project: None,
                 sidebar_order,
+                attention: true,
             };
             build(&sources, Filter::Workspaces, "")
         };
@@ -729,6 +697,7 @@ mod tests {
             open: &open,
             project: Some(&atlas),
             sidebar_order: false,
+            attention: true,
         };
         let lines = build(&sources, Filter::All, "");
         assert_eq!(
@@ -766,6 +735,7 @@ mod tests {
             open: &open,
             project: Some(&atlas),
             sidebar_order: false,
+            attention: true,
         };
         // In All, the workspace of a worktree of the current project is in the group of the
         // worktrees. The filter Workspaces shows it.
@@ -924,60 +894,31 @@ mod tests {
     }
 
     #[test]
-    fn the_other_projects_go_by_their_agents_and_the_current_project_stays_first() {
-        let projects = [
-            Project::sample("quiet", &[("main", Some("/work/quiet"))]),
-            Project::sample("busy", &[("main", Some("/work/busy"))]),
-            Project::sample("done-old", &[("main", Some("/work/done-old"))]),
-            Project::sample("done-new", &[("main", Some("/work/done-new"))]),
-            Project::sample("blocked", &[("main", Some("/work/blocked"))]),
-            Project::sample("quiet-too", &[("main", Some("/work/quiet-too"))]),
-        ];
-        // A workspace for each project, with an agent for some.
-        let mut open = Vec::new();
-        let mut model = Model::default();
-        for (index, project) in projects.iter().enumerate() {
-            let id = format!("w{index}");
-            open.push(Place {
-                main: Some(project.main.clone()),
-                ..place(Kind::Workspace, &project.name, Some(&id))
-            });
-            let found = match project.name.as_str() {
-                "busy" => Some((Status::Working, 50)),
-                "done-old" => Some((Status::Done, 10)),
-                "done-new" => Some((Status::Done, 40)),
-                "blocked" => Some((Status::Blocked, 1)),
-                _ => None,
+    fn the_group_needs_you_exists_only_with_the_criterion_attention() {
+        let model = Model {
+            agents: vec![
+                agent("blocked", Status::Blocked),
+                agent("idle", Status::Idle),
+            ],
+            ..Model::default()
+        };
+        let titles_with = |attention| {
+            let sources = Sources {
+                model: &model,
+                others: &[],
+                actions: &[],
+                open: &[],
+                project: None,
+                sidebar_order: false,
+                attention,
             };
-            if let Some((status, seq)) = found {
-                let mut row = agent(&project.name, status);
-                row.workspace_id = id;
-                row.seq = Some(seq);
-                model.agents.push(row);
-            }
-        }
-        let names: Vec<&str> = order_projects(&projects, &model, &open)
-            .iter()
-            .map(|project| project.name.as_str())
-            .collect();
-        // Blocked, then done (the last activity first), then busy, then the projects without an
-        // agent in their order.
+            titles(&build(&sources, Filter::Agents, ""))
+        };
         assert_eq!(
-            names,
-            [
-                "blocked",
-                "done-new",
-                "done-old",
-                "busy",
-                "quiet",
-                "quiet-too"
-            ]
+            titles_with(true),
+            ["# Needs you", "blocked", "# Agents", "idle"]
         );
-        // The current project stays first, with its rows in the same order.
-        let current = Project::sample("current", &[("main", Some("/work/current"))]);
-        let ordered = order_projects(&projects, &model, &open);
-        let lines = worktree_lines(Some(&current), &ordered, &open, "");
-        assert_eq!(titles(&lines)[0], "# Worktrees of current");
+        assert_eq!(titles_with(false), ["# Agents", "blocked", "idle"]);
     }
 
     #[test]

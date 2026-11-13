@@ -1,10 +1,10 @@
-//! The order of use of the tabs (feature recent_first). The tab that the user used last comes
+//! The order of use of the tabs (criterion visit of the key order). The tab that the user used last comes
 //! first, after the current tab: ⌘P then ↵ goes back to the tab before, like alt-tab.
 //!
 //! The watcher writes the time of each change of the focused tab in recent.json, in the state
 //! folder. Each opening of the popup also writes the time of the tab that it leaves.
 
-use crate::model::{Model, Snapshot};
+use crate::model::Snapshot;
 use crate::times::now_seconds;
 use std::collections::HashMap;
 use std::fs;
@@ -62,83 +62,9 @@ pub fn follow(state_dir: &Path, snapshot: &Snapshot, focused: &mut Option<String
     save(state_dir, &recent);
 }
 
-/// Sort the rows of a model: the tab used last first. The current tab goes after the tabs that the
-/// user used: the first row is the tab before. The agents are not here: they go by their last
-/// activity (`model::order_agents`). A workspace takes the last time of its tabs. The
-/// sort is stable: the rows without a time keep their order.
-pub fn order(model: &mut Model, recent: &Recent, current: Option<&str>) {
-    let time = |tab_id: &str| {
-        if Some(tab_id) == current {
-            0
-        } else {
-            recent.get(tab_id).copied().unwrap_or(0)
-        }
-    };
-    let mut workspaces: HashMap<String, u64> = HashMap::new();
-    let tabs = model
-        .agents
-        .iter()
-        .map(|agent| (&agent.workspace_id, &agent.tab_id))
-        .chain(
-            model
-                .tabs
-                .iter()
-                .map(|tab| (&tab.workspace_id, &tab.tab_id)),
-        );
-    for (workspace_id, tab_id) in tabs {
-        let last = workspaces.entry(workspace_id.clone()).or_default();
-        *last = (*last).max(time(tab_id));
-    }
-    let newest = |value: u64| std::cmp::Reverse(value);
-    model.tabs.sort_by_key(|tab| newest(time(&tab.tab_id)));
-    model.panes.sort_by_key(|pane| newest(time(&pane.tab_id)));
-    model.spaces.sort_by_key(|space| {
-        newest(
-            workspaces
-                .get(&space.workspace.workspace_id)
-                .copied()
-                .unwrap_or(0),
-        )
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::TabRow;
-
-    fn tab(name: &str, tab: &str) -> TabRow {
-        TabRow {
-            tab_id: tab.into(),
-            workspace_id: "w1".into(),
-            name: name.into(),
-            command: String::new(),
-            place: "atlas".into(),
-            pane_id: None,
-        }
-    }
-
-    #[test]
-    fn the_tab_used_last_comes_first_and_the_current_tab_goes_after() {
-        let mut model = Model {
-            tabs: vec![
-                tab("old", "t1"),
-                tab("current", "t2"),
-                tab("last", "t3"),
-                tab("never", "t4"),
-            ],
-            ..Model::default()
-        };
-        let recent = Recent::from([
-            ("t1".to_string(), 10),
-            ("t2".to_string(), 30),
-            ("t3".to_string(), 20),
-        ]);
-        order(&mut model, &recent, Some("t2"));
-        let names: Vec<&str> = model.tabs.iter().map(|tab| tab.name.as_str()).collect();
-        assert_eq!(names, ["last", "old", "current", "never"]);
-    }
-
     #[test]
     fn a_change_of_focus_gives_the_time_to_the_left_tab_and_to_the_new_tab() {
         let folder = std::env::temp_dir().join(format!("omnibar-recent-{}", std::process::id()));

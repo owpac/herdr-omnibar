@@ -6,9 +6,10 @@
 #
 # The script downloads the binary of the manifest version from the GitHub release, and checks it
 # with the SHA256SUMS file of the release. The tag of a release is its version (YYYY.M.N).
-# The download needs the release commit of this version: its subject starts with "chore: release
-# <version>". main keeps the version of its last release: a git checkout of a later commit has no
-# release binary, so the script builds with cargo. The version 0.0.0 has no release too.
+# The download needs the commit of the release binary: the release commit of this version, whose
+# subject starts with "chore: release <version>", or the commit of the tag of this version. main
+# keeps the version of its last release: a git checkout of a later commit has no release binary,
+# so the script builds with cargo. The version 0.0.0 has no release too.
 # If the release has no binary for this machine, or if the download or the check fails, the script
 # also builds the binary with cargo (Rust 1.89 or later).
 #

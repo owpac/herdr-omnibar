@@ -108,7 +108,9 @@ pub const DEFAULT_SIDEBAR_ORDER: [&str; 2] = ["git", "other"];
 ///    a main workspace stays together too.
 /// 4. The workspaces without git go by label.
 ///
-/// The comparisons ignore the case. The flat order breaks a tie.
+/// The comparisons of the names and of the labels ignore the case. The comparison of `repo_key`
+/// keeps the case: 2 keys with a different case are 2 groups, and each group stays together. The
+/// flat order breaks a tie.
 type DefaultKey = (u8, String, String, bool, String, usize);
 
 fn default_key(index: usize, workspace: &Workspace) -> DefaultKey {
@@ -117,7 +119,7 @@ fn default_key(index: usize, workspace: &Workspace) -> DefaultKey {
         Some(worktree) => (
             0,
             worktree.repo_name.to_lowercase(),
-            worktree.repo_key.to_lowercase(),
+            worktree.repo_key.clone(),
             is_linked(workspace),
             label,
             index,
@@ -353,6 +355,17 @@ pub(crate) mod tests {
             sorted_by_default(&workspaces),
             ["w7", "w4", "w5", "w6", "w2", "w3", "w8", "w1"]
         );
+    }
+
+    #[test]
+    fn repo_keys_with_a_different_case_stay_2_groups() {
+        let workspaces = vec![
+            workspace("w1", "a", Some(("/X", "x", false))),
+            workspace("w2", "b", Some(("/x", "x", false))),
+            workspace("w3", "c", Some(("/X", "x", true))),
+            workspace("w4", "d", Some(("/x", "x", true))),
+        ];
+        assert_eq!(sorted_by_default(&workspaces), ["w1", "w3", "w2", "w4"]);
     }
 
     #[test]

@@ -9,10 +9,12 @@ pub enum Filter {
     New,
     Agents,
     Tabs,
+    /// All the open workspaces.
+    Workspaces,
     Worktrees,
     Folders,
     Actions,
-    /// One row for each pane (feature pane_rows).
+    /// One row for each pane. Off by default: add "panes" to the filters of config.toml.
     Panes,
 }
 
@@ -24,6 +26,7 @@ impl Filter {
             "new" => Some(Filter::New),
             "agents" => Some(Filter::Agents),
             "tabs" => Some(Filter::Tabs),
+            "workspaces" => Some(Filter::Workspaces),
             "worktrees" => Some(Filter::Worktrees),
             "folders" => Some(Filter::Folders),
             "actions" => Some(Filter::Actions),
@@ -39,6 +42,7 @@ impl Filter {
             Filter::New => "New",
             Filter::Agents => "Agents",
             Filter::Tabs => "Tabs",
+            Filter::Workspaces => "Workspaces",
             Filter::Worktrees => "Worktrees",
             Filter::Folders => "Folders",
             Filter::Actions => "Actions",
@@ -50,6 +54,10 @@ impl Filter {
     pub fn shortcut(self) -> Option<char> {
         match self {
             Filter::Agents => Some('@'),
+            // & is the key 1 without shift on an AZERTY keyboard.
+            Filter::Workspaces => Some('&'),
+            // git branch marks the current branch with *.
+            Filter::Worktrees => Some('*'),
             Filter::Folders => Some('#'),
             Filter::New => Some('+'),
             Filter::Actions => Some('>'),
@@ -62,6 +70,8 @@ impl Filter {
     pub fn of_shortcut(key: char) -> Option<Filter> {
         [
             Filter::Agents,
+            Filter::Workspaces,
+            Filter::Worktrees,
             Filter::Folders,
             Filter::New,
             Filter::Actions,
@@ -78,6 +88,7 @@ impl Filter {
             Filter::New => "new",
             Filter::Agents => "agents",
             Filter::Tabs => "tabs",
+            Filter::Workspaces => "workspaces",
             Filter::Worktrees => "worktrees",
             Filter::Folders => "folders",
             Filter::Actions => "actions",
@@ -97,6 +108,7 @@ mod tests {
             "new",
             "agents",
             "tabs",
+            "workspaces",
             "worktrees",
             "folders",
             "actions",
@@ -113,7 +125,7 @@ mod tests {
 
     #[test]
     fn each_shortcut_gives_its_filter_back() {
-        for key in ['@', '#', '+', '>', '%'] {
+        for key in ['@', '&', '*', '#', '+', '>', '%'] {
             assert_eq!(
                 Filter::of_shortcut(key).and_then(Filter::shortcut),
                 Some(key)

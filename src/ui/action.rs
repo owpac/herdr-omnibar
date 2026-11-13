@@ -204,7 +204,7 @@ fn action_of(app: &App, item: &Item) -> Action {
 
 /// What Enter does on a choice: a creation, or a worktree to open.
 fn choice_action(app: &App, choice: &Choice) -> Action {
-    let place = app.target_place();
+    let place = app.place_of_choice(choice);
     let place_label = place.map(|place| place.label.as_str()).unwrap_or_default();
     let name = app.create.name.trim();
     // "new tab “name”", "new split (auto name)": the text of a new tab or of a new split.

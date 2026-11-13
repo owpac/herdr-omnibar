@@ -9,7 +9,8 @@
 //! branch. The text is never both.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::Instant;
 
 use ratatui::layout::Rect;
@@ -20,7 +21,7 @@ use crate::create::{self, Choice, Plan};
 use crate::filter::Filter;
 use crate::herdr::{self, PluginAction};
 use crate::model::Model;
-use crate::places::{self, Branch, Place};
+use crate::places::{self, Place, Project};
 use crate::pulls::{Lookup, Pulls};
 use crate::recent::{self, Recent};
 use crate::rows::{self, Item, Line};
@@ -51,10 +52,8 @@ pub struct Create {
     /// The agent of the creation, if the user changed it with Tab.
     pub agent: Option<String>,
     pub no_prompts: bool,
-    /// The local branches of the git project of the place.
-    pub branches: Vec<Branch>,
-    /// The default branch of the git project of the place: a new branch starts there.
-    pub base: Option<String>,
+    /// The git project of the place, with its local branches and its default branch.
+    pub project: Option<Project>,
 }
 
 impl Create {
@@ -66,8 +65,7 @@ impl Create {
             name: String::new(),
             agent: None,
             no_prompts: false,
-            branches: Vec::new(),
-            base: None,
+            project: None,
         }
     }
 }
@@ -108,12 +106,25 @@ impl View {
     }
 }
 
+/// The git projects of the branch rows, read one time.
+#[derive(Debug, Default)]
+struct Projects {
+    /// True after the read of the current project.
+    current_read: bool,
+    /// The project of the current workspace: the filters All and Worktrees. None outside a git
+    /// project.
+    current: Option<Project>,
+    /// The other projects with an open workspace, with their worktrees only: the filter
+    /// Worktrees. None before the read.
+    others: Option<Vec<Project>>,
+}
+
 /// The question of the action line, before a close or a removal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Confirm {
     /// Close a tab: its id and its name.
     CloseTab { tab_id: String, name: String },
-    /// Close a pane (feature pane_rows): its id and its name.
+    /// Close a pane (filter Panes): its id and its name.
     ClosePane { pane_id: String, name: String },
     /// Remove a worktree: its folder, its branch, and the number of agents in its workspace.
     RemoveWorktree {
@@ -127,7 +138,8 @@ pub enum Confirm {
 pub struct App {
     pub model: Model,
     pub filter: Filter,
-    /// The filters of the chips and of Tab, from the features of config.toml.
+    /// The filters of the chips, of Tab and of the shortcuts, from config.toml. The action of a
+    /// filter outside this list still opens it: see `shown_filters`.
     pub filters: Vec<Filter>,
     /// The text of the filters that go somewhere.
     pub query: String,
@@ -167,12 +179,10 @@ pub struct App {
     actions: Option<Vec<PluginAction>>,
     /// The index of the current view of the preview of a worktree, in `views()`.
     pub view: usize,
-    /// The text of each git view of each branch, read one time.
-    view_texts: HashMap<(String, View), String>,
-    /// The branches of the current project, for the filter Worktrees.
-    current_branches: Option<Vec<Branch>>,
-    /// The default branch of the current project, read with its branches.
-    current_base: Option<String>,
+    /// The text of each git view of each branch, by main checkout, read one time.
+    view_texts: HashMap<(PathBuf, String, View), String>,
+    /// The git projects of the branch rows.
+    projects: Projects,
     /// The text of each pane that the preview has read, by pane id.
     previews: HashMap<String, String>,
     /// The running times of the panes (feature running_time).
@@ -221,7 +231,7 @@ impl App {
         config: Config,
     ) -> App {
         let open = places::workspaces(&model);
-        let filters = rows::filters(config.has("pane_rows"));
+        let filters = rows::filters(&config.filters);
         let mut app = App {
             model,
             filter,
@@ -249,8 +259,7 @@ impl App {
             actions: None,
             view: 0,
             view_texts: HashMap::new(),
-            current_branches: None,
-            current_base: None,
+            projects: Projects::default(),
             previews: HashMap::new(),
             times: None,
             changes: Changes::default(),
@@ -288,24 +297,46 @@ impl App {
         }
     }
 
-    /// The age of the last commit of a branch of the branch rows: now, 12m, 2h04m, 3d.
-    pub fn branch_age(&self, name: &str) -> Option<String> {
-        let branches = if self.filter == Filter::New {
-            Some(&self.create.branches)
+    /// The project of the new branches: the project of the step "what" in the creation, else the
+    /// current project.
+    fn target_project(&self) -> Option<&Project> {
+        if self.filter == Filter::New {
+            self.create.project.as_ref()
         } else {
-            self.current_branches.as_ref()
-        }?;
-        let time = branches.iter().find(|branch| branch.name == name)?.time?;
+            self.projects.current.as_ref()
+        }
+    }
+
+    /// The project of the branch rows with this main checkout.
+    fn project_of(&self, main: &Path) -> Option<&Project> {
+        if self.filter == Filter::New {
+            return self
+                .create
+                .project
+                .as_ref()
+                .filter(|project| project.main == main);
+        }
+        self.projects
+            .current
+            .iter()
+            .chain(self.projects.others.iter().flatten())
+            .find(|project| project.main == main)
+    }
+
+    /// The age of the last commit of a branch of a project: now, 12m, 2h04m, 3d.
+    pub fn branch_age(&self, main: &Path, name: &str) -> Option<String> {
+        let project = self.project_of(main)?;
+        let time = project
+            .branches
+            .iter()
+            .find(|branch| branch.name == name)?
+            .time?;
         Some(times::ago(time))
     }
 
-    /// The default branch of the project of the branch rows, without "origin/": "main".
+    /// The default branch of the project of the new branches, without "origin/": "main".
     pub fn base_branch(&self) -> Option<&str> {
-        let base = if self.filter == Filter::New {
-            self.create.base.as_deref()
-        } else {
-            self.current_base.as_deref()
-        }?;
+        let base = self.target_project()?.base.as_deref()?;
         Some(base.strip_prefix("origin/").unwrap_or(base))
     }
 
@@ -325,6 +356,21 @@ impl App {
             .or_else(|| self.current_place())
     }
 
+    /// The place of a choice: for a branch outside the creation, an open workspace of its project.
+    /// The current place comes first if it is in this project. Else the target place.
+    pub fn place_of_choice(&self, choice: &Choice) -> Option<&Place> {
+        match choice {
+            Choice::Existing { main, .. } if self.filter != Filter::New => {
+                let in_project = |place: &&Place| place.main.as_deref() == Some(main.as_path());
+                self.current_place()
+                    .filter(in_project)
+                    .or_else(|| self.open.iter().find(|place| place.folder == *main))
+                    .or_else(|| self.open.iter().find(in_project))
+            }
+            _ => self.target_place(),
+        }
+    }
+
     /// The open workspace with this id, as a place.
     pub fn open_place(&self, workspace_id: &str) -> Option<&Place> {
         self.open
@@ -335,16 +381,14 @@ impl App {
     /// Build the lines again. The selection stays on the row with this key, if it is still there.
     fn rebuild(&mut self, keep: Option<String>) {
         if matches!(self.filter, Filter::All | Filter::Worktrees) {
-            self.load_current_branches();
+            self.load_current_project();
+        }
+        if self.filter == Filter::Worktrees {
+            self.load_other_projects();
         }
         if self.filter == Filter::Actions && self.actions.is_none() {
             self.actions = Some(herdr::plugin_actions().unwrap_or_default());
         }
-        let branches = self.current_branches.as_deref().unwrap_or_default();
-        let project = self
-            .current_place()
-            .map(|place| place.project.as_str())
-            .unwrap_or_default();
         self.lines = match (self.filter, self.create.step) {
             (Filter::New, Step::Where) => rows::where_lines(
                 &self.open,
@@ -358,28 +402,34 @@ impl App {
                     create::choices(
                         place,
                         &self.create.name,
-                        &self.create.branches,
+                        self.create
+                            .project
+                            .as_ref()
+                            .map(|project| project.branches.as_slice())
+                            .unwrap_or_default(),
                         &self.open,
                         self.split_pane(place),
                     ),
                 ),
                 None => Vec::new(),
             },
-            (Filter::Worktrees, _) => {
-                rows::worktree_lines(branches, &self.open, project, &self.query)
-            }
+            (Filter::Worktrees, _) => rows::worktree_lines(
+                self.projects.current.as_ref(),
+                self.projects.others.as_deref().unwrap_or_default(),
+                &self.open,
+                &self.query,
+            ),
             _ => {
                 let sources = rows::Sources {
                     model: &self.model,
                     others: &self.others,
                     actions: self.actions.as_deref().unwrap_or_default(),
                     open: &self.open,
-                    project,
-                    branches: if self.filter == Filter::All {
-                        branches
-                    } else {
-                        &[]
-                    },
+                    project: self
+                        .projects
+                        .current
+                        .as_ref()
+                        .filter(|_| self.filter == Filter::All),
                 };
                 rows::build(&sources, self.filter, &self.query)
             }
@@ -408,31 +458,73 @@ impl App {
     }
 
     /// Read the branches of the current project, one time, and ask for the git state of their
-    /// worktrees.
-    fn load_current_branches(&mut self) {
-        if self.current_branches.is_none() {
-            let main = self.current_place().and_then(|place| place.main.clone());
-            self.current_branches = Some(main.as_deref().map(places::branches).unwrap_or_default());
-            self.current_base = main.as_deref().map(places::base_branch);
-            let worktrees = self
-                .current_branches
-                .iter()
-                .flatten()
-                .filter_map(|branch| branch.worktree.clone())
-                .collect::<Vec<_>>();
-            self.changes.ask(worktrees);
-            if let Some(main) = main.filter(|_| self.config.has("pull_requests")) {
-                self.pulls.ask(&main);
+    /// worktrees and for the pull requests.
+    fn load_current_project(&mut self) {
+        if self.projects.current_read {
+            return;
+        }
+        self.projects.current_read = true;
+        let project = self.current_place().and_then(|place| {
+            let main = place.main.as_deref()?;
+            Some(Project::read(&place.project, main))
+        });
+        if let Some(project) = &project {
+            self.ask_git_states(project);
+        }
+        self.projects.current = project;
+    }
+
+    /// Read the worktrees of the other projects with an open workspace, one time, in the order of
+    /// the workspaces. Several workspaces of a project give one project.
+    fn load_other_projects(&mut self) {
+        if self.projects.others.is_some() {
+            return;
+        }
+        let current = self
+            .projects
+            .current
+            .as_ref()
+            .map(|project| project.main.as_path());
+        let mut mains: Vec<(&str, &Path)> = Vec::new();
+        for place in &self.open {
+            let Some(main) = place.main.as_deref() else {
+                continue;
+            };
+            if Some(main) != current && mains.iter().all(|(_, seen)| *seen != main) {
+                mains.push((&place.project, main));
             }
+        }
+        // Each project runs its git commands in its own thread: the popup waits for the slowest
+        // project only.
+        let others: Vec<Project> = thread::scope(|scope| {
+            let reads: Vec<_> = mains
+                .iter()
+                .map(|(name, main)| scope.spawn(move || Project::read_worktrees(name, main)))
+                .collect();
+            reads
+                .into_iter()
+                .filter_map(|read| read.join().ok())
+                .collect()
+        });
+        for project in &others {
+            self.ask_git_states(project);
+        }
+        self.projects.others = Some(others);
+    }
+
+    /// Ask for the git state of the worktrees of a project, and for its pull requests.
+    fn ask_git_states(&mut self, project: &Project) {
+        self.changes.ask(project.worktrees());
+        if self.config.has("pull_requests") {
+            self.pulls.ask(&project.main);
         }
     }
 
-    /// The pull request of a branch of the current project (feature pull_requests).
-    pub fn pull(&self, branch: &str) -> Option<Lookup> {
+    /// The pull request of a branch of a project (feature pull_requests).
+    pub fn pull(&self, main: &Path, branch: &str) -> Option<Lookup> {
         if !self.config.has("pull_requests") {
             return None;
         }
-        let main = self.current_place()?.main.as_deref()?;
         Some(self.pulls.of(main, branch))
     }
 
@@ -511,7 +603,15 @@ impl App {
     pub fn update_model(&mut self, mut model: Model) {
         let key = self.selected_item().map(Item::key);
         self.order(&mut model);
-        self.open = places::workspaces(&model);
+        let open = places::workspaces(&model);
+        // A workspace of another project opened or closed: read the other projects again.
+        let mains = |places: &[Place]| -> Vec<Option<PathBuf>> {
+            places.iter().map(|place| place.main.clone()).collect()
+        };
+        if mains(&open) != mains(&self.open) {
+            self.projects.others = None;
+        }
+        self.open = open;
         self.model = model;
         self.ask_times();
         self.previews.clear();
@@ -539,14 +639,24 @@ impl App {
         self.rebuild(None);
     }
 
+    /// The filters of the chips and of Tab: the filters of the config, and the current filter at
+    /// the end if the config hides it. An action can open a hidden filter.
+    pub fn shown_filters(&self) -> Vec<Filter> {
+        let mut filters = self.filters.clone();
+        if !filters.contains(&self.filter) {
+            filters.push(self.filter);
+        }
+        filters
+    }
+
     fn cycle_filter(&mut self, delta: i32) {
-        let count = self.filters.len() as i32;
-        let at = self
-            .filters
+        let filters = self.shown_filters();
+        let count = filters.len() as i32;
+        let at = filters
             .iter()
             .position(|filter| *filter == self.filter)
             .unwrap_or(0) as i32;
-        self.set_filter(self.filters[(at + delta).rem_euclid(count) as usize]);
+        self.set_filter(filters[(at + delta).rem_euclid(count) as usize]);
     }
 
     fn edit(&mut self, change: impl FnOnce(&mut String)) {
@@ -558,12 +668,17 @@ impl App {
     }
 
     /// The agent of the creation: the agent that the user chose, else the last agent of the
-    /// place, else the agent of its tabs, else the first agent on the PATH.
+    /// place, else the agent of its tabs, else the first agent on the PATH. The place of a branch
+    /// row is an open workspace of its project.
     pub fn agent(&self) -> String {
         if let Some(agent) = &self.create.agent {
             return agent.clone();
         }
-        self.agent_for(self.target_place())
+        let place = match self.selected_item() {
+            Some(Item::Choice(choice)) => self.place_of_choice(choice),
+            _ => self.target_place(),
+        };
+        self.agent_for(place)
     }
 
     /// The agent of a place: its last agent, else the agent of its tabs, else the first agent on
@@ -597,19 +712,13 @@ impl App {
 
     /// Choose a place: go to the step "what". The name stays.
     fn choose_place(&mut self, place: Place) {
-        self.create.branches = place
+        self.create.project = place
             .main
             .as_deref()
-            .map(places::branches)
-            .unwrap_or_default();
-        self.create.base = place.main.as_deref().map(places::base_branch);
-        let worktrees = self
-            .create
-            .branches
-            .iter()
-            .filter_map(|branch| branch.worktree.clone())
-            .collect::<Vec<_>>();
-        self.changes.ask(worktrees);
+            .map(|main| Project::read(&place.project, main));
+        if let Some(project) = &self.create.project {
+            self.changes.ask(project.worktrees());
+        }
         self.create.place = Some(place);
         self.create.step = Step::What;
         self.create.agent = None;
@@ -632,29 +741,32 @@ impl App {
         create::plan(place, choice, name, &self.agent(), self.create.no_prompts)
     }
 
-    /// The text of a git view of the preview of a branch of the current project: the diff since
-    /// the default branch, the log, the changes not committed, or the summary of all. The view of
-    /// the pull request comes from gh: it has no text here.
-    pub fn view_text(&mut self, branch: &str, worktree: Option<&PathBuf>, view: View) -> String {
+    /// The text of a git view of the preview of a branch of a project: the diff since the default
+    /// branch, the log, the changes not committed, or the summary of all. The view of the pull
+    /// request comes from gh: it has no text here.
+    pub fn view_text(
+        &mut self,
+        main: &Path,
+        branch: &str,
+        worktree: Option<&PathBuf>,
+        view: View,
+    ) -> String {
         if view == View::Pull {
             return String::new();
         }
-        let key = (branch.to_string(), view);
+        let key = (main.to_path_buf(), branch.to_string(), view);
         if let Some(text) = self.view_texts.get(&key) {
             return text.clone();
         }
-        let Some(main) = self.current_place().and_then(|place| place.main.clone()) else {
-            return String::new();
-        };
-        // The default branch was read with the branches of the current project.
+        // The current project has its default branch. The other projects read it now.
         let base = self
-            .current_base
-            .clone()
-            .unwrap_or_else(|| places::base_branch(&main));
+            .project_of(main)
+            .and_then(|project| project.base.clone())
+            .unwrap_or_else(|| places::base_branch(main));
         let range = format!("{base}..{branch}");
         let text = match view {
-            View::Diff => places::git(&main, &["diff", "--stat", &format!("{base}...{branch}")]),
-            View::Log => places::git(&main, &["log", "--oneline", "-n", "40", &range]),
+            View::Diff => places::git(main, &["diff", "--stat", &format!("{base}...{branch}")]),
+            View::Log => places::git(main, &["log", "--oneline", "-n", "40", &range]),
             View::Changes => match worktree {
                 Some(folder) => {
                     let status = places::git(folder, &["status", "--short"]);
@@ -669,12 +781,12 @@ impl App {
             // The return at the start of the function: the view PR has no git text.
             View::Pull => String::new(),
             View::Summary => {
-                let count = places::git(&main, &["rev-list", "--count", &range]);
+                let count = places::git(main, &["rev-list", "--count", &range]);
                 let stat = places::git(
-                    &main,
+                    main,
                     &["diff", "--shortstat", &format!("{base}...{branch}")],
                 );
-                let log = places::git(&main, &["log", "--oneline", "-n", "8", &range]);
+                let log = places::git(main, &["log", "--oneline", "-n", "8", &range]);
                 format!(
                     "{} commits ahead of {base}\n{}\n\n{log}",
                     count.trim(),
@@ -744,20 +856,15 @@ impl App {
         }
     }
 
-    /// The main checkout of the project of the branch rows: the place of the step "what", else
-    /// the current place.
-    fn project_main(&self) -> Option<PathBuf> {
-        self.target_place().and_then(|place| place.main.clone())
-    }
-
     /// True if ctrl+Backspace on the selected row removes a worktree: a branch with a worktree
-    /// that is not the main checkout.
+    /// that is not the main checkout of its project.
     pub fn can_remove_worktree(&self) -> bool {
         match self.selected_item() {
             Some(Item::Choice(Choice::Existing {
                 worktree: Some(folder),
+                main,
                 ..
-            })) => self.project_main().as_ref() != Some(folder),
+            })) => folder != main,
             _ => false,
         }
     }
@@ -836,6 +943,15 @@ mod tests {
         ];
         app.rebuild(None);
         app
+    }
+
+    /// Give these branches to the current project atlas. No other project.
+    fn set_branches(app: &mut App, branches: &[(&str, Option<&str>)]) {
+        app.projects = Projects {
+            current_read: true,
+            current: Some(Project::sample("atlas", branches)),
+            others: Some(Vec::new()),
+        };
     }
 
     fn press(app: &mut App, code: KeyCode) -> Outcome {
@@ -925,11 +1041,7 @@ mod tests {
     fn ctrl_a_changes_the_agent_of_a_row_that_opens_a_worktree() {
         let mut app = app(Filter::All);
         app.open[0].main = Some("/work/atlas".into());
-        app.current_branches = Some(vec![Branch {
-            name: "fix-login".into(),
-            worktree: None,
-            time: None,
-        }]);
+        set_branches(&mut app, &[("fix-login", None)]);
         app.rebuild(None);
         type_text(&mut app, "fix-l");
         assert_eq!(selected_name(&app), "fix-login");
@@ -957,7 +1069,13 @@ mod tests {
         assert_eq!(app.filter, Filter::Folders);
         press(&mut app, KeyCode::Char('#'));
         assert_eq!(app.filter, Filter::All);
-        // Without the feature pane_rows, % is a character of the text.
+        press(&mut app, KeyCode::Char('&'));
+        assert_eq!(app.filter, Filter::Workspaces);
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(app.filter, Filter::Worktrees);
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(app.filter, Filter::All);
+        // Without the filter panes in the config, % is a character of the text.
         press(&mut app, KeyCode::Char('%'));
         assert_eq!((app.filter, app.query.as_str()), (Filter::All, "%"));
     }
@@ -972,6 +1090,27 @@ mod tests {
         press(&mut app, KeyCode::Char('@'));
         assert_eq!(app.filter, Filter::Agents);
         assert!(app.query.is_empty());
+    }
+
+    #[test]
+    fn the_action_of_a_hidden_filter_opens_it_until_tab_leaves_it() {
+        // The action herdr-omnibar.new opens the filter New, but the config hides it.
+        let mut app = app(Filter::New);
+        app.filters = vec![Filter::All, Filter::Agents];
+        assert_eq!(
+            app.shown_filters(),
+            [Filter::All, Filter::Agents, Filter::New]
+        );
+        // Its own shortcut goes back to All, like the shortcut of a filter of the config.
+        press(&mut app, KeyCode::Char('+'));
+        assert_eq!((app.filter, app.query.as_str()), (Filter::All, ""));
+        assert_eq!(app.shown_filters(), [Filter::All, Filter::Agents]);
+        press(&mut app, KeyCode::BackTab);
+        assert_eq!(app.filter, Filter::Agents);
+        // The shortcut of a hidden filter is a character of the text.
+        press(&mut app, KeyCode::Tab);
+        press(&mut app, KeyCode::Char('+'));
+        assert_eq!((app.filter, app.query.as_str()), (Filter::All, "+"));
     }
 
     #[test]
@@ -1064,18 +1203,13 @@ mod tests {
     fn ctrl_backspace_on_a_worktree_asks_then_removes_it_and_keeps_the_main_checkout() {
         let mut app = app(Filter::Worktrees);
         app.open[0].main = Some("/work/atlas".into());
-        app.current_branches = Some(vec![
-            Branch {
-                name: "main".into(),
-                worktree: Some("/work/atlas".into()),
-                time: None,
-            },
-            Branch {
-                name: "fix-login".into(),
-                worktree: Some("/work/atlas.fix-login".into()),
-                time: None,
-            },
-        ]);
+        set_branches(
+            &mut app,
+            &[
+                ("main", Some("/work/atlas")),
+                ("fix-login", Some("/work/atlas.fix-login")),
+            ],
+        );
         app.rebuild(None);
         assert_eq!(selected_name(&app), "main");
         app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
@@ -1154,16 +1288,49 @@ mod tests {
     }
 
     #[test]
+    fn a_branch_of_another_project_opens_and_keeps_its_own_project() {
+        let mut app = app(Filter::Worktrees);
+        app.open[0].main = Some("/work/atlas".into());
+        app.open[1].main = Some("/work/pac".into());
+        set_branches(&mut app, &[("main", Some("/work/atlas"))]);
+        app.projects.others = Some(vec![Project::sample(
+            "pac",
+            &[("main", Some("/work/pac")), ("fix", Some("/work/pac.fix"))],
+        )]);
+        app.rebuild(None);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(selected_name(&app), "main");
+        // The main checkout of pac stays, also from the current project atlas.
+        assert!(!app.can_remove_worktree());
+        app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+        assert!(app.confirm.is_none());
+        press(&mut app, KeyCode::Down);
+        assert_eq!(selected_name(&app), "fix");
+        assert!(app.can_remove_worktree());
+        // The worktree has no workspace: wt opens it in the project pac.
+        match press(&mut app, KeyCode::Enter) {
+            Outcome::Create(plan) => {
+                assert_eq!(
+                    plan.action,
+                    create::Action::Worktree {
+                        main: "/work/pac".into(),
+                        branch: "fix".into(),
+                        create: false,
+                    }
+                );
+                assert_eq!(plan.folder, PathBuf::from("/work/pac"));
+            }
+            outcome => panic!("unexpected outcome {outcome:?}"),
+        }
+    }
+
+    #[test]
     fn ctrl_backspace_refuses_a_worktree_where_an_agent_works() {
         let mut app = app(Filter::Worktrees);
         app.open[0].main = Some("/work/atlas".into());
         app.model.agents[0].status = Status::Working;
         app.model.agents[0].cwd = Some("/work/atlas.fix-login/src".into());
-        app.current_branches = Some(vec![Branch {
-            name: "fix-login".into(),
-            worktree: Some("/work/atlas.fix-login".into()),
-            time: None,
-        }]);
+        set_branches(&mut app, &[("fix-login", Some("/work/atlas.fix-login"))]);
         app.rebuild(None);
         assert_eq!(selected_name(&app), "fix-login");
         app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
@@ -1194,11 +1361,7 @@ mod tests {
     fn ctrl_enter_creates_a_tab_in_the_open_workspace_of_a_worktree() {
         let mut app = app(Filter::All);
         app.open[0].main = Some("/work/atlas".into());
-        app.current_branches = Some(vec![Branch {
-            name: "main".into(),
-            worktree: Some("/work/atlas".into()),
-            time: None,
-        }]);
+        set_branches(&mut app, &[("main", Some("/work/atlas"))]);
         app.rebuild(None);
         // The 3 agents, then the group of the worktrees.
         for _ in 0..3 {

@@ -229,6 +229,63 @@ pub struct Branch {
     pub time: Option<u64>,
 }
 
+/// A git project of the branch rows: its main checkout, its default branch and its branches.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Project {
+    /// The name of the project, without the branch.
+    pub name: String,
+    pub main: PathBuf,
+    /// The default branch: a new branch starts there. None if the omnibar did not read it.
+    pub base: Option<String>,
+    pub branches: Vec<Branch>,
+}
+
+impl Project {
+    /// Read the branches and the default branch of a project.
+    pub fn read(name: &str, main: &Path) -> Project {
+        Project {
+            name: name.to_string(),
+            main: main.to_path_buf(),
+            base: Some(base_branch(main)),
+            branches: branches(main),
+        }
+    }
+
+    /// Read only the branches with a worktree, and the default branch: the projects that are not
+    /// current show only their worktrees.
+    pub fn read_worktrees(name: &str, main: &Path) -> Project {
+        let mut project = Project::read(name, main);
+        project.branches.retain(|branch| branch.worktree.is_some());
+        project
+    }
+
+    /// A project in /work/<name> for the tests: its branches, and the folders of their worktrees.
+    #[cfg(test)]
+    pub fn sample(name: &str, branches: &[(&str, Option<&str>)]) -> Project {
+        Project {
+            name: name.into(),
+            main: format!("/work/{name}").into(),
+            base: None,
+            branches: branches
+                .iter()
+                .map(|(branch, worktree)| Branch {
+                    name: branch.to_string(),
+                    worktree: worktree.map(PathBuf::from),
+                    time: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// The folders of the worktrees of the branches.
+    pub fn worktrees(&self) -> Vec<PathBuf> {
+        self.branches
+            .iter()
+            .filter_map(|branch| branch.worktree.clone())
+            .collect()
+    }
+}
+
 /// The local branches of a git repository, with their worktrees. The branch of the main checkout
 /// comes first.
 pub fn branches(main: &Path) -> Vec<Branch> {

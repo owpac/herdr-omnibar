@@ -168,6 +168,7 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
                 branch,
                 workspace_id,
                 worktree,
+                main,
             } => {
                 let (text, color) = match (workspace_id, worktree) {
                     (Some(_), _) => ("workspace", accent_color()),
@@ -175,13 +176,13 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
                     (None, None) => ("no worktree", dim_color()),
                 };
                 // The pull request of the branch (feature pull_requests), then its workspace.
-                let mut spans = match app.pull(branch) {
+                let mut spans = match app.pull(main, branch) {
                     Some(Lookup::Found(pull)) => super::pull::badge(&pull),
                     _ => Vec::new(),
                 };
                 spans.push(Span::styled(text, Style::new().fg(color)));
                 // The age of the last commit of the branch.
-                if let Some(age) = app.branch_age(branch) {
+                if let Some(age) = app.branch_age(main, branch) {
                     spans.push(Span::styled(
                         format!(" {age:>5}"),
                         Style::new().fg(dim_color()),
@@ -354,6 +355,7 @@ fn context_of(item: &Item, app: &App) -> String {
             branch,
             worktree,
             workspace_id,
+            ..
         }) if !creating(app) => match (workspace_id, worktree) {
             (Some(id), _) => app
                 .open_place(id)

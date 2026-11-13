@@ -7,12 +7,13 @@
 use std::env;
 use std::path::Path;
 
+use crate::config::DEFAULT_FILTERS;
 use crate::create::{self, Choice};
 use crate::filter::Filter;
 use crate::fuzzy;
 use crate::herdr::PluginAction;
 use crate::model::{AgentRow, Model, PaneRow, Space, Status, TabRow};
-use crate::places::{self, Branch, Kind, Place};
+use crate::places::{self, Kind, Place, Project};
 
 /// A row of the list.
 #[derive(Clone, Debug)]
@@ -28,7 +29,7 @@ pub enum Item {
     Action(PluginAction),
     /// The creation of a tab or a worktree with the query as its name: ↵ goes to the step "what".
     Create(String),
-    /// A pane of a tab (feature pane_rows).
+    /// A pane of a tab (filter Panes).
     Pane(PaneRow),
 }
 
@@ -111,20 +112,21 @@ pub enum Line {
     Row { item: Item, positions: Vec<usize> },
 }
 
-/// The filters that the popup shows, in the order of Tab. The filter Panes needs the feature
-/// pane_rows.
-pub fn filters(pane_rows: bool) -> Vec<Filter> {
-    let mut filters = vec![
-        Filter::All,
-        Filter::Agents,
-        Filter::Tabs,
-        Filter::Worktrees,
-        Filter::Folders,
-        Filter::New,
-        Filter::Actions,
-    ];
-    if pane_rows {
-        filters.insert(3, Filter::Panes);
+/// The filters of the chips, in the order of Tab, from their names in config.toml. An unknown
+/// name and a second copy of a name stay without effect. A list without a known name gives the
+/// default filters.
+pub fn filters(names: &[String]) -> Vec<Filter> {
+    let mut filters = Vec::new();
+    for filter in names.iter().filter_map(|name| Filter::parse(name)) {
+        if !filters.contains(&filter) {
+            filters.push(filter);
+        }
+    }
+    if filters.is_empty() {
+        filters = DEFAULT_FILTERS
+            .iter()
+            .filter_map(|name| Filter::parse(name))
+            .collect();
     }
     filters
 }
@@ -137,9 +139,8 @@ pub struct Sources<'a> {
     pub actions: &'a [PluginAction],
     /// The open workspaces, as places.
     pub open: &'a [Place],
-    /// The name of the current project, and its local branches.
-    pub project: &'a str,
-    pub branches: &'a [Branch],
+    /// The current project and its local branches, for the filter All.
+    pub project: Option<&'a Project>,
 }
 
 /// The lines of the filters that go somewhere (all the filters but New).
@@ -162,10 +163,17 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
         let tabs = model.tabs.iter().cloned().map(Item::Tab).collect();
         group(&mut lines, "Tabs", matches(tabs, query));
     }
+    if filter == Filter::Workspaces {
+        let spaces = model.spaces.iter().cloned().map(Item::Workspace).collect();
+        group(&mut lines, "Workspaces", matches(spaces, query));
+    }
     if filter == Filter::All {
         // The worktrees of the current project have their own group: their workspaces are not
         // in the group Workspaces.
-        let worktrees = existing(sources.branches, sources.open);
+        let worktrees = sources
+            .project
+            .map(|project| existing(project, sources.open))
+            .unwrap_or_default();
         let in_worktrees: Vec<String> = worktrees
             .iter()
             .filter_map(|item| match item {
@@ -176,11 +184,13 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
                 _ => None,
             })
             .collect();
-        group(
-            &mut lines,
-            &format!("Worktrees of {}", sources.project),
-            matches(worktrees, query),
-        );
+        if let Some(project) = sources.project {
+            group(
+                &mut lines,
+                &format!("Worktrees of {}", project.name),
+                matches(worktrees, query),
+            );
+        }
         let spaces = model
             .spaces
             .iter()
@@ -222,8 +232,9 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
 }
 
 /// The branches of a project as rows, with the open workspace of their worktrees.
-fn existing(branches: &[Branch], open: &[Place]) -> Vec<Item> {
-    branches
+fn existing(project: &Project, open: &[Place]) -> Vec<Item> {
+    project
+        .branches
         .iter()
         .map(|branch| {
             Item::Choice(Choice::Existing {
@@ -234,35 +245,43 @@ fn existing(branches: &[Branch], open: &[Place]) -> Vec<Item> {
                         .find(|place| &place.folder == worktree)
                         .and_then(|place| place.workspace_id.clone())
                 }),
+                main: project.main.clone(),
             })
         })
         .collect()
 }
 
-/// The lines of the filter Worktrees: the branches of the current project, and a new worktree when
-/// the query is a new branch name.
+/// The lines of the filter Worktrees: a group for each project. The current project comes first,
+/// with all its branches, and a new worktree when the query is a new branch name. The other
+/// projects show their worktrees.
 pub fn worktree_lines(
-    branches: &[Branch],
+    current: Option<&Project>,
+    others: &[Project],
     open: &[Place],
-    project: &str,
     query: &str,
 ) -> Vec<Line> {
     let query = query.trim();
-    let mut rows = matches(existing(branches, open), query);
-    let exists = branches.iter().any(|branch| branch.name == query);
-    if create::is_branch_name(query) && !exists {
-        rows.insert(
-            0,
-            (
-                Item::Choice(Choice::NewWorktree {
-                    branch: query.to_string(),
-                }),
-                Vec::new(),
-            ),
-        );
-    }
     let mut lines = Vec::new();
-    group(&mut lines, &format!("Worktrees of {project}"), rows);
+    if let Some(project) = current {
+        let mut rows = matches(existing(project, open), query);
+        let exists = project.branches.iter().any(|branch| branch.name == query);
+        if create::is_branch_name(query) && !exists {
+            rows.insert(
+                0,
+                (
+                    Item::Choice(Choice::NewWorktree {
+                        branch: query.to_string(),
+                    }),
+                    Vec::new(),
+                ),
+            );
+        }
+        group(&mut lines, &format!("Worktrees of {}", project.name), rows);
+    }
+    for project in others {
+        let rows = matches(existing(project, open), query);
+        group(&mut lines, &format!("Worktrees of {}", project.name), rows);
+    }
     lines
 }
 
@@ -448,6 +467,7 @@ pub fn home(path: &Path) -> String {
 mod tests {
     use super::*;
     use crate::model::{Snapshot, Workspace};
+    use std::path::PathBuf;
 
     fn agent(name: &str, status: Status) -> AgentRow {
         AgentRow {
@@ -512,8 +532,7 @@ mod tests {
             others,
             actions,
             open: &[],
-            project: "atlas",
-            branches: &[],
+            project: None,
         };
         build(&sources, filter, query)
     }
@@ -562,25 +581,16 @@ mod tests {
     fn the_filter_all_shows_the_worktrees_of_the_current_project_once() {
         let model = model();
         let open = [place(Kind::Workspace, "atlas", Some("w1"))];
-        let branches = [
-            Branch {
-                name: "main".into(),
-                worktree: Some("/work/atlas".into()),
-                time: None,
-            },
-            Branch {
-                name: "fix-login".into(),
-                worktree: None,
-                time: None,
-            },
-        ];
+        let atlas = Project::sample(
+            "atlas",
+            &[("main", Some("/work/atlas")), ("fix-login", None)],
+        );
         let sources = Sources {
             model: &model,
             others: &[],
             actions: &[],
             open: &open,
-            project: "atlas",
-            branches: &branches,
+            project: Some(&atlas),
         };
         let lines = build(&sources, Filter::All, "");
         assert_eq!(
@@ -603,6 +613,27 @@ mod tests {
         assert_eq!(
             titles(&lines_of(&model(), &[], &[], Filter::Tabs, "")),
             ["# Tabs", "logs"]
+        );
+    }
+
+    #[test]
+    fn the_filter_workspaces_shows_all_the_workspaces() {
+        let model = model();
+        let open = [place(Kind::Workspace, "atlas", Some("w1"))];
+        let atlas = Project::sample("atlas", &[("main", Some("/work/atlas"))]);
+        let sources = Sources {
+            model: &model,
+            others: &[],
+            actions: &[],
+            open: &open,
+            project: Some(&atlas),
+        };
+        // In All, the workspace of a worktree of the current project is in the group of the
+        // worktrees. The filter Workspaces shows it.
+        assert!(!titles(&build(&sources, Filter::All, "")).contains(&"# Workspaces".to_string()));
+        assert_eq!(
+            titles(&build(&sources, Filter::Workspaces, "")),
+            ["# Workspaces", "atlas"]
         );
     }
 
@@ -672,18 +703,71 @@ mod tests {
 
     #[test]
     fn the_filter_worktrees_proposes_a_new_worktree_for_a_new_branch() {
-        let branches = [Branch {
-            name: "main".into(),
-            worktree: Some("/work/atlas".into()),
-            time: None,
-        }];
-        let lines = worktree_lines(&branches, &[], "atlas", "fix-login");
+        let atlas = Project::sample("atlas", &[("main", Some("/work/atlas"))]);
+        let lines = worktree_lines(Some(&atlas), &[], &[], "fix-login");
         assert_eq!(
             titles(&lines),
             ["# Worktrees of atlas", "new worktree fix-login"]
         );
-        let lines = worktree_lines(&branches, &[], "atlas", "");
+        let lines = worktree_lines(Some(&atlas), &[], &[], "");
         assert_eq!(titles(&lines), ["# Worktrees of atlas", "main"]);
+        // Outside a git project, no project can take the new worktree.
+        assert!(worktree_lines(None, &[], &[], "fix-login").is_empty());
+    }
+
+    #[test]
+    fn the_filter_worktrees_shows_the_current_project_first_then_the_others() {
+        let atlas = Project::sample("atlas", &[("main", Some("/work/atlas")), ("old", None)]);
+        let pac = Project::sample("pac", &[("main", Some("/work/pac"))]);
+        let lines = worktree_lines(Some(&atlas), std::slice::from_ref(&pac), &[], "");
+        assert_eq!(
+            titles(&lines),
+            [
+                "# Worktrees of atlas",
+                "main",
+                "old",
+                "# Worktrees of pac",
+                "main"
+            ]
+        );
+        // Each row knows the main checkout of its project.
+        let mains: Vec<PathBuf> = lines
+            .iter()
+            .filter_map(|line| match line {
+                Line::Row {
+                    item: Item::Choice(Choice::Existing { main, .. }),
+                    ..
+                } => Some(main.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            mains,
+            [
+                PathBuf::from("/work/atlas"),
+                "/work/atlas".into(),
+                "/work/pac".into()
+            ]
+        );
+        // A new branch name gives a new worktree in the current project only.
+        let lines = worktree_lines(Some(&atlas), &[pac], &[], "fix-login");
+        assert_eq!(
+            titles(&lines),
+            ["# Worktrees of atlas", "new worktree fix-login"]
+        );
+    }
+
+    #[test]
+    fn the_filters_follow_their_names_in_the_config() {
+        let names = |list: &[&str]| list.iter().map(|name| name.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            filters(&names(&["agents", "panes", "nothing", "agents"])),
+            [Filter::Agents, Filter::Panes]
+        );
+        // A list without a known name gives the default filters: Tab needs at least one filter.
+        assert_eq!(filters(&names(&[])), filters(&names(&DEFAULT_FILTERS)));
+        assert_eq!(filters(&names(&[])).len(), DEFAULT_FILTERS.len());
+        assert_eq!(filters(&names(&["nothing"]))[0], Filter::All);
     }
 
     #[test]

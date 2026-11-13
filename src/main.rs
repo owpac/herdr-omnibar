@@ -33,7 +33,7 @@ use std::process::ExitCode;
 use filter::Filter;
 
 const USAGE: &str = "usage: herdr-omnibar open <filter> | run | execute | invoke <plugin> <action> | fork <tab> <pane> | keys | list | watch [--run] | titles | remove <worktree> | --version
-filters: all, new, agents, tabs, worktrees, folders, actions, keys";
+filters: all, new, agents, tabs, workspaces, worktrees, folders, actions, panes, keys";
 
 /// The variable that gives the filter of the popup.
 pub const FILTER_VARIABLE: &str = "OMNIBAR_FILTER";

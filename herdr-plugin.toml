@@ -43,9 +43,16 @@ contexts = ["global"]
 command = ["bin/herdr-omnibar", "open", "tabs"]
 
 [[actions]]
+id = "workspaces"
+title = "Omnibar: workspaces"
+description = "Search the open workspaces, then go to one"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "workspaces"]
+
+[[actions]]
 id = "worktrees"
 title = "Omnibar: worktrees"
-description = "Search the worktrees of the current project, then go to one or create one"
+description = "Search the worktrees of the open projects, then go to one or create one"
 contexts = ["global"]
 command = ["bin/herdr-omnibar", "open", "worktrees"]
 
@@ -66,7 +73,7 @@ command = ["bin/herdr-omnibar", "open", "actions"]
 [[actions]]
 id = "panes"
 title = "Omnibar: panes"
-description = "Search each pane of each tab, then go to one (feature pane_rows)"
+description = "Search each pane of each tab, then go to one"
 contexts = ["global"]
 command = ["bin/herdr-omnibar", "open", "panes"]
 

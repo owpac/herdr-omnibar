@@ -23,11 +23,13 @@ use crate::places::{Branch, Place};
 pub enum Choice {
     /// A new branch and its worktree, in its own workspace.
     NewWorktree { branch: String },
-    /// A branch that exists: go to its workspace, or open its worktree.
+    /// A branch that exists: go to its workspace, or open its worktree. `main` is the main
+    /// checkout of its project: the filter Worktrees shows the branches of several projects.
     Existing {
         branch: String,
         worktree: Option<PathBuf>,
         workspace_id: Option<String>,
+        main: PathBuf,
     },
     /// A new tab in the workspace of the place.
     NewTab,
@@ -64,7 +66,7 @@ pub fn choices(
     split: Option<&str>,
 ) -> Vec<Choice> {
     let mut out = Vec::new();
-    if place.main.is_some() {
+    if let Some(main) = &place.main {
         let name = name.trim();
         match branches
             .iter()
@@ -78,6 +80,7 @@ pub fn choices(
                         .find(|other| &other.folder == worktree)
                         .and_then(|other| other.workspace_id.clone())
                 }),
+                main: main.clone(),
             }),
             None => out.push(Choice::NewWorktree {
                 branch: name.to_string(),
@@ -158,8 +161,8 @@ pub fn plan(
         } => Action::Focus {
             workspace_id: workspace_id.clone(),
         },
-        Choice::Existing { branch, .. } => Action::Worktree {
-            main: place.main.clone()?,
+        Choice::Existing { branch, main, .. } => Action::Worktree {
+            main: main.clone(),
             branch: branch.clone(),
             create: false,
         },
@@ -552,7 +555,8 @@ mod tests {
             &Choice::Existing {
                 branch: "fix-login".into(),
                 worktree: Some("/work/atlas.fix-login".into()),
-                workspace_id: Some("w2".into())
+                workspace_id: Some("w2".into()),
+                main: "/work/atlas".into(),
             }
         );
         let plan = plan(&atlas, choice, "fix-login", "claude", false).unwrap();

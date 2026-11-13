@@ -45,8 +45,9 @@ impl App {
                 }
             }
             (_, Item::Choice(choice)) => {
-                // The filter Worktrees: the place is the current workspace.
-                let Some(place) = self.current_place().cloned() else {
+                // The filter Worktrees: a new worktree goes into the current project. A branch
+                // goes into its own project.
+                let Some(place) = self.place_of_choice(&choice).cloned() else {
                     return Outcome::Continue;
                 };
                 let name = match &choice {
@@ -132,6 +133,7 @@ impl App {
             branch,
             worktree,
             workspace_id,
+            main,
         })) = self.selected_item().cloned()
         else {
             return;
@@ -140,7 +142,7 @@ impl App {
             self.message = Some(format!("the branch {branch} has no worktree to remove"));
             return;
         };
-        if self.project_main().as_ref() == Some(&folder) {
+        if folder == main {
             self.message = Some(format!(
                 "{branch} is the main checkout of the project: it stays"
             ));
@@ -359,8 +361,10 @@ impl App {
             KeyCode::Char(character) if !ctrl && !alt => {
                 // On an empty text, a shortcut opens its filter from any filter, also from the
                 // creation. The shortcut of the current filter goes back to All.
-                let shortcut =
-                    Filter::of_shortcut(character).filter(|filter| self.filters.contains(filter));
+                let shortcut = Filter::of_shortcut(character).filter(|filter| {
+                    // The current filter can be hidden: an action opened it.
+                    self.filters.contains(filter) || *filter == self.filter
+                });
                 let empty = self.text().is_empty() && !renaming;
                 if empty && character == '?' {
                     self.help = true;

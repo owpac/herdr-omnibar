@@ -8,6 +8,8 @@
 //! pills = "square"   # the ends of the pills: "square", "round" (a Nerd Font), "flat".
 //! # The optional features. Remove a name to turn its feature off.
 //! features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
+//! # The filters of the chips, in the order of Tab. Remove a name to hide its filter.
+//! filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]
 //! ```
 //!
 //! A missing file, a missing key or a wrong value gives the default.
@@ -69,6 +71,18 @@ pub const DEFAULT_FEATURES: [&str; 5] = [
     "recent_first",
 ];
 
+/// The filters of the chips by default, in the order of Tab. The filter panes is off by default.
+pub const DEFAULT_FILTERS: [&str; 8] = [
+    "all",
+    "agents",
+    "tabs",
+    "workspaces",
+    "worktrees",
+    "folders",
+    "new",
+    "actions",
+];
+
 /// The options of the plugin.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
@@ -79,6 +93,8 @@ pub struct Config {
     pub pills: Pills,
     /// The optional features that are on.
     pub features: Vec<String>,
+    /// The names of the filters of the chips, in the order of Tab.
+    pub filters: Vec<String>,
 }
 
 impl Config {
@@ -102,6 +118,10 @@ impl Default for Config {
                 .iter()
                 .map(|name| name.to_string())
                 .collect(),
+            filters: DEFAULT_FILTERS
+                .iter()
+                .map(|name| name.to_string())
+                .collect(),
         }
     }
 }
@@ -115,6 +135,7 @@ struct File {
     preview: Option<String>,
     pills: Option<String>,
     features: Option<Vec<String>>,
+    filters: Option<Vec<String>>,
 }
 
 /// The config folder of the plugin.
@@ -167,6 +188,7 @@ fn parse(text: &str) -> Config {
             _ => Pills::Square,
         },
         features: file.features.unwrap_or(defaults.features),
+        filters: file.filters.unwrap_or(defaults.filters),
     }
 }
 
@@ -203,6 +225,15 @@ mod tests {
         let config = parse("features = [\"rename_tab\", \"running_time\"]");
         assert!(!config.has("mouse"));
         assert!(config.has("running_time"));
+    }
+
+    #[test]
+    fn the_filters_replace_the_default_filters() {
+        assert!(parse("").filters.contains(&"worktrees".to_string()));
+        assert_eq!(
+            parse("filters = [\"agents\", \"panes\"]").filters,
+            ["agents", "panes"]
+        );
     }
 
     #[test]

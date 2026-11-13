@@ -126,12 +126,22 @@ impl Ranker {
         current_tab: Option<&str>,
         current_workspace: Option<&str>,
     ) -> Ranker {
-        let screen: HashMap<String, usize> = crate::order::screen_order(&model.flat_workspaces)
-            .into_iter()
-            .enumerate()
-            .map(|(index, id)| (id, index))
-            .collect();
-        let visit_of_tab = |tab_id: &str| recent.get(tab_id).copied().unwrap_or(0);
+        let screen = crate::order::screen_positions(&model.flat_workspaces);
+        // The highest activity of the agents and the last visit of the tabs of each workspace,
+        // in one pass over the agents and one pass over the panes.
+        let mut activities: HashMap<&str, u64> = HashMap::new();
+        for agent in &model.agents {
+            if let Some(seq) = agent.seq {
+                let highest = activities.entry(agent.workspace_id.as_str()).or_default();
+                *highest = (*highest).max(seq);
+            }
+        }
+        let mut visits: HashMap<&str, u64> = HashMap::new();
+        for pane in &model.panes {
+            let visit = recent.get(&pane.tab_id).copied().unwrap_or(0);
+            let last = visits.entry(pane.workspace_id.as_str()).or_default();
+            *last = (*last).max(visit);
+        }
         // A workspace: the attention that herdr gives, the highest activity of its agents, and
         // the last visit of its tabs.
         let workspaces = model
@@ -142,19 +152,8 @@ impl Ranker {
                 let rank = Rank {
                     current: current_workspace == Some(id.as_str()),
                     attention: attention_of(space.workspace.agent_status),
-                    activity: model
-                        .agents
-                        .iter()
-                        .filter(|agent| &agent.workspace_id == id)
-                        .filter_map(|agent| agent.seq)
-                        .max(),
-                    visit: model
-                        .panes
-                        .iter()
-                        .filter(|pane| &pane.workspace_id == id)
-                        .map(|pane| visit_of_tab(&pane.tab_id))
-                        .max()
-                        .unwrap_or(0),
+                    activity: activities.get(id.as_str()).copied(),
+                    visit: visits.get(id.as_str()).copied().unwrap_or(0),
                     herdr: (screen.get(id).copied().unwrap_or(usize::MAX), 0, 0),
                 };
                 (id.clone(), rank)

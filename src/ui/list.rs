@@ -312,7 +312,7 @@ fn name_style(item: &Item) -> Style {
             | Choice::NewWorkspace,
         )
         | Item::Create(_) => Style::new().fg(green_color()),
-        Item::Place(place) if place.kind == Kind::Home => Style::new().fg(green_color()),
+        Item::Place(place) if place.is_home() => Style::new().fg(green_color()),
         _ => Style::new(),
     }
 }

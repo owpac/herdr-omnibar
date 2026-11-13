@@ -381,9 +381,7 @@ impl App {
     /// True if ↵ creates a workspace at once: the selected row is "new workspace “text”". Without
     /// a text, ↵ only asks for a name.
     pub fn enter_creates_workspace(&self) -> bool {
-        matches!(self.selected_item(),
-            Some(Item::Place(place)) if place.kind == crate::places::Kind::Home
-                && !place.label.is_empty())
+        matches!(self.selected_item(), Some(Item::Place(place)) if place.creates_at_once())
     }
 
     /// The row that a new list selects: the first row. In the step "where" with a filter text, the
@@ -395,7 +393,7 @@ impl App {
             && !self.create.filter.trim().is_empty();
         let is_home = |index: &usize| {
             matches!(&self.lines[*index], Line::Row { item: Item::Place(place), .. }
-                if place.kind == crate::places::Kind::Home)
+                if place.is_home())
         };
         rows.iter()
             .copied()
@@ -702,11 +700,7 @@ impl App {
         let place = match self.selected_item() {
             Some(Item::Choice(choice)) => self.place_of_choice(choice),
             // A row "new workspace “text”" creates in ~: its agent is the agent of ~.
-            Some(Item::Place(place))
-                if place.kind == crate::places::Kind::Home && !place.label.is_empty() =>
-            {
-                Some(place)
-            }
+            Some(Item::Place(place)) if place.creates_at_once() => Some(place),
             _ => self.target_place(),
         };
         self.agent_for(place)

@@ -104,7 +104,7 @@ fn hints(app: &App) -> Vec<Hint> {
         ],
         selected => {
             let primary = match selected {
-                Some(Item::Place(place)) if place.kind == crate::places::Kind::Home => "create",
+                Some(Item::Place(place)) if place.is_home() => "create",
                 Some(Item::Place(_)) => "create in",
                 Some(Item::Action(_)) => "run",
                 Some(Item::Create(_)) => "create…",

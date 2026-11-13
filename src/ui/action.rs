@@ -11,7 +11,7 @@ use ratatui::Frame;
 
 use crate::app::{App, Confirm};
 use crate::create::{self, Choice};
-use crate::places::{Kind, Place};
+use crate::places::{Kind, Place, NAME_MISSING};
 use crate::rows::Item;
 
 use super::{creating, style::*, text::*};
@@ -188,10 +188,10 @@ fn action_of(app: &App, item: &Item) -> Action {
         }
         Item::Workspace(space) => Action::go("go to".to_string(), pill_span(true, &space.label())),
         Item::Action(action) => Action::bare(format!("run the action {}", action.title)),
-        Item::Place(place) if place.kind == Kind::Home && place.label.is_empty() => {
-            Action::warning("type the name of the new workspace".into())
+        Item::Place(place) if place.is_home() && place.label.is_empty() => {
+            Action::warning(NAME_MISSING.into())
         }
-        Item::Place(place) if place.kind == Kind::Home => Action::create(
+        Item::Place(place) if place.is_home() => Action::create(
             format!("new workspace “{}”", place.label),
             pill_span(false, "~"),
         ),
@@ -254,8 +254,8 @@ fn choice_action(app: &App, choice: &Choice) -> Action {
         ),
         Choice::NewTab => Action::create(tab, pill_span(true, place_label)),
         Choice::NewSplit { .. } => Action::create(new("split"), pill_span(true, place_label)),
-        Choice::NewWorkspace if place.is_some_and(|p| p.kind == Kind::Home) && name.is_empty() => {
-            Action::warning("type the name of the new workspace".into())
+        Choice::NewWorkspace if place.is_some_and(Place::is_home) && name.is_empty() => {
+            Action::warning(NAME_MISSING.into())
         }
         Choice::NewWorkspace if place.is_some_and(Place::labels_new_workspace) => {
             Action::create(new("workspace"), pill_span(false, place_label))

@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::herdr;
-use crate::places::{Branch, Kind, Place};
+use crate::places::{Branch, Place};
 
 /// A choice of the step "what". The name is the text of the step.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -178,7 +178,7 @@ pub fn plan(
         // A place that has a workspace: the typed name is the label of the new workspace, and the
         // automatic titles name its first tab.
         // The row "new workspace…" has no label without a name: no plan.
-        Choice::NewWorkspace if place.kind == Kind::Home && name.is_empty() => return None,
+        Choice::NewWorkspace if place.is_home() && name.is_empty() => return None,
         Choice::NewWorkspace if place.labels_new_workspace() => Action::NewWorkspace {
             folder: place.folder.clone(),
             label: if name.is_empty() {
@@ -488,6 +488,7 @@ fn remember_agent(folder: &Path, agent: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::places::Kind;
 
     fn workspace(label: &str, folder: &str, id: &str, main: Option<&str>) -> Place {
         Place {

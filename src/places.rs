@@ -43,6 +43,9 @@ pub struct Place {
     pub tabs: Vec<TabSummary>,
 }
 
+/// The message of the row "new workspace…" when no text is typed.
+pub const NAME_MISSING: &str = "type the name of the new workspace";
+
 impl Place {
     /// The place of the row "new workspace…": the home folder, with the typed text as its label.
     /// The home folder can already have a workspace: the new workspace is another one.
@@ -58,10 +61,20 @@ impl Place {
         }
     }
 
+    /// True for the row "new workspace…".
+    pub fn is_home(&self) -> bool {
+        self.kind == Kind::Home
+    }
+
+    /// True for the row "new workspace “text”": ↵ creates the workspace at once.
+    pub fn creates_at_once(&self) -> bool {
+        self.is_home() && !self.label.is_empty()
+    }
+
     /// True if the typed name labels the new workspace of this place, and not its first tab: the
     /// place already has a workspace, or it is the row "new workspace…".
     pub fn labels_new_workspace(&self) -> bool {
-        self.workspace_id.is_some() || self.kind == Kind::Home
+        self.workspace_id.is_some() || self.is_home()
     }
 
     /// A key that stays the same between 2 refreshes.

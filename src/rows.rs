@@ -40,10 +40,10 @@ impl Item {
             Item::Agent(agent) => agent.name.clone(),
             Item::Tab(tab) => tab.name.clone(),
             Item::Workspace(space) => space.label(),
-            Item::Place(place) if place.kind == Kind::Home && place.label.is_empty() => {
+            Item::Place(place) if place.is_home() && place.label.is_empty() => {
                 "new workspace…".to_string()
             }
-            Item::Place(place) if place.kind == Kind::Home => {
+            Item::Place(place) if place.is_home() => {
                 format!("new workspace “{}”", place.label)
             }
             Item::Place(place) => place.label.clone(),
@@ -69,7 +69,7 @@ impl Item {
             Item::Agent(agent) => agent.place.clone(),
             Item::Tab(tab) => tab.place.clone(),
             Item::Workspace(space) => space.folder.as_deref().map(home).unwrap_or_default(),
-            Item::Place(place) if place.kind == Kind::Home => {
+            Item::Place(place) if place.is_home() => {
                 format!("a new workspace in {}", home(&place.folder))
             }
             Item::Place(place) => home(&place.folder),

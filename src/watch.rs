@@ -273,6 +273,11 @@ fn rename(snapshot: &Snapshot, written: &mut HashMap<String, String>, state_dir:
 /// watcher then writes the title of its agent at its next read (2 seconds). Start the watcher if
 /// it is stopped. Return the automatic title, or None if the tab has none: then the name stays.
 pub fn give_back(tab_id: &str) -> Result<Option<String>, String> {
+    // If another plugin writes the titles, the watcher waits: the tab would keep its number.
+    let plugins = herdr::plugins().map_err(|error| error.to_string())?;
+    if let Some(reason) = other_writer(&plugins, bar_config().as_deref()) {
+        return Err(reason);
+    }
     let snapshot = herdr::snapshot().map_err(|error| error.to_string())?;
     let Some(title) = auto_title(&snapshot, tab_id) else {
         return Ok(None);

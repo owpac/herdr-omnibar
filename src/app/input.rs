@@ -238,7 +238,8 @@ impl App {
             return;
         }
         self.message = Some(match watch::give_back(&tab_id) {
-            Ok(_) => format!("the tab {name} takes the title of its agent"),
+            Ok(Some(_)) => format!("the tab {name} takes the title of its agent"),
+            Ok(None) => "no automatic title for this tab".to_string(),
             Err(error) => format!("cannot name the tab: {error}"),
         });
         self.reload = true;

@@ -55,31 +55,34 @@ const HERDR_BAR: &str = "herdr-bar";
 pub fn decide(snapshot: &Snapshot, written: &HashMap<String, String>) -> Vec<(String, String)> {
     let mut renames = Vec::new();
     for tab in &snapshot.tabs {
-        let agents: Vec<_> = snapshot
-            .panes
-            .iter()
-            .filter(|pane| pane.tab_id == tab.tab_id && pane.agent.is_some())
-            .collect();
-        let [pane] = agents.as_slice() else {
-            continue;
-        };
         let owned = tab.has_default_label() || written.get(&tab.tab_id) == Some(&tab.label);
         if !owned {
             continue;
         }
-        let title = pane.terminal_title_stripped.as_deref().and_then(|title| {
-            useful_title(
-                title,
-                pane.agent.as_deref().unwrap_or_default(),
-                snapshot.agent_name(&pane.pane_id),
-                pane.cwd.as_deref(),
-            )
-        });
-        if let Some(title) = title.filter(|title| *title != tab.label) {
+        if let Some(title) = auto_title(snapshot, &tab.tab_id).filter(|title| *title != tab.label) {
             renames.push((tab.tab_id.clone(), title));
         }
     }
     renames
+}
+
+/// The automatic title of a tab: the useful title of the terminal of its one agent. None for a
+/// tab with no agent or with 2 agents, or if the title tells nothing.
+pub fn auto_title(snapshot: &Snapshot, tab_id: &str) -> Option<String> {
+    let agents: Vec<_> = snapshot
+        .panes
+        .iter()
+        .filter(|pane| pane.tab_id == tab_id && pane.agent.is_some())
+        .collect();
+    let [pane] = agents.as_slice() else {
+        return None;
+    };
+    useful_title(
+        pane.terminal_title_stripped.as_deref()?,
+        pane.agent.as_deref().unwrap_or_default(),
+        snapshot.agent_name(&pane.pane_id),
+        pane.cwd.as_deref(),
+    )
 }
 
 /// The title of the terminal of an agent, if it tells the task. A prompt, the name of the agent
@@ -268,9 +271,12 @@ fn rename(snapshot: &Snapshot, written: &mut HashMap<String, String>, state_dir:
 
 /// Give a tab back to the watcher: rename it to its number, the name that herdr gives. The
 /// watcher then writes the title of its agent at its next read (2 seconds). Start the watcher if
-/// it is stopped. Return the number.
-pub fn give_back(tab_id: &str) -> Result<u32, String> {
+/// it is stopped. Return the automatic title, or None if the tab has none: then the name stays.
+pub fn give_back(tab_id: &str) -> Result<Option<String>, String> {
     let snapshot = herdr::snapshot().map_err(|error| error.to_string())?;
+    let Some(title) = auto_title(&snapshot, tab_id) else {
+        return Ok(None);
+    };
     let number = snapshot
         .tabs
         .iter()
@@ -279,7 +285,7 @@ pub fn give_back(tab_id: &str) -> Result<u32, String> {
         .ok_or_else(|| format!("no tab {tab_id}"))?;
     herdr::rename_tab(tab_id, &number.to_string()).map_err(|error| error.to_string())?;
     start()?;
-    Ok(number)
+    Ok(Some(title))
 }
 
 /// Print what the watcher does now: the renames, or the reason to wait.
@@ -626,6 +632,30 @@ mod tests {
             useful_title("A | B", "codex", None, folder).as_deref(),
             Some("A | B")
         );
+    }
+
+    #[test]
+    fn a_tab_has_an_automatic_title_only_if_its_agent_gives_a_useful_one() {
+        let tabs = tab("w1:t1", "1", 1);
+        let useful = snapshot(
+            &tabs,
+            &pane("w1:p1", "w1:t1", Some("claude"), "Fix the login"),
+        );
+        assert_eq!(
+            auto_title(&useful, "w1:t1").as_deref(),
+            Some("Fix the login")
+        );
+        // The title of a brief is its herdr name: ctrl+T keeps the name of the tab.
+        let mut brief = snapshot(&tabs, &pane("w1:p1", "w1:t1", Some("claude"), "task-a2p"));
+        brief.agents = vec![crate::model::AgentInfo {
+            pane_id: "w1:p1".into(),
+            name: Some("task-a2p".into()),
+        }];
+        assert_eq!(auto_title(&brief, "w1:t1"), None);
+        // A tab without an agent, and an unknown tab.
+        let shell = snapshot(&tabs, &pane("w1:p1", "w1:t1", None, "cargo test"));
+        assert_eq!(auto_title(&shell, "w1:t1"), None);
+        assert_eq!(auto_title(&useful, "w9:t9"), None);
     }
 
     #[test]

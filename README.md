@@ -28,7 +28,7 @@ After `↵`, the popup closes at once. A detached process creates the tab, the w
 
 ![The creation: the current place, then a name, then a new worktree, a new tab or a new split](docs/new.gif)
 
-![The filter Worktrees: the branches of the current project, the git state of their worktrees, and the diff of the selected branch](docs/worktrees.png)
+![The filter Worktrees: the branches of the current project, the worktrees of the other open projects, the git state of each worktree, and the diff of the selected branch](docs/worktrees.png)
 
 The filter Worktrees has a group for each project with an open workspace. The current project comes first, with all its branches, and a new worktree if the text is a new branch name. The other projects show only their worktrees, in the order of their workspaces. `↵` goes to the workspace of a worktree, or opens the worktree in its own project.
 

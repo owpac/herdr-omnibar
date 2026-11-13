@@ -621,6 +621,11 @@ mod tests {
         assert_eq!(shared, Some(old));
     }
 
+    /// The agent of a snapshot with a herdr name. The other fields of herdr stay empty.
+    fn agent_info(pane_id: &str, name: &str) -> crate::model::AgentInfo {
+        serde_json::from_value(serde_json::json!({ "pane_id": pane_id, "name": name })).unwrap()
+    }
+
     fn snapshot(tabs: &str, panes: &str) -> Snapshot {
         serde_json::from_str(&format!(r#"{{"tabs": [{tabs}], "panes": [{panes}]}}"#)).unwrap()
     }
@@ -709,11 +714,7 @@ mod tests {
         );
         // The title of a brief is its herdr name: ctrl+T keeps the name of the tab.
         let mut brief = snapshot(&tabs, &pane("w1:p1", "w1:t1", Some("claude"), "task-a2p"));
-        brief.agents = vec![crate::model::AgentInfo {
-            pane_id: "w1:p1".into(),
-            name: Some("task-a2p".into()),
-            state_change_seq: None,
-        }];
+        brief.agents = vec![agent_info("w1:p1", "task-a2p")];
         assert_eq!(auto_title(&brief, "w1:t1"), None);
         // A tab without an agent, and an unknown tab.
         let shell = snapshot(&tabs, &pane("w1:p1", "w1:t1", None, "cargo test"));
@@ -761,11 +762,7 @@ mod tests {
         .join(",");
         let tabs = [tab("w1:t1", "1", 1)].join(",");
         let mut snapshot = snapshot(&tabs, &panes);
-        snapshot.agents = vec![crate::model::AgentInfo {
-            pane_id: "w1:p1".into(),
-            name: Some("task-a2p".into()),
-            state_change_seq: None,
-        }];
+        snapshot.agents = vec![agent_info("w1:p1", "task-a2p")];
         assert!(decide(&snapshot, &HashMap::new()).is_empty());
         // The name that the list shows is the number too.
         let model = model::Model::build(&snapshot, &HashMap::new());

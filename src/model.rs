@@ -93,6 +93,8 @@ pub struct Workspace {
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Worktree {
     #[serde(default)]
+    pub repo_key: String,
+    #[serde(default)]
     pub repo_name: String,
     #[serde(default)]
     pub repo_root: Option<PathBuf>,

@@ -101,6 +101,55 @@ pub fn snapshot() -> Result<crate::model::Snapshot, Error> {
         .map_err(|error| Error::new(format!("herdr api snapshot: {error}")))
 }
 
+/// Send one request on the socket of herdr (HERDR_SOCKET_PATH, given to the commands of the plugin
+/// actions): one JSON line, then one JSON line for the answer. Return the field `result`. The CLI
+/// has no command for the move of a workspace. No live call in a demo.
+fn request(method: &str, params: serde_json::Value) -> Result<serde_json::Value, Error> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
+
+    if crate::demo::active() {
+        return Err(Error::new("no call to herdr in the demo"));
+    }
+    let path = env::var_os("HERDR_SOCKET_PATH")
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| Error::new("HERDR_SOCKET_PATH is not set: run this inside herdr"))?;
+    let failed = |error: std::io::Error| Error::new(format!("herdr {method}: {error}"));
+    let mut stream = UnixStream::connect(path).map_err(failed)?;
+    let timeout = Some(Duration::from_secs(10));
+    stream.set_read_timeout(timeout).map_err(failed)?;
+    stream.set_write_timeout(timeout).map_err(failed)?;
+    let line = serde_json::json!({"id": "omnibar", "method": method, "params": params});
+    writeln!(stream, "{line}").map_err(failed)?;
+    let mut answer = String::new();
+    BufReader::new(stream)
+        .read_line(&mut answer)
+        .map_err(failed)?;
+    let mut value: serde_json::Value = serde_json::from_str(answer.trim())
+        .map_err(|error| Error::new(format!("herdr {method}: {error}")))?;
+    if let Some(error) = value.get("error").filter(|error| !error.is_null()) {
+        return Err(Error {
+            code: error["code"].as_str().map(str::to_string),
+            message: error["message"]
+                .as_str()
+                .map_or_else(|| error.to_string(), str::to_string),
+        });
+    }
+    Ok(value["result"].take())
+}
+
+/// Move some workspaces, in this order, before another workspace. Without an anchor, they go to
+/// the end of the list: all the ids of the list set the full order in one call. The ids can be
+/// apart. The anchor is not in the list of ids.
+pub fn move_workspace_block(ids: &[String], before: Option<&str>) -> Result<(), Error> {
+    let mut params = serde_json::json!({ "workspace_ids": ids });
+    if let Some(anchor) = before {
+        params["before_workspace_id"] = anchor.into();
+    }
+    request("workspace.move_block", params).map(|_| ())
+}
+
 /// Focus a tab, and its workspace.
 pub fn focus_tab(tab_id: &str) -> Result<(), Error> {
     run(&["tab", "focus", tab_id]).map(|_| ())
@@ -398,6 +447,38 @@ pub fn open_plugin_pane(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_request_writes_one_line_and_reads_one_line_on_the_socket() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixListener;
+
+        let path = env::temp_dir().join(format!("omnibar-test-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            writeln!(stream, r#"{{"id":"omnibar","result":{{"ok":true}}}}"#).unwrap();
+            line
+        });
+        // The only test that reads this variable.
+        env::set_var("HERDR_SOCKET_PATH", &path);
+        let ids = ["w2".to_string(), "w1".to_string()];
+        let answer = move_workspace_block(&ids, Some("w3"));
+        let sent: serde_json::Value = serde_json::from_str(&server.join().unwrap()).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(answer.is_ok());
+        assert_eq!(sent["method"], "workspace.move_block");
+        assert_eq!(
+            sent["params"]["workspace_ids"],
+            serde_json::json!(["w2", "w1"])
+        );
+        assert_eq!(sent["params"]["before_workspace_id"], "w3");
+    }
 
     #[test]
     fn a_wide_pane_splits_to_the_right_and_a_tall_pane_down() {

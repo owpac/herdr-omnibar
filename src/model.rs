@@ -366,8 +366,6 @@ pub struct PaneRow {
     /// The kind of the agent of the pane, if it has one.
     pub agent: Option<String>,
     pub status: Status,
-    /// True if herdr gives a label to the pane: `name` is then this label.
-    pub labeled: bool,
 }
 
 /// A tab without an agent.
@@ -505,7 +503,6 @@ impl Model {
                     place: place_of(&pane.workspace_id),
                     agent: pane.agent.clone(),
                     status: pane.agent_status,
-                    labeled: label.is_some(),
                 }
             })
             .collect();
@@ -797,8 +794,6 @@ mod tests {
             .find(|pane| pane.pane_id == "w1:p2")
             .unwrap();
         assert_eq!(pane.name, "logs");
-        assert!(pane.labeled);
-        assert!(!model.panes[0].labeled);
     }
 
     #[test]

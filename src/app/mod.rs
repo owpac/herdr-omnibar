@@ -87,6 +87,15 @@ impl RenameTarget {
             RenameTarget::Pane(_) => "pane",
         }
     }
+
+    /// The placeholder of the search line, while the user types the new name.
+    pub fn placeholder(&self) -> &'static str {
+        match self {
+            RenameTarget::Tab(_) => "the new name of the tab",
+            RenameTarget::Workspace(_) => "the new name of the workspace",
+            RenameTarget::Pane(_) => "the new name of the pane",
+        }
+    }
 }
 
 /// A rename: its target, the old name, and the new name that the user types.
@@ -1240,7 +1249,6 @@ mod tests {
             place: "atlas".into(),
             agent: None,
             status: Status::Unknown,
-            labeled: false,
         }];
         app.filters.push(Filter::Panes);
         app.set_filter(Filter::Panes);
@@ -1346,7 +1354,6 @@ mod tests {
             place: "atlas".into(),
             agent: None,
             status: Status::Unknown,
-            labeled: false,
         }];
         app.filters.push(Filter::Panes);
         app.set_filter(Filter::Panes);

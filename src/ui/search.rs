@@ -7,7 +7,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, Step};
+use crate::app::{App, RenameTarget, Step};
 use crate::filter::Filter;
 use crate::rows::{self};
 
@@ -38,10 +38,8 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
     let mut spans = Vec::new();
     let (prompt, placeholder) = match (creating(app), app.create.step) {
         _ if app.rename.is_some() => {
-            let noun = app
-                .rename
-                .as_ref()
-                .map_or("tab", |rename| rename.target.noun());
+            let target = app.rename.as_ref().map(|rename| &rename.target);
+            let noun = target.map_or("tab", RenameTarget::noun);
             spans.extend([
                 Span::styled(
                     format!(" rename › {noun} "),
@@ -51,11 +49,7 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
             ]);
             (
                 "name ❯ ",
-                match noun {
-                    "workspace" => "the new name of the workspace",
-                    "pane" => "the new name of the pane",
-                    _ => "the new name of the tab",
-                },
+                target.map_or("the new name of the tab", RenameTarget::placeholder),
             )
         }
         (true, Step::Where) => {

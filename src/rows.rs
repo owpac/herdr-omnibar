@@ -450,15 +450,16 @@ fn matches_in(items: Vec<Item>, query: &str, with_context: bool) -> Vec<(Item, V
         .into_iter()
         .filter_map(|item| {
             let name = item.name();
-            let all = if with_context {
-                fuzzy::find(query, &format!("{name} {}", item.context()))?
+            let by_name = fuzzy::find(query, &name);
+            // Without the context, the match of the name gives the score and the positions.
+            let (score, positions) = if with_context {
+                let all = fuzzy::find(query, &format!("{name} {}", item.context()))?;
+                (all.score, by_name.map(|found| found.positions))
             } else {
-                fuzzy::find(query, &name)?
+                let found = by_name?;
+                (found.score, Some(found.positions))
             };
-            let positions = fuzzy::find(query, &name)
-                .map(|found| found.positions)
-                .unwrap_or_default();
-            Some((item, positions, all.score))
+            Some((item, positions.unwrap_or_default(), score))
         })
         .collect();
     found.sort_by_key(|(_, _, score)| std::cmp::Reverse(*score));

@@ -175,22 +175,21 @@ pub fn plan(
             workspace_id: place.workspace_id.clone()?,
             folder: place.folder.clone(),
         },
-        // A place that has a workspace: the typed name is the label of the new workspace, and the
-        // automatic titles name its first tab.
         // The row "new workspace…" has no label without a name: no plan.
         Choice::NewWorkspace if place.is_home() && name.is_empty() => return None,
-        Choice::NewWorkspace if place.labels_new_workspace() => Action::NewWorkspace {
-            folder: place.folder.clone(),
-            label: if name.is_empty() {
-                place.label.clone()
-            } else {
+        Choice::NewWorkspace => {
+            // A place that has a workspace: the typed name is the label of the new workspace, and
+            // the automatic titles name its first tab.
+            let label = if place.labels_new_workspace() && !name.is_empty() {
                 std::mem::take(&mut name)
-            },
-        },
-        Choice::NewWorkspace => Action::NewWorkspace {
-            folder: place.folder.clone(),
-            label: place.label.clone(),
-        },
+            } else {
+                place.label.clone()
+            };
+            Action::NewWorkspace {
+                folder: place.folder.clone(),
+                label,
+            }
+        }
     };
     Some(Plan {
         action,

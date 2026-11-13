@@ -1204,10 +1204,7 @@ mod tests {
         assert_eq!(selected_name(&app), "new workspace…");
         assert!(matches!(press(&mut app, KeyCode::Enter), Outcome::Continue));
         assert_eq!(app.create.step, Step::Where);
-        assert_eq!(
-            app.message.as_deref(),
-            Some("type the name of the new workspace")
-        );
+        assert_eq!(app.message.as_deref(), Some(crate::places::NAME_MISSING));
         assert!(!app.enter_creates_workspace());
         // With a text that no place matches: the row is selected, and ↵ creates at once.
         type_text(&mut app, "ville france");

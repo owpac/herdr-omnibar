@@ -43,6 +43,13 @@ contexts = ["global"]
 command = ["bin/herdr-omnibar", "open", "tabs"]
 
 [[actions]]
+id = "workspaces"
+title = "Omnibar: workspaces"
+description = "Search the open workspaces, then go to one"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "open", "workspaces"]
+
+[[actions]]
 id = "worktrees"
 title = "Omnibar: worktrees"
 description = "Search the worktrees of the current project, then go to one or create one"

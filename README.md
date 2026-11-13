@@ -40,6 +40,7 @@ Each filter has its own action. Bind a key to the action of your choice in `~/.c
 | `herdr-omnibar.new` | The creation of a tab or a worktree |
 | `herdr-omnibar.agents` | The agents |
 | `herdr-omnibar.tabs` | The tabs without an agent |
+| `herdr-omnibar.workspaces` | The open workspaces |
 | `herdr-omnibar.worktrees` | The branches of the current project, and a new worktree |
 | `herdr-omnibar.folders` | The projects and the folders |
 | `herdr-omnibar.actions` | The actions of the herdr plugins |
@@ -121,7 +122,7 @@ pills = "square"
 # The optional features. Remove a name to turn its feature off.
 features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
 # The filters of the chips, in the order of ⇥. Remove a name to hide its filter.
-filters = ["all", "agents", "tabs", "worktrees", "folders", "new", "actions"]
+filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]
 ```
 
 `filters` gives the chips of the search line, in the order of `⇥` and `⇧⇥`. A filter outside the list has no chip and no shortcut, but its action still opens it: its chip then shows until `⇥` leaves it. The filter `panes` is off by default: it has one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.

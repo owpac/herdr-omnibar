@@ -9,7 +9,7 @@
 //! # The optional features. Remove a name to turn its feature off.
 //! features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
 //! # The filters of the chips, in the order of Tab. Remove a name to hide its filter.
-//! filters = ["all", "agents", "tabs", "worktrees", "folders", "new", "actions"]
+//! filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]
 //! ```
 //!
 //! A missing file, a missing key or a wrong value gives the default.
@@ -72,10 +72,11 @@ pub const DEFAULT_FEATURES: [&str; 5] = [
 ];
 
 /// The filters of the chips by default, in the order of Tab. The filter panes is off by default.
-pub const DEFAULT_FILTERS: [&str; 7] = [
+pub const DEFAULT_FILTERS: [&str; 8] = [
     "all",
     "agents",
     "tabs",
+    "workspaces",
     "worktrees",
     "folders",
     "new",

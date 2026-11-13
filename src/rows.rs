@@ -164,6 +164,10 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
         let tabs = model.tabs.iter().cloned().map(Item::Tab).collect();
         group(&mut lines, "Tabs", matches(tabs, query));
     }
+    if filter == Filter::Workspaces {
+        let spaces = model.spaces.iter().cloned().map(Item::Workspace).collect();
+        group(&mut lines, "Workspaces", matches(spaces, query));
+    }
     if filter == Filter::All {
         // The worktrees of the current project have their own group: their workspaces are not
         // in the group Workspaces.
@@ -605,6 +609,32 @@ mod tests {
         assert_eq!(
             titles(&lines_of(&model(), &[], &[], Filter::Tabs, "")),
             ["# Tabs", "logs"]
+        );
+    }
+
+    #[test]
+    fn the_filter_workspaces_shows_all_the_workspaces() {
+        let model = model();
+        let open = [place(Kind::Workspace, "atlas", Some("w1"))];
+        let branches = [Branch {
+            name: "main".into(),
+            worktree: Some("/work/atlas".into()),
+            time: None,
+        }];
+        let sources = Sources {
+            model: &model,
+            others: &[],
+            actions: &[],
+            open: &open,
+            project: "atlas",
+            branches: &branches,
+        };
+        // In All, the workspace of a worktree of the current project is in the group of the
+        // worktrees. The filter Workspaces shows it.
+        assert!(!titles(&build(&sources, Filter::All, "")).contains(&"# Workspaces".to_string()));
+        assert_eq!(
+            titles(&build(&sources, Filter::Workspaces, "")),
+            ["# Workspaces", "atlas"]
         );
     }
 

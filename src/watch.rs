@@ -41,6 +41,8 @@ const MAX_LOG_SIZE_BYTES: u64 = 200_000;
 
 /// The id of this plugin, and of the other plugin that writes the titles of the tabs.
 const PLUGIN_ID: &str = "herdr-omnibar";
+/// The binary in the folder of a version of the plugin.
+const BINARY_IN_ROOT: &str = "bin/herdr-omnibar";
 const HERDR_BAR: &str = "herdr-bar";
 
 /// The renames for a snapshot: the id of each tab, and its new title.
@@ -172,13 +174,26 @@ pub fn run() -> Result<(), String> {
             plugins_read = Some(Instant::now());
             let reason = match herdr::plugins() {
                 Ok(plugins) => {
-                    if herdr::enabled(&plugins, PLUGIN_ID).is_none() {
+                    let Some(plugin) = herdr::enabled(&plugins, PLUGIN_ID) else {
                         log.write("the plugin is disabled: watcher stopped");
                         return Ok(());
+                    };
+                    // herdr installs each version in a new folder, and runs no command of the
+                    // plugin after an install or a link: the list gives the active version.
+                    if let Some(watch) = binary.as_mut() {
+                        watch.active = plugin
+                            .plugin_root
+                            .as_ref()
+                            .map(|root| canonical(&root.join(BINARY_IN_ROOT)));
                     }
                     other_writer(&plugins, bar_config().as_deref())
                 }
-                Err(error) => Some(format!("no list of the plugins: {error}")),
+                Err(error) => {
+                    if let Some(watch) = binary.as_mut() {
+                        watch.active = None;
+                    }
+                    Some(format!("no list of the plugins: {error}"))
+                }
             };
             if reason != waiting {
                 log.write(&match &reason {
@@ -297,9 +312,10 @@ fn canonical(path: &Path) -> PathBuf {
 
 /// The file with the path of the binary of the last `watch` command.
 ///
-/// herdr installs each version of the plugin in a new folder. herdr runs `watch` of the active
-/// version at its start and when it detects an agent: this file gives the running watcher the
-/// binary of this version.
+/// herdr installs each version of the plugin in a new folder. The watcher takes the binary of the
+/// active version from the list of the plugins of herdr. If herdr does not answer, this file gives
+/// the binary of the last `watch` command: at the start of herdr, for a new agent, and at each
+/// opening of the popup.
 fn wanted_binary_path(state_dir: &Path) -> PathBuf {
     state_dir.join("watch.binary")
 }
@@ -334,6 +350,9 @@ struct BinaryWatch {
     time: Option<SystemTime>,
     /// A wanted binary that `exec` refused: the watcher does not try it again.
     refused: Option<PathBuf>,
+    /// The canonical path of the binary of the active version, from the list of the plugins of
+    /// herdr. None if herdr did not answer.
+    active: Option<PathBuf>,
 }
 
 impl BinaryWatch {
@@ -343,15 +362,20 @@ impl BinaryWatch {
             current,
             time,
             refused: None,
+            active: None,
         }
     }
 
-    /// The binary that the watcher runs now: the binary of the last `watch` command, or its own
-    /// binary after a rebuild. None keeps the process.
+    /// The binary that the watcher runs now: the binary of the active version in herdr, else the
+    /// binary of the last `watch` command, or its own binary after a rebuild. None keeps the
+    /// process.
     fn binary_to_run(&self, state_dir: &Path) -> Option<PathBuf> {
-        let wanted = read_wanted_binary(state_dir)
-            .map(|path| canonical(&path))
-            .filter(|path| path.is_file() && self.refused.as_ref() != Some(path));
+        let usable = |path: &PathBuf| path.is_file() && self.refused.as_ref() != Some(path);
+        let wanted = self.active.clone().filter(usable).or_else(|| {
+            read_wanted_binary(state_dir)
+                .map(|path| canonical(&path))
+                .filter(usable)
+        });
         if let Some(wanted) = wanted.filter(|wanted| *wanted != self.current) {
             return Some(wanted);
         }
@@ -407,6 +431,32 @@ impl Log {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_active_version_of_herdr_comes_before_the_last_watch() {
+        let folder =
+            canonical(&std::env::temp_dir()).join(format!("omnibar-active-{}", process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let [current, active, old] = ["current", "active", "old"].map(|name| folder.join(name));
+        for binary in [&current, &active, &old] {
+            fs::write(binary, "").unwrap();
+        }
+        write_wanted_binary(&folder, &old).unwrap();
+        let mut watch = BinaryWatch::new(current.clone());
+        watch.active = Some(active.clone());
+        let first = watch.binary_to_run(&folder);
+        // The watcher runs the active version: the last watch changes nothing.
+        let mut watch = BinaryWatch::new(active.clone());
+        watch.active = Some(active.clone());
+        let second = watch.binary_to_run(&folder);
+        // Without an answer of herdr, the last watch gives the binary.
+        watch.active = None;
+        let third = watch.binary_to_run(&folder);
+        let _ = fs::remove_dir_all(&folder);
+        assert_eq!(first, Some(active));
+        assert_eq!(second, None);
+        assert_eq!(third, Some(old));
+    }
 
     fn snapshot(tabs: &str, panes: &str) -> Snapshot {
         serde_json::from_str(&format!(r#"{{"tabs": [{tabs}], "panes": [{panes}]}}"#)).unwrap()

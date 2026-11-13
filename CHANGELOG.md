@@ -2,6 +2,12 @@
 
 The changes of each release of herdr-omnibar. The workflow release-pr writes this file.
 
+## [2026.11.3](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.3) - 2026-11-13
+
+### Documentation
+
+- the header of install.sh gives the 2 commits that can download the release binary ([#7](https://github.com/owpac/herdr-omnibar/pull/7))
+
 ## [2026.11.2](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.2) - 2026-11-12
 
 ### Bug fixes

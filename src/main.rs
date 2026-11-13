@@ -3,7 +3,8 @@
 //!
 //! The actions of herdr-plugin.toml run `open <filter>`: it reads the context of the action, then
 //! opens the popup. The popup runs `run`. `keys` shows the keys that the popup receives. `watch`
-//! starts the watcher of the automatic titles of the tabs.
+//! starts the watcher of the automatic titles of the tabs. `sort` sorts the workspaces of the
+//! herdr sidebar.
 
 mod app;
 mod changes;
@@ -17,11 +18,13 @@ mod herdr;
 mod icons;
 mod keys;
 mod model;
+mod order;
 mod places;
 mod pulls;
 mod recent;
 mod remove;
 mod rows;
+mod sort;
 mod theme;
 mod times;
 mod ui;
@@ -32,7 +35,7 @@ use std::process::ExitCode;
 
 use filter::Filter;
 
-const USAGE: &str = "usage: herdr-omnibar open <filter> | run | execute | invoke <plugin> <action> | fork <tab> <pane> | keys | list | watch [--run] | titles | remove <worktree> | --version
+const USAGE: &str = "usage: herdr-omnibar open <filter> | run | execute | invoke <plugin> <action> | fork <tab> <pane> | keys | list | watch [--run] | titles | sort [--print] | remove <worktree> | --version
 filters: all, new, agents, tabs, workspaces, worktrees, folders, actions, panes, keys";
 
 /// The variable that gives the filter of the popup.
@@ -52,6 +55,11 @@ fn main() -> ExitCode {
         }
         Some("watch") => watch::start(),
         Some("titles") => watch::print(),
+        Some("sort") => match arguments.get(1).map(String::as_str) {
+            None => sort::run(false),
+            Some("--print") => sort::run(true),
+            Some(_) => Err(USAGE.to_string()),
+        },
         Some("remove") => match arguments.get(1) {
             Some(folder) => remove::run(std::path::Path::new(folder)),
             None => Err(USAGE.to_string()),

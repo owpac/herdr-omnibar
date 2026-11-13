@@ -47,6 +47,7 @@ Each filter has its own action. Bind a key to the action of your choice in `~/.c
 | `herdr-omnibar.folders` | The projects and the folders |
 | `herdr-omnibar.actions` | The actions of the herdr plugins |
 | `herdr-omnibar.panes` | Each pane of each tab |
+| `herdr-omnibar.sort` | Not a popup: it sorts the workspaces of the herdr sidebar |
 | `herdr-omnibar.keys` | A tool that shows the keys that the popup receives |
 
 ```toml
@@ -173,6 +174,8 @@ shellcheck scripts/*.sh
 ```
 
 `docs/make-images` makes the images of this README with VHS (`brew install vhs`): a demo folder with 2 git projects, a herdr snapshot of example and the screens of its panes. With `OMNIBAR_DEMO=<folder>`, the omnibar reads them, and asks nothing to herdr.
+
+`herdr-omnibar sort` sorts the workspaces of the herdr sidebar, with one call of the socket of herdr (`workspace.move_block`): it works inside herdr, where `HERDR_SOCKET_PATH` is set. The git workspaces come first, grouped by repository and sorted by the name of the repository. In a group, the main workspace comes first, then the linked worktrees sorted by label. The workspaces without git come last, sorted by label. The Actions filter shows it as "Omnibar: sort the workspaces". `herdr-omnibar sort --print` prints the old and the new order, and changes nothing.
 
 `herdr-omnibar list` prints the workspaces, the agents and the tabs, as the popup sees them. `herdr-omnibar titles` prints the renames of the watcher of the titles.
 

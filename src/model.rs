@@ -84,6 +84,22 @@ pub struct Workspace {
     pub label: String,
     #[serde(default)]
     pub agent_status: Status,
+    /// The git worktree data that herdr gives for a workspace in a git repository.
+    #[serde(default)]
+    pub worktree: Option<Box<Worktree>>,
+}
+
+/// The git worktree data of a workspace, as herdr gives it.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct Worktree {
+    #[serde(default)]
+    pub repo_key: String,
+    #[serde(default)]
+    pub repo_name: String,
+    #[serde(default)]
+    pub repo_root: Option<PathBuf>,
+    #[serde(default)]
+    pub is_linked_worktree: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]

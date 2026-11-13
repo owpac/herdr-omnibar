@@ -650,6 +650,7 @@ mod tests {
         brief.agents = vec![crate::model::AgentInfo {
             pane_id: "w1:p1".into(),
             name: Some("task-a2p".into()),
+            ..Default::default()
         }];
         assert_eq!(auto_title(&brief, "w1:t1"), None);
         // A tab without an agent, and an unknown tab.
@@ -701,6 +702,7 @@ mod tests {
         snapshot.agents = vec![crate::model::AgentInfo {
             pane_id: "w1:p1".into(),
             name: Some("task-a2p".into()),
+            ..Default::default()
         }];
         assert!(decide(&snapshot, &HashMap::new()).is_empty());
         // The name that the list shows is the number too.

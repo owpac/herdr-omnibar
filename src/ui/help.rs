@@ -46,7 +46,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         ),
         (
             "⌃R",
-            "Rename the tab of the selected row. ↵ saves, esc keeps the name.",
+            "Rename the tab, the workspace or the pane of the selected row. ↵ saves, esc keeps the name.",
         ),
         (
             "mouse",

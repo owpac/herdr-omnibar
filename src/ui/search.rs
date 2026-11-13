@@ -38,14 +38,25 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
     let mut spans = Vec::new();
     let (prompt, placeholder) = match (creating(app), app.create.step) {
         _ if app.rename.is_some() => {
+            let noun = app
+                .rename
+                .as_ref()
+                .map_or("tab", |rename| rename.target.noun());
             spans.extend([
                 Span::styled(
-                    " rename › tab ",
+                    format!(" rename › {noun} "),
                     Style::new().fg(muted_color()).bg(pill_color()),
                 ),
                 gap(),
             ]);
-            ("name ❯ ", "the new name of the tab")
+            (
+                "name ❯ ",
+                match noun {
+                    "workspace" => "the new name of the workspace",
+                    "pane" => "the new name of the pane",
+                    _ => "the new name of the tab",
+                },
+            )
         }
         (true, Step::Where) => {
             spans.extend([crumb(None), gap()]);

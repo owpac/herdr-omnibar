@@ -248,6 +248,12 @@ fn choice_action(app: &App, choice: &Choice) -> Action {
         ),
         Choice::NewTab => Action::create(tab, pill_span(true, place_label)),
         Choice::NewSplit { .. } => Action::create(new("split"), pill_span(true, place_label)),
+        Choice::NewWorkspace if place.is_some_and(|p| p.kind == Kind::Home) && name.is_empty() => {
+            Action::warning("type the name of the new workspace".into())
+        }
+        Choice::NewWorkspace if place.is_some_and(Place::labels_new_workspace) => {
+            Action::create(new("workspace"), pill_span(false, place_label))
+        }
         Choice::NewWorkspace => Action::create(tab, pill_span(false, place_label)),
         Choice::AnotherPlace => Action::bare("choose another place"),
     }

@@ -22,6 +22,9 @@ pub enum Kind {
     Project,
     /// A folder outside git, without a workspace.
     Folder,
+    /// The home folder, for a new workspace that the typed name labels: the first row of the
+    /// step "where" of the filter New.
+    Home,
 }
 
 /// A place where the omnibar can create a tab or a worktree.
@@ -41,6 +44,26 @@ pub struct Place {
 }
 
 impl Place {
+    /// The place of the row "new workspace…": the home folder. The home folder can already have a
+    /// workspace: the new workspace is another one.
+    pub fn home() -> Place {
+        Place {
+            kind: Kind::Home,
+            label: "~".to_string(),
+            project: "~".to_string(),
+            folder: env::var_os("HOME").map(PathBuf::from).unwrap_or_default(),
+            workspace_id: None,
+            main: None,
+            tabs: Vec::new(),
+        }
+    }
+
+    /// True if the typed name labels the new workspace of this place, and not its first tab: the
+    /// place already has a workspace, or it is the row "new workspace…".
+    pub fn labels_new_workspace(&self) -> bool {
+        self.workspace_id.is_some() || self.kind == Kind::Home
+    }
+
     /// A key that stays the same between 2 refreshes.
     pub fn key(&self) -> String {
         match &self.workspace_id {

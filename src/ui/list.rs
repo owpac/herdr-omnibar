@@ -176,10 +176,16 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
                     (None, None) => ("no worktree", dim_color()),
                 };
                 // The pull request of the branch (feature pull_requests), then its workspace.
-                let mut spans = match app.pull(main, branch) {
-                    Some(Lookup::Found(pull)) => super::pull::badge(&pull),
+                // With the feature, each row reserves the width of a badge from the first draw:
+                // the columns do not move when the answer of gh arrives.
+                let lookup = app.pull(main, branch);
+                let mut spans = match &lookup {
+                    Some(Lookup::Found(pull)) => super::pull::badge(pull),
                     _ => Vec::new(),
                 };
+                if lookup.is_some() {
+                    super::pull::reserve(&mut spans);
+                }
                 spans.push(Span::styled(text, Style::new().fg(color)));
                 // The age of the last commit of the branch.
                 if let Some(age) = app.branch_age(main, branch) {

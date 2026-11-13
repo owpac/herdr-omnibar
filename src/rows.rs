@@ -30,6 +30,9 @@ pub enum Item {
     Action(PluginAction),
     /// The creation of a tab or a worktree with the query as its name: ↵ goes to the step "what".
     Create(String),
+    /// A new workspace in ~ with the text as its label: ↵ creates it at once. Without a text, the
+    /// row asks for a name.
+    NewWorkspace(String),
     /// A pane of a tab (filter Panes).
     Pane(PaneRow),
 }
@@ -54,6 +57,8 @@ impl Item {
             Item::Action(action) if action.title.is_empty() => action.action_id.clone(),
             Item::Action(action) => action.title.clone(),
             Item::Create(name) => format!("create “{name}”…"),
+            Item::NewWorkspace(text) if text.is_empty() => "new workspace…".to_string(),
+            Item::NewWorkspace(text) => format!("new workspace “{text}”"),
             Item::Pane(pane) => pane.name.clone(),
         }
     }
@@ -73,6 +78,7 @@ impl Item {
             Item::Choice(_) => String::new(),
             Item::Action(action) => action.plugin_id.clone(),
             Item::Create(_) => String::new(),
+            Item::NewWorkspace(_) => format!("a new workspace in {}", home(&places::home_folder())),
             Item::Pane(pane) => format!("{} ▸ {}", pane.place, pane.tab),
         }
     }
@@ -87,6 +93,7 @@ impl Item {
             Item::Choice(choice) => format!("choice:{choice:?}"),
             Item::Action(action) => format!("action:{}:{}", action.plugin_id, action.action_id),
             Item::Create(_) => "create".to_string(),
+            Item::NewWorkspace(_) => "new-workspace".to_string(),
             Item::Pane(pane) => format!("pane:{}", pane.pane_id),
         }
     }
@@ -307,7 +314,9 @@ pub fn worktree_lines(
 }
 
 /// The lines of the step "where": the current place, the open workspaces, the projects without a
-/// workspace, the folders. A query that starts with ~, / or . lists the real folders.
+/// workspace, the folders. The places match by their name, not by their folder: a folder under
+/// ~/Workspace would match almost each text. A query that starts with ~, / or . lists the real
+/// folders.
 pub fn where_lines(
     open: &[Place],
     others: &[Place],
@@ -319,6 +328,12 @@ pub fn where_lines(
     }
     let query = query.trim();
     let mut lines = Vec::new();
+    // The first row makes a new workspace in ~, with the typed text as its label.
+    group(
+        &mut lines,
+        "New",
+        vec![(Item::NewWorkspace(query.to_string()), Vec::new())],
+    );
     let (here, rest): (Vec<Place>, Vec<Place>) = open
         .iter()
         .cloned()
@@ -326,12 +341,12 @@ pub fn where_lines(
     group(
         &mut lines,
         "Current place",
-        matches(here.into_iter().map(Item::Place).collect(), query),
+        matches_by_name(here.into_iter().map(Item::Place).collect(), query),
     );
     group(
         &mut lines,
         "Open workspaces",
-        matches(rest.into_iter().map(Item::Place).collect(), query),
+        matches_by_name(rest.into_iter().map(Item::Place).collect(), query),
     );
     let (projects, folders): (Vec<_>, Vec<_>) = others
         .iter()
@@ -340,12 +355,12 @@ pub fn where_lines(
     group(
         &mut lines,
         "Projects without a workspace",
-        matches(projects.into_iter().map(Item::Place).collect(), query),
+        matches_by_name(projects.into_iter().map(Item::Place).collect(), query),
     );
     group(
         &mut lines,
         "Folders",
-        matches(folders.into_iter().map(Item::Place).collect(), query),
+        matches_by_name(folders.into_iter().map(Item::Place).collect(), query),
     );
     lines
 }
@@ -437,6 +452,15 @@ pub fn complete_path(query: &str, lines: &[Line]) -> Option<String> {
 /// The items that match the query, with the positions in their names. With a query, the best
 /// matches come first.
 fn matches(items: Vec<Item>, query: &str) -> Vec<(Item, Vec<usize>)> {
+    matches_in(items, query, true)
+}
+
+/// The items whose name matches the query: the context (the folder) does not count.
+fn matches_by_name(items: Vec<Item>, query: &str) -> Vec<(Item, Vec<usize>)> {
+    matches_in(items, query, false)
+}
+
+fn matches_in(items: Vec<Item>, query: &str, with_context: bool) -> Vec<(Item, Vec<usize>)> {
     // An empty query keeps all the items, in their order.
     if query.is_empty() {
         return items.into_iter().map(|item| (item, Vec::new())).collect();
@@ -445,11 +469,16 @@ fn matches(items: Vec<Item>, query: &str) -> Vec<(Item, Vec<usize>)> {
         .into_iter()
         .filter_map(|item| {
             let name = item.name();
-            let all = fuzzy::find(query, &format!("{name} {}", item.context()))?;
-            let positions = fuzzy::find(query, &name)
-                .map(|found| found.positions)
-                .unwrap_or_default();
-            Some((item, positions, all.score))
+            let by_name = fuzzy::find(query, &name);
+            // Without the context, the match of the name gives the score and the positions.
+            let (score, positions) = if with_context {
+                let all = fuzzy::find(query, &format!("{name} {}", item.context()))?;
+                (all.score, by_name.map(|found| found.positions))
+            } else {
+                let found = by_name?;
+                (found.score, Some(found.positions))
+            };
+            Some((item, positions.unwrap_or_default(), score))
         })
         .collect();
     found.sort_by_key(|(_, _, score)| std::cmp::Reverse(*score));
@@ -543,6 +572,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_row_new_workspace_has_its_own_key_and_names() {
+        let folder = Place {
+            folder: places::home_folder(),
+            ..place(Kind::Folder, "~", None)
+        };
+        let empty = Item::NewWorkspace(String::new());
+        assert_ne!(empty.key(), Item::Place(folder).key());
+        assert_eq!(empty.name(), "new workspace…");
+        assert_eq!(
+            Item::NewWorkspace("ville".into()).name(),
+            "new workspace “ville”"
+        );
+    }
+
     fn lines_of(
         model: &Model,
         others: &[Place],
@@ -570,6 +614,17 @@ mod tests {
                 Line::Group(title) => Some(format!("# {title}")),
                 Line::Gap => None,
                 Line::Row { item, .. } => Some(item.name()),
+            })
+            .collect()
+    }
+
+    /// The keys of the rows: they do not depend on the display of the names.
+    fn keys(lines: &[Line]) -> Vec<String> {
+        lines
+            .iter()
+            .filter_map(|line| match line {
+                Line::Row { item, .. } => Some(item.key()),
+                _ => None,
             })
             .collect()
     }
@@ -606,13 +661,13 @@ mod tests {
             build(&sources, Filter::Workspaces, "")
         };
         assert_eq!(
-            titles(&build_with(false)),
-            ["# Workspaces", "pac", "atlas.fix", "atlas"]
+            keys(&build_with(false)),
+            ["workspace:w2", "workspace:w1", "workspace:w3"]
         );
         // The group atlas shows at its first member, w1: the main workspace w3 first.
         assert_eq!(
-            titles(&build_with(true)),
-            ["# Workspaces", "atlas", "atlas.fix", "pac"]
+            keys(&build_with(true)),
+            ["workspace:w3", "workspace:w1", "workspace:w2"]
         );
     }
 
@@ -735,6 +790,8 @@ mod tests {
         assert_eq!(
             titles(&where_lines(&open, &others, Some("w1"), "")),
             [
+                "# New",
+                "new workspace…",
                 "# Current place",
                 "atlas",
                 "# Open workspaces",
@@ -745,6 +802,31 @@ mod tests {
                 "Downloads"
             ]
         );
+    }
+
+    #[test]
+    fn the_step_where_matches_the_places_by_their_name_and_not_by_their_folder() {
+        // The folder of "atlas" is /work/Recettes: it contains the text, its name does not.
+        let atlas = Place {
+            folder: "/work/Recettes".into(),
+            ..place(Kind::Workspace, "atlas", Some("w1"))
+        };
+        let others = [Place {
+            folder: "/work/Recettes/pac".into(),
+            ..place(Kind::Project, "prompts", None)
+        }];
+        let open = [atlas];
+        let names = |query: &str| -> Vec<String> {
+            titles(&where_lines(&open, &others, Some("w1"), query))
+                .into_iter()
+                .filter(|title| !title.starts_with('#'))
+                .collect()
+        };
+        // Only the row of the new workspace is left: no place has "Recettes" in its name.
+        assert_eq!(names("Recettes"), ["new workspace “Recettes”"]);
+        assert_eq!(names("pac"), ["new workspace “pac”"]);
+        // A name that matches lists the place.
+        assert_eq!(names("atl"), ["new workspace “atl”", "atlas"]);
     }
 
     #[test]

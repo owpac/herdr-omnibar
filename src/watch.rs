@@ -59,35 +59,45 @@ const HERDR_BAR: &str = "herdr-bar";
 pub fn decide(snapshot: &Snapshot, written: &HashMap<String, String>) -> Vec<(String, String)> {
     let mut renames = Vec::new();
     for tab in &snapshot.tabs {
-        let agents: Vec<_> = snapshot
-            .panes
-            .iter()
-            .filter(|pane| pane.tab_id == tab.tab_id && pane.agent.is_some())
-            .collect();
-        let [pane] = agents.as_slice() else {
-            continue;
-        };
         let owned = tab.has_default_label() || written.get(&tab.tab_id) == Some(&tab.label);
         if !owned {
             continue;
         }
-        let title = pane.terminal_title_stripped.as_deref().and_then(|title| {
-            useful_title(
-                title,
-                pane.agent.as_deref().unwrap_or_default(),
-                pane.cwd.as_deref(),
-            )
-        });
-        if let Some(title) = title.filter(|title| *title != tab.label) {
+        if let Some(title) = auto_title(snapshot, &tab.tab_id).filter(|title| *title != tab.label) {
             renames.push((tab.tab_id.clone(), title));
         }
     }
     renames
 }
 
+/// The automatic title of a tab: the useful title of the terminal of its one agent. None for a
+/// tab with no agent or with 2 agents, or if the title tells nothing.
+pub fn auto_title(snapshot: &Snapshot, tab_id: &str) -> Option<String> {
+    let agents: Vec<_> = snapshot
+        .panes
+        .iter()
+        .filter(|pane| pane.tab_id == tab_id && pane.agent.is_some())
+        .collect();
+    let [pane] = agents.as_slice() else {
+        return None;
+    };
+    useful_title(
+        pane.terminal_title_stripped.as_deref()?,
+        pane.agent.as_deref().unwrap_or_default(),
+        snapshot.agent_name(&pane.pane_id),
+        pane.cwd.as_deref(),
+    )
+}
+
 /// The title of the terminal of an agent, if it tells the task. A prompt, the name of the agent
-/// or the name of the folder tells nothing. Codex adds ` | <folder>` to its title: this part goes.
-pub fn useful_title(title: &str, agent: &str, folder: Option<&Path>) -> Option<String> {
+/// the name of the folder, the herdr name of the agent (`name`) and the command line of the agent
+/// (`claude --name x`) tell nothing. Codex adds ` | <folder>` to its title: this part goes.
+pub fn useful_title(
+    title: &str,
+    agent: &str,
+    name: Option<&str>,
+    folder: Option<&Path>,
+) -> Option<String> {
     let folder_name = folder
         .and_then(Path::file_name)
         .map(|name| name.to_string_lossy().into_owned());
@@ -97,12 +107,11 @@ pub fn useful_title(title: &str, agent: &str, folder: Option<&Path>) -> Option<S
             title = head.trim();
         }
     }
-    let lower = title.to_lowercase();
-    let agent_names = [agent, "claude", "claude code", "codex", "opencode"];
     if title.is_empty()
         || model::is_prompt_title(title)
-        || agent_names.iter().any(|name| name.to_lowercase() == lower)
+        || model::is_agent_name(title, agent)
         || folder_name.as_deref() == Some(title)
+        || model::is_agent_noise(title, agent, name)
     {
         return None;
     }
@@ -301,6 +310,30 @@ fn rename(snapshot: &Snapshot, written: &mut HashMap<String, String>, state_dir:
     if changed || written.len() != before {
         save_written(state_dir, written);
     }
+}
+
+/// Give a tab back to the watcher: rename it to its number, the name that herdr gives. The
+/// watcher then writes the title of its agent at its next read (2 seconds). Start the watcher if
+/// it is stopped. Return the automatic title, or None if the tab has none: then the name stays.
+pub fn give_back(tab_id: &str) -> Result<Option<String>, String> {
+    // If another plugin writes the titles, the watcher waits: the tab would keep its number.
+    let plugins = herdr::plugins().map_err(|error| error.to_string())?;
+    if let Some(reason) = other_writer(&plugins, bar_config().as_deref()) {
+        return Err(reason);
+    }
+    let snapshot = herdr::snapshot().map_err(|error| error.to_string())?;
+    let Some(title) = auto_title(&snapshot, tab_id) else {
+        return Ok(None);
+    };
+    let number = snapshot
+        .tabs
+        .iter()
+        .find(|tab| tab.tab_id == tab_id)
+        .and_then(|tab| tab.number)
+        .ok_or_else(|| format!("no tab {tab_id}"))?;
+    herdr::rename_tab(tab_id, &number.to_string()).map_err(|error| error.to_string())?;
+    start()?;
+    Ok(Some(title))
 }
 
 /// Print what the watcher does now: the renames, or the reason to wait.
@@ -593,6 +626,11 @@ mod tests {
         assert_eq!(shared, Some(old));
     }
 
+    /// The agent of a snapshot with a herdr name. The other fields of herdr stay empty.
+    fn agent_info(pane_id: &str, name: &str) -> crate::model::AgentInfo {
+        serde_json::from_value(serde_json::json!({ "pane_id": pane_id, "name": name })).unwrap()
+    }
+
     fn snapshot(tabs: &str, panes: &str) -> Snapshot {
         serde_json::from_str(&format!(r#"{{"tabs": [{tabs}], "panes": [{panes}]}}"#)).unwrap()
     }
@@ -650,19 +688,108 @@ mod tests {
     #[test]
     fn a_title_without_the_task_is_not_useful() {
         let folder = Some(Path::new("/work/atlas"));
-        assert_eq!(useful_title("  ", "claude", folder), None);
-        assert_eq!(useful_title("OpenCode", "opencode", folder), None);
-        assert_eq!(useful_title("Claude Code", "claude", folder), None);
-        assert_eq!(useful_title("atlas", "claude", folder), None);
-        assert_eq!(useful_title("thomas@mac:~/work", "claude", folder), None);
+        assert_eq!(useful_title("  ", "claude", None, folder), None);
+        assert_eq!(useful_title("OpenCode", "opencode", None, folder), None);
+        assert_eq!(useful_title("Claude Code", "claude", None, folder), None);
+        assert_eq!(useful_title("atlas", "claude", None, folder), None);
         assert_eq!(
-            useful_title("Fix the login | atlas", "codex", folder).as_deref(),
+            useful_title("thomas@mac:~/work", "claude", None, folder),
+            None
+        );
+        assert_eq!(
+            useful_title("Fix the login | atlas", "codex", None, folder).as_deref(),
             Some("Fix the login")
         );
         assert_eq!(
-            useful_title("A | B", "codex", folder).as_deref(),
+            useful_title("A | B", "codex", None, folder).as_deref(),
             Some("A | B")
         );
+    }
+
+    #[test]
+    fn a_tab_has_an_automatic_title_only_if_its_agent_gives_a_useful_one() {
+        let tabs = tab("w1:t1", "1", 1);
+        let useful = snapshot(
+            &tabs,
+            &pane("w1:p1", "w1:t1", Some("claude"), "Fix the login"),
+        );
+        assert_eq!(
+            auto_title(&useful, "w1:t1").as_deref(),
+            Some("Fix the login")
+        );
+        // The title of a brief is its herdr name: ctrl+T keeps the name of the tab.
+        let mut brief = snapshot(&tabs, &pane("w1:p1", "w1:t1", Some("claude"), "task-a2p"));
+        brief.agents = vec![agent_info("w1:p1", "task-a2p")];
+        assert_eq!(auto_title(&brief, "w1:t1"), None);
+        // A tab without an agent, and an unknown tab.
+        let shell = snapshot(&tabs, &pane("w1:p1", "w1:t1", None, "cargo test"));
+        assert_eq!(auto_title(&shell, "w1:t1"), None);
+        assert_eq!(auto_title(&useful, "w9:t9"), None);
+    }
+
+    #[test]
+    fn the_herdr_name_and_the_command_line_of_an_agent_are_not_titles() {
+        let folder = Some(Path::new("/work/atlas"));
+        let named = Some("task-a2p");
+        assert_eq!(useful_title("task-a2p", "claude", named, folder), None);
+        assert_eq!(useful_title("Task-A2P", "claude", named, folder), None);
+        assert_eq!(
+            useful_title(
+                "claude --model \"opus[1m]\" --permission-mode auto --name task-a2p --model",
+                "claude",
+                named,
+                folder
+            ),
+            None
+        );
+        assert_eq!(
+            useful_title("codex --model gpt abc", "codex", None, folder),
+            None
+        );
+        assert_eq!(
+            useful_title("opencode -c --port 1", "opencode", None, folder),
+            None
+        );
+        // A title is a command line only if an option follows the command.
+        assert_eq!(
+            useful_title("Amp up the cache", "amp", None, folder).as_deref(),
+            Some("Amp up the cache")
+        );
+        assert_eq!(
+            useful_title("opencode run", "opencode", None, folder).as_deref(),
+            Some("opencode run")
+        );
+        // The kind of the agent and the known names are not titles, in any case.
+        assert_eq!(useful_title("AMP", "amp", None, folder), None);
+        assert_eq!(useful_title("CLAUDE code", "amp", None, folder), None);
+        // The same text is a title for another agent without this name.
+        assert_eq!(
+            useful_title("task-a2p", "claude", None, folder).as_deref(),
+            Some("task-a2p")
+        );
+        // A task that only starts with the same letters is a title.
+        assert_eq!(
+            useful_title("Claudette login", "claude", None, folder).as_deref(),
+            Some("Claudette login")
+        );
+    }
+
+    #[test]
+    fn a_named_agent_keeps_the_number_of_its_tab() {
+        let panes = [
+            r#"{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent":"claude","terminal_title_stripped":"task-a2p"}"#,
+        ]
+        .join(",");
+        let tabs = [tab("w1:t1", "1", 1)].join(",");
+        let mut snapshot = snapshot(&tabs, &panes);
+        snapshot.agents = vec![agent_info("w1:p1", "task-a2p")];
+        assert!(decide(&snapshot, &HashMap::new()).is_empty());
+        // The name that the list shows is the number too.
+        let model = model::Model::build(&snapshot, &HashMap::new());
+        assert_eq!(model.agents[0].name, "1");
+        // Without the herdr name, the title is the task.
+        snapshot.agents.clear();
+        assert_eq!(decide(&snapshot, &HashMap::new()).len(), 1);
     }
 
     #[test]

@@ -8,7 +8,7 @@ use crate::pulls::{Lookup, Pull};
 use crate::times;
 
 use super::style::*;
-use super::text::fit;
+use super::text::{fit, spans_width};
 
 /// The state of a pull request, as a word and a color.
 fn state(pull: &Pull) -> (&'static str, Color) {
@@ -48,6 +48,20 @@ pub(super) fn badge(pull: &Pull) -> Vec<Span<'static>> {
     }
     spans.push(Span::raw("  "));
     spans
+}
+
+/// The width that the badge column reserves: `#1234`, a space, the glyph of the checks and 2 spaces.
+/// The reserve keeps the columns of the list at their place while the pull requests arrive from gh.
+const BADGE_WIDTH: usize = 9;
+
+/// Fill the badge of a row to `BADGE_WIDTH` with spaces after it: the numbers start at the same
+/// column, with or without the glyph of the checks, and a row without a badge keeps the same
+/// column positions. A longer badge makes the column wider.
+pub(super) fn reserve(spans: &mut Vec<Span<'static>>) {
+    let width = spans_width(spans);
+    if width < BADGE_WIDTH {
+        spans.push(Span::raw(" ".repeat(BADGE_WIDTH - width)));
+    }
 }
 
 /// A line of the view: a label in grey, then its spans.
@@ -151,4 +165,60 @@ pub(super) fn lines(lookup: &Lookup, width: usize) -> Vec<Line<'static>> {
         lines.push(row("updated", vec![muted(text)]));
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pulls::Checks;
+
+    fn pull(number: u64, passed: usize) -> Pull {
+        Pull {
+            number,
+            title: String::new(),
+            state: "OPEN".into(),
+            draft: false,
+            base: "main".into(),
+            additions: 0,
+            deletions: 0,
+            checks: Checks {
+                passed,
+                failed: 0,
+                pending: 0,
+            },
+            review: String::new(),
+            merge: String::new(),
+            updated: None,
+        }
+    }
+
+    fn reserved_width(mut spans: Vec<Span<'static>>) -> usize {
+        reserve(&mut spans);
+        spans_width(&spans)
+    }
+
+    #[test]
+    fn a_row_without_a_badge_and_a_row_with_a_usual_badge_have_the_same_width() {
+        assert_eq!(reserved_width(Vec::new()), BADGE_WIDTH);
+        assert_eq!(reserved_width(badge(&pull(14, 3))), BADGE_WIDTH);
+        assert_eq!(reserved_width(badge(&pull(142, 3))), BADGE_WIDTH);
+        // A short badge (no checks, one digit) is filled too.
+        assert_eq!(reserved_width(badge(&pull(7, 0))), BADGE_WIDTH);
+        // A number of 4 digits with the glyph fits.
+        assert_eq!(reserved_width(badge(&pull(1234, 3))), BADGE_WIDTH);
+    }
+
+    #[test]
+    fn the_number_starts_at_the_same_column_with_or_without_the_glyph() {
+        for pull in [pull(142, 3), pull(142, 0)] {
+            let mut spans = badge(&pull);
+            reserve(&mut spans);
+            assert_eq!(spans[0].content, "#142");
+        }
+    }
+
+    #[test]
+    fn a_longer_badge_makes_the_column_wider() {
+        assert!(reserved_width(badge(&pull(123456, 3))) > BADGE_WIDTH);
+    }
 }

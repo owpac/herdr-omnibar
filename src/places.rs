@@ -40,7 +40,18 @@ pub struct Place {
     pub tabs: Vec<TabSummary>,
 }
 
+/// The home folder: the folder of the row "new workspace…".
+pub fn home_folder() -> PathBuf {
+    env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
+}
+
 impl Place {
+    /// True if the typed name labels the new workspace of this place, and not its first tab: the
+    /// place already has a workspace.
+    pub fn labels_new_workspace(&self) -> bool {
+        self.workspace_id.is_some()
+    }
+
     /// A key that stays the same between 2 refreshes.
     pub fn key(&self) -> String {
         match &self.workspace_id {

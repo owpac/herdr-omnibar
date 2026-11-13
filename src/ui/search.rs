@@ -17,10 +17,7 @@ use super::{creating, style::*, text::*};
 pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> {
     // A narrow popup shows only the chip of the current filter.
     let filters = app.shown_filters();
-    let all_width: u16 = filters
-        .iter()
-        .map(|filter| filter.label().len() as u16 + 3)
-        .sum();
+    let all_width: u16 = filters.iter().map(|filter| chip_width(*filter) + 1).sum();
     let all_fit = area.width > all_width + 30;
     let shown: Vec<Filter> = filters
         .into_iter()
@@ -28,20 +25,7 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
         .collect();
     let chips: Vec<Span> = shown
         .iter()
-        .flat_map(|filter| {
-            let style = if *filter == app.filter {
-                Style::new()
-                    .fg(on_accent_color())
-                    .bg(accent_color())
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::new().fg(dim_color())
-            };
-            [
-                Span::styled(format!(" {} ", filter.label()), style),
-                Span::raw(" "),
-            ]
-        })
+        .flat_map(|filter| chip(*filter, *filter == app.filter))
         .collect();
     let chips_width: u16 = chips.iter().map(|span| span.width() as u16).sum();
     let show_chips = area.width > chips_width + 30;
@@ -52,7 +36,6 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
     .areas(area);
     // The creation shows its step before the prompt: "new › where", or "new › <place>".
     let mut spans = Vec::new();
-    let search = search_placeholder(&app.filters);
     let (prompt, placeholder) = match (creating(app), app.create.step) {
         _ if app.rename.is_some() => {
             spans.extend([
@@ -89,7 +72,7 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
                 Filter::Folders => "project or folder",
                 Filter::Actions => "action or plugin",
                 Filter::Panes => "pane, tab or workspace",
-                _ => &search,
+                _ => "search",
             },
         ),
     };
@@ -120,7 +103,7 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
     if show_chips {
         let mut x = chips_area.x;
         for filter in &shown {
-            let width = filter.label().width() as u16 + 2;
+            let width = chip_width(*filter);
             areas.push((Rect::new(x, chips_area.y, width, 1), *filter));
             x += width + 1;
         }
@@ -131,15 +114,36 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
     areas
 }
 
-/// The placeholder of the filter All: "search", then the shortcut of each filter of the config.
-fn search_placeholder(filters: &[Filter]) -> String {
-    let mut text = "search".to_string();
-    for filter in filters {
-        if let Some(key) = filter.shortcut() {
-            text.push_str(&format!(" · {key} {}", filter.name()));
-        }
+/// The spans of a chip: the shortcut of its filter, then its label, then a space. The current
+/// filter is one span with a background: `round` gives it its ends.
+fn chip(filter: Filter, current: bool) -> Vec<Span<'static>> {
+    let key = filter
+        .shortcut()
+        .map(|key| format!("{key} "))
+        .unwrap_or_default();
+    let label = filter.label();
+    if current {
+        let style = Style::new()
+            .fg(on_accent_color())
+            .bg(accent_color())
+            .add_modifier(Modifier::BOLD);
+        return vec![
+            Span::styled(format!(" {key}{label} "), style),
+            Span::raw(" "),
+        ];
     }
-    text
+    vec![
+        Span::raw(" "),
+        Span::styled(key, Style::new().fg(match_color())),
+        Span::styled(format!("{label} "), Style::new().fg(dim_color())),
+        Span::raw(" "),
+    ]
+}
+
+/// The width of a chip, without the space after it.
+fn chip_width(filter: Filter) -> u16 {
+    let key = filter.shortcut().map_or(0, |_| 2);
+    (filter.label().width() + 2 + key) as u16
 }
 
 #[cfg(test)]
@@ -147,22 +151,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_placeholder_gives_the_shortcuts_of_the_filters_of_the_config() {
-        let filters = [
-            Filter::All,
-            Filter::Agents,
-            Filter::Tabs,
-            Filter::Folders,
-            Filter::New,
-            Filter::Actions,
-        ];
-        assert_eq!(
-            search_placeholder(&filters),
-            "search · @ agents · # folders · + new · > actions"
-        );
-        assert_eq!(
-            search_placeholder(&[Filter::All, Filter::Panes]),
-            "search · % panes"
-        );
+    fn a_chip_shows_the_shortcut_of_its_filter_and_has_its_width() {
+        for filter in [Filter::All, Filter::Agents, Filter::Worktrees] {
+            for current in [true, false] {
+                let spans = chip(filter, current);
+                let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
+                assert_eq!(text.width(), chip_width(filter) as usize + 1);
+            }
+        }
+        let text = |filter| {
+            chip(filter, false)
+                .iter()
+                .map(|span| span.content.to_string())
+                .collect::<String>()
+        };
+        assert_eq!(text(Filter::Agents), " @ Agents  ");
+        assert_eq!(text(Filter::All), " All  ");
     }
 }

@@ -430,7 +430,7 @@ impl App {
                         .current
                         .as_ref()
                         .filter(|_| self.filter == Filter::All),
-                    sidebar_order: self.config.has("move_workspaces"),
+                    in_sidebar_order: self.config.has("move_workspaces"),
                 };
                 rows::build(&sources, self.filter, &self.query)
             }

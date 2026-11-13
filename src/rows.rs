@@ -142,7 +142,7 @@ pub struct Sources<'a> {
     /// The current project and its local branches, for the filter All.
     pub project: Option<&'a Project>,
     /// True if the filter Workspaces shows the order of the sidebar (feature move_workspaces).
-    pub sidebar_order: bool,
+    pub in_sidebar_order: bool,
 }
 
 /// The lines of the filters that go somewhere (all the filters but New).
@@ -167,7 +167,7 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
     }
     if filter == Filter::Workspaces {
         let mut spaces: Vec<Space> = model.spaces.clone();
-        if sources.sidebar_order {
+        if sources.in_sidebar_order {
             let order = crate::order::screen_order(&model.flat_workspaces);
             let at = |space: &Space| {
                 order
@@ -547,7 +547,7 @@ mod tests {
             actions,
             open: &[],
             project: None,
-            sidebar_order: false,
+            in_sidebar_order: false,
         };
         build(&sources, filter, query)
     }
@@ -583,14 +583,14 @@ mod tests {
                 checkout: None,
             })
             .collect();
-        let build_with = |sidebar_order| {
+        let build_with = |in_sidebar_order| {
             let sources = Sources {
                 model: &model,
                 others: &[],
                 actions: &[],
                 open: &[],
                 project: None,
-                sidebar_order,
+                in_sidebar_order,
             };
             build(&sources, Filter::Workspaces, "")
         };
@@ -647,7 +647,7 @@ mod tests {
             actions: &[],
             open: &open,
             project: Some(&atlas),
-            sidebar_order: false,
+            in_sidebar_order: false,
         };
         let lines = build(&sources, Filter::All, "");
         assert_eq!(
@@ -684,7 +684,7 @@ mod tests {
             actions: &[],
             open: &open,
             project: Some(&atlas),
-            sidebar_order: false,
+            in_sidebar_order: false,
         };
         // In All, the workspace of a worktree of the current project is in the group of the
         // worktrees. The filter Workspaces shows it.

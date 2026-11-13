@@ -301,6 +301,8 @@ pub struct PaneRow {
     /// The kind of the agent of the pane, if it has one.
     pub agent: Option<String>,
     pub status: Status,
+    /// The last change of state of the agent of the pane (`state_change_seq` of herdr).
+    pub seq: Option<u64>,
 }
 
 /// A tab without an agent.
@@ -382,6 +384,13 @@ impl Model {
                 _ => label,
             }
         };
+        // The last activity of the agent of each pane. The first entry of a pane wins.
+        let mut seqs: HashMap<&str, Option<u64>> = HashMap::new();
+        for info in &snapshot.agents {
+            seqs.entry(info.pane_id.as_str())
+                .or_insert(info.state_change_seq);
+        }
+        let seq_of = |pane_id: &str| seqs.get(pane_id).copied().flatten();
         let agents: Vec<AgentRow> = snapshot
             .panes
             .iter()
@@ -396,11 +405,7 @@ impl Model {
                     status: pane.agent_status,
                     place: place_of(&pane.workspace_id),
                     cwd: pane.cwd.clone(),
-                    seq: snapshot
-                        .agents
-                        .iter()
-                        .find(|info| info.pane_id == pane.pane_id)
-                        .and_then(|info| info.state_change_seq),
+                    seq: seq_of(&pane.pane_id),
                 })
             })
             .collect();
@@ -428,6 +433,7 @@ impl Model {
                     place: place_of(&pane.workspace_id),
                     agent: pane.agent.clone(),
                     status: pane.agent_status,
+                    seq: pane.agent.as_ref().and_then(|_| seq_of(&pane.pane_id)),
                 }
             })
             .collect();

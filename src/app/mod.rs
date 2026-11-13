@@ -1301,6 +1301,7 @@ mod tests {
             place: "atlas".into(),
             agent: None,
             status: Status::Unknown,
+            seq: None,
         }];
         app.filters.push(Filter::Panes);
         app.set_filter(Filter::Panes);

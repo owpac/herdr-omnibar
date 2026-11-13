@@ -68,6 +68,15 @@ pub struct Rank {
     herdr: (usize, u32, usize),
 }
 
+/// The rank of a row without a value: no agent, no visit, after the workspaces of the screen.
+const NO_RANK: Rank = Rank {
+    current: false,
+    attention: 3,
+    activity: None,
+    visit: 0,
+    herdr: (usize::MAX, 0, 0),
+};
+
 impl Rank {
     /// Compare 2 rows with the criteria: the one that must come first is the smaller.
     pub fn compare(&self, other: &Rank, criteria: &[Criterion]) -> Ordering {
@@ -75,12 +84,8 @@ impl Rank {
         for criterion in criteria {
             order = order.then_with(|| match criterion {
                 Criterion::Attention => self.attention.cmp(&other.attention),
-                // The highest first. No value goes last.
-                Criterion::Activity => other
-                    .activity
-                    .is_some()
-                    .cmp(&self.activity.is_some())
-                    .then(other.activity.cmp(&self.activity)),
+                // The highest first. No value (None) goes last.
+                Criterion::Activity => other.activity.cmp(&self.activity),
                 Criterion::Visit => other.visit.cmp(&self.visit),
                 Criterion::Herdr => self.herdr.cmp(&other.herdr),
             });
@@ -96,17 +101,12 @@ pub struct Ranker {
     criteria: Vec<Criterion>,
     recent: Recent,
     current_tab: Option<String>,
-    current_workspace: Option<String>,
     /// The position of each workspace on the screen.
     screen: HashMap<String, usize>,
     tab_numbers: HashMap<String, u32>,
     pane_index: HashMap<String, usize>,
-    /// The tabs of each workspace.
-    workspace_tabs: HashMap<String, Vec<String>>,
-    /// The attention, the activity and the visit of each workspace.
-    workspaces: HashMap<String, (u8, Option<u64>, u64)>,
-    /// The attention and the activity of the agent of each pane.
-    agents: HashMap<String, (u8, Option<u64>)>,
+    /// The rank of each workspace.
+    workspaces: HashMap<String, Rank>,
 }
 
 fn attention_of(status: Status) -> u8 {
@@ -131,34 +131,7 @@ impl Ranker {
             .enumerate()
             .map(|(index, id)| (id, index))
             .collect();
-        let mut workspace_tabs: HashMap<String, Vec<String>> = HashMap::new();
-        for pane in &model.panes {
-            let tabs = workspace_tabs.entry(pane.workspace_id.clone()).or_default();
-            if !tabs.contains(&pane.tab_id) {
-                tabs.push(pane.tab_id.clone());
-            }
-        }
-        let mut ranker = Ranker {
-            criteria: criteria(order),
-            recent: recent.clone(),
-            current_tab: current_tab.map(str::to_string),
-            current_workspace: current_workspace.map(str::to_string),
-            screen,
-            tab_numbers: model.tab_numbers.clone(),
-            pane_index: model.pane_index.clone(),
-            workspace_tabs,
-            workspaces: HashMap::new(),
-            agents: model
-                .agents
-                .iter()
-                .map(|agent| {
-                    (
-                        agent.pane_id.clone(),
-                        (attention_of(agent.status), agent.seq),
-                    )
-                })
-                .collect(),
-        };
+        let visit_of_tab = |tab_id: &str| recent.get(tab_id).copied().unwrap_or(0);
         // A workspace: the attention that herdr gives, the highest activity of its agents, and
         // the last visit of its tabs.
         let workspaces = model
@@ -166,35 +139,40 @@ impl Ranker {
             .iter()
             .map(|space| {
                 let id = &space.workspace.workspace_id;
-                let activity = model
-                    .agents
-                    .iter()
-                    .filter(|agent| &agent.workspace_id == id)
-                    .filter_map(|agent| agent.seq)
-                    .max();
-                let visit = ranker.visit_of_workspace(id);
-                (
-                    id.clone(),
-                    (attention_of(space.workspace.agent_status), activity, visit),
-                )
+                let rank = Rank {
+                    current: current_workspace == Some(id.as_str()),
+                    attention: attention_of(space.workspace.agent_status),
+                    activity: model
+                        .agents
+                        .iter()
+                        .filter(|agent| &agent.workspace_id == id)
+                        .filter_map(|agent| agent.seq)
+                        .max(),
+                    visit: model
+                        .panes
+                        .iter()
+                        .filter(|pane| &pane.workspace_id == id)
+                        .map(|pane| visit_of_tab(&pane.tab_id))
+                        .max()
+                        .unwrap_or(0),
+                    herdr: (screen.get(id).copied().unwrap_or(usize::MAX), 0, 0),
+                };
+                (id.clone(), rank)
             })
             .collect();
-        ranker.workspaces = workspaces;
-        ranker
+        Ranker {
+            criteria: criteria(order),
+            recent: recent.clone(),
+            current_tab: current_tab.map(str::to_string),
+            screen,
+            tab_numbers: model.tab_numbers.clone(),
+            pane_index: model.pane_index.clone(),
+            workspaces,
+        }
     }
 
     fn visit_of_tab(&self, tab_id: &str) -> u64 {
         self.recent.get(tab_id).copied().unwrap_or(0)
-    }
-
-    fn visit_of_workspace(&self, workspace_id: &str) -> u64 {
-        self.workspace_tabs
-            .get(workspace_id)
-            .into_iter()
-            .flatten()
-            .map(|tab| self.visit_of_tab(tab))
-            .max()
-            .unwrap_or(0)
     }
 
     fn herdr_of(&self, workspace_id: &str, tab_id: &str, pane_id: &str) -> (usize, u32, usize) {
@@ -209,7 +187,7 @@ impl Ranker {
         self.current_tab.as_deref() == Some(tab_id)
     }
 
-    pub fn agent(&self, agent: &AgentRow) -> Rank {
+    fn agent(&self, agent: &AgentRow) -> Rank {
         Rank {
             current: self.is_current_tab(&agent.tab_id),
             attention: attention_of(agent.status),
@@ -220,103 +198,75 @@ impl Ranker {
     }
 
     /// A pane has the attention and the activity of its agent. A pane without an agent has none.
-    pub fn pane(&self, pane: &PaneRow) -> Rank {
-        let (attention, activity) = pane
-            .agent
-            .as_ref()
-            .and_then(|_| self.agents.get(&pane.pane_id).copied())
-            .unwrap_or((3, None));
+    fn pane(&self, pane: &PaneRow) -> Rank {
         Rank {
             current: self.is_current_tab(&pane.tab_id),
-            attention,
-            activity,
+            attention: match pane.agent {
+                Some(_) => attention_of(pane.status),
+                None => NO_RANK.attention,
+            },
+            activity: pane.seq,
             visit: self.visit_of_tab(&pane.tab_id),
             herdr: self.herdr_of(&pane.workspace_id, &pane.tab_id, &pane.pane_id),
         }
     }
 
     /// A tab row has no agent: the visit and the order of herdr sort it.
-    pub fn tab(&self, tab: &TabRow) -> Rank {
+    fn tab(&self, tab: &TabRow) -> Rank {
         Rank {
             current: self.is_current_tab(&tab.tab_id),
-            attention: 3,
-            activity: None,
             visit: self.visit_of_tab(&tab.tab_id),
             herdr: self.herdr_of(
                 &tab.workspace_id,
                 &tab.tab_id,
                 tab.pane_id.as_deref().unwrap_or_default(),
             ),
+            ..NO_RANK
         }
     }
 
-    pub fn space(&self, space: &Space) -> Rank {
+    fn space(&self, space: &Space) -> Rank {
         let id = &space.workspace.workspace_id;
-        let (attention, activity, visit) = self.workspaces.get(id).copied().unwrap_or((3, None, 0));
-        Rank {
-            current: self.current_workspace.as_deref() == Some(id.as_str()),
-            attention,
-            activity,
-            visit,
-            herdr: (self.screen.get(id).copied().unwrap_or(usize::MAX), 0, 0),
-        }
+        self.workspaces.get(id).copied().unwrap_or(NO_RANK)
     }
 
     /// A group of worktrees: the best attention, the highest activity and the last visit of its
     /// open workspaces. A project without an open workspace goes last.
-    pub fn project(&self, project: &Project, open: &[Place]) -> Rank {
-        let mut rank = Rank {
-            current: false,
-            attention: 3,
-            activity: None,
-            visit: 0,
-            herdr: (usize::MAX, 0, 0),
-        };
-        for place in open
-            .iter()
+    fn project(&self, project: &Project, open: &[Place]) -> Rank {
+        open.iter()
             .filter(|place| place.main.as_deref() == Some(project.main.as_path()))
-        {
-            let Some(id) = place.workspace_id.as_deref() else {
-                continue;
-            };
-            let (attention, activity, visit) =
-                self.workspaces.get(id).copied().unwrap_or((3, None, 0));
-            rank.attention = rank.attention.min(attention);
-            rank.activity = rank.activity.max(activity);
-            rank.visit = rank.visit.max(visit);
-            rank.herdr.0 = rank
-                .herdr
-                .0
-                .min(self.screen.get(id).copied().unwrap_or(usize::MAX));
-            rank.current |= self.current_workspace.as_deref() == Some(id);
-        }
-        rank
+            .filter_map(|place| self.workspaces.get(place.workspace_id.as_deref()?))
+            .fold(NO_RANK, |rank, workspace| Rank {
+                current: rank.current || workspace.current,
+                attention: rank.attention.min(workspace.attention),
+                activity: rank.activity.max(workspace.activity),
+                visit: rank.visit.max(workspace.visit),
+                herdr: rank.herdr.min(workspace.herdr),
+            })
+    }
+
+    /// Sort some rows by their ranks: each rank is computed one time. The sort is stable.
+    fn sort_rows<T>(&self, rows: &mut Vec<T>, rank: impl Fn(&Ranker, &T) -> Rank) {
+        let mut ranked: Vec<(Rank, T)> =
+            rows.drain(..).map(|row| (rank(self, &row), row)).collect();
+        ranked.sort_by(|a, b| a.0.compare(&b.0, &self.criteria));
+        rows.extend(ranked.into_iter().map(|(_, row)| row));
     }
 
     /// Sort the lists of a model: the agents, the tabs, the panes and the workspaces.
     pub fn sort(&self, model: &mut Model) {
-        let criteria = &self.criteria;
-        model
-            .agents
-            .sort_by(|a, b| self.agent(a).compare(&self.agent(b), criteria));
-        model
-            .tabs
-            .sort_by(|a, b| self.tab(a).compare(&self.tab(b), criteria));
-        model
-            .panes
-            .sort_by(|a, b| self.pane(a).compare(&self.pane(b), criteria));
-        model
-            .spaces
-            .sort_by(|a, b| self.space(a).compare(&self.space(b), criteria));
+        self.sort_rows(&mut model.agents, Ranker::agent);
+        self.sort_rows(&mut model.tabs, Ranker::tab);
+        self.sort_rows(&mut model.panes, Ranker::pane);
+        self.sort_rows(&mut model.spaces, Ranker::space);
     }
 
     /// The other projects of the filter Worktrees, in this order. The current project is not
     /// here: it stays first.
     pub fn projects<'a>(&self, projects: &'a [Project], open: &[Place]) -> Vec<&'a Project> {
         let mut ordered: Vec<&Project> = projects.iter().collect();
-        ordered.sort_by(|a, b| {
-            self.project(a, open)
-                .compare(&self.project(b, open), &self.criteria)
+        self.sort_rows(&mut ordered, |ranker, project| {
+            ranker.project(project, open)
         });
         ordered
     }

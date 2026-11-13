@@ -73,7 +73,8 @@ pub(super) fn draw_action(frame: &mut Frame, area: Rect, app: &App) {
         (None, Some(rename), _) => arrow_line(
             accent_color(),
             format!(
-                "rename the tab “{}” to “{}”",
+                "rename the {} “{}” to “{}”",
+                rename.target.noun(),
                 rename.old,
                 rename.text.trim()
             ),

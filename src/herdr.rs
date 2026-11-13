@@ -317,6 +317,11 @@ pub fn close_tab(tab_id: &str) -> Result<(), Error> {
     run(&["tab", "close", tab_id]).map(|_| ())
 }
 
+/// Rename a workspace.
+pub fn rename_workspace(workspace_id: &str, label: &str) -> Result<(), Error> {
+    run(&["workspace", "rename", workspace_id, label]).map(|_| ())
+}
+
 /// Rename a tab.
 pub fn rename_tab(tab_id: &str, label: &str) -> Result<(), Error> {
     run(&["tab", "rename", tab_id, label]).map(|_| ())

@@ -72,7 +72,8 @@ command = "herdr-omnibar.new"
 | `⌃F` | Fork the session of the selected agent (Claude Code or Codex) into a new tab, with the plugin herdr-fork. The popup closes, the agent gets the focus, then herdr-fork runs its action `tab`. |
 | `⌃↵` | A new tab, with its agent, in the open workspace of the selected row: an agent, a tab, a workspace or a worktree. |
 | `⌃⌫` | Close the tab of the selected row (the pane only, on a row of the filter Panes), or remove the worktree of the selected branch, after a question on the action line. The main checkout stays. See [Remove a worktree](#remove-a-worktree). |
-| `⌃R` | Rename the tab of the selected row. `↵` saves, `esc` keeps the old name. |
+| `⌃R` | Rename the target of the selected row: the tab of an agent or of a tab, a workspace, or a pane. `↵` saves, `esc` keeps the old name. Other rows do nothing. |
+| `⌃T` | Give the tab of the selected agent or tab back to the automatic titles (feature `auto_titles`): the tab takes its number, then the watcher writes the title of its agent in 2 seconds. If the agent gives no useful title (the terminal title of a brief agent is its herdr name), the tab keeps its name and the popup says so. It also replaces a name that you gave with `⌃R`. |
 | `⌃Y` | In the step "what": start the agent without its permission prompts, for this tab only. |
 | `⌃←`, `⌃→` | The view of the preview of a worktree: diff, log, changes. |
 | `⌃O` | Show or hide the preview. |
@@ -126,6 +127,8 @@ features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
 # The filters of the chips, in the order of ⇥. Remove a name to hide its filter.
 filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]
 ```
+
+`rename_tab` turns on `⌃R`: it renames the tab, the workspace or the pane of the selected row. The filter `panes` shows the label that herdr gives to a pane. A git workspace with a name that you gave shows this name: `<project> ▸ <name>` for a linked worktree.
 
 `filters` gives the chips of the search line, in the order of `⇥` and `⇧⇥`. A filter outside the list has no chip and no shortcut, but its action still opens it: its chip then shows until `⇥` leaves it. The filter `panes` is off by default: it has one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
 

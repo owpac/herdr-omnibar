@@ -594,41 +594,36 @@ impl App {
     pub fn use_recent(&mut self, recent: Recent, current_tab: Option<String>) {
         self.recent = recent;
         self.current_tab = current_tab;
-        let mut model = std::mem::take(&mut self.model);
-        self.order(&mut model);
-        self.open = places::workspaces(&model);
-        self.model = model;
+        self.order();
+        self.open = places::workspaces(&self.model);
         self.rebuild(None);
     }
 
-    /// Sort the rows of a model with the key `list_order` of the config, then keep the ranks for
-    /// the groups of the filter Worktrees.
-    fn order(&mut self, model: &mut Model) {
-        let ranker = Ranker::new(
-            model,
+    /// Sort the rows of the model with the key `list_order` of the config, then keep the ranks
+    /// for the groups of the filter Worktrees.
+    fn order(&mut self) {
+        self.ranker = Ranker::new(
+            &self.model,
             &self.config.list_order,
             &self.recent,
             self.current_tab.as_deref(),
             self.current.as_deref(),
         );
-        ranker.sort(model);
-        self.ranker = ranker;
+        self.ranker.sort(&mut self.model);
     }
 
     /// Take the tab of the popup: the agent of this tab goes at the end of its part of the list.
     pub fn use_current_tab(&mut self, current_tab: Option<String>) {
-        self.current_tab = current_tab;
-        let mut model = std::mem::take(&mut self.model);
-        self.order(&mut model);
-        self.model = model;
-        self.rebuild(None);
+        let recent = std::mem::take(&mut self.recent);
+        self.use_recent(recent, current_tab);
     }
 
     /// Take a new model: the snapshot changed.
-    pub fn update_model(&mut self, mut model: Model) {
+    pub fn update_model(&mut self, model: Model) {
         let key = self.selected_item().map(Item::key);
-        self.order(&mut model);
-        let open = places::workspaces(&model);
+        self.model = model;
+        self.order();
+        let open = places::workspaces(&self.model);
         // A workspace of another project opened or closed: read the other projects again.
         let mains = |places: &[Place]| -> Vec<Option<PathBuf>> {
             places.iter().map(|place| place.main.clone()).collect()
@@ -637,7 +632,6 @@ impl App {
             self.projects.others = None;
         }
         self.open = open;
-        self.model = model;
         self.ask_times();
         self.previews.clear();
         self.rebuild(key);

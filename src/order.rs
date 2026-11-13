@@ -106,8 +106,8 @@ pub fn screen_order(workspaces: &[Workspace]) -> Vec<String> {
     sidebar(workspaces).iter().flat_map(Entry::ids).collect()
 }
 
-/// The entries of `sort_order` by default: the git workspaces, then the others.
-pub const DEFAULT_SORT_ORDER: [&str; 2] = ["git", "other"];
+/// The entries of `sidebar_order` by default: the git workspaces, then the others.
+pub const DEFAULT_SIDEBAR_ORDER: [&str; 2] = ["git", "other"];
 
 /// The key of the default order of the sort:
 ///
@@ -135,7 +135,7 @@ fn default_key(index: usize, workspace: &Workspace) -> DefaultKey {
     }
 }
 
-/// True if a folder entry of `sort_order` has a `/`: it is a folder. Any other entry but "git" and
+/// True if an entry of `sidebar_order` is a folder: it has a `/`. Any other entry but "git" and
 /// "other" is the label of a workspace.
 fn is_folder(entry: &str) -> bool {
     entry.contains('/')
@@ -149,7 +149,7 @@ fn expand(entry: &str, home: &Path) -> PathBuf {
     }
 }
 
-/// True if the entry of `sort_order` takes the members of a unit: a git group, or a workspace
+/// True if the entry of `sidebar_order` takes the members of a unit: a git group, or a workspace
 /// without git.
 fn takes(entry: &str, members: &[&Workspace], home: &Path) -> bool {
     let git = members.iter().any(|member| member.worktree.is_some());
@@ -171,7 +171,7 @@ fn takes(entry: &str, members: &[&Workspace], home: &Path) -> bool {
     }
 }
 
-/// The wanted order of the sort. `spec` is the list `sort_order`. Each entry takes the
+/// The wanted order of the sort. `spec` is the list `sidebar_order`. Each entry takes the
 /// workspaces that no earlier entry took:
 ///
 /// - "git": the git workspaces. "other": the workspaces without git.
@@ -228,7 +228,10 @@ pub(crate) mod tests {
     }
 
     fn sorted_by_default(workspaces: &[Workspace]) -> Vec<String> {
-        let spec: Vec<String> = DEFAULT_SORT_ORDER.iter().map(|e| e.to_string()).collect();
+        let spec: Vec<String> = DEFAULT_SIDEBAR_ORDER
+            .iter()
+            .map(|e| e.to_string())
+            .collect();
         sorted(workspaces, &spec, Path::new("/home/u"))
     }
 

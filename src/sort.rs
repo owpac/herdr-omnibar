@@ -23,13 +23,13 @@ fn describe(order: &[String], workspaces: &[Workspace]) -> String {
         .collect()
 }
 
-/// The wanted order of the workspaces of a snapshot, with the `sort_order` of the config.
+/// The wanted order of the workspaces of a snapshot, with the `sidebar_order` of the config.
 fn wanted(workspaces: &[Workspace]) -> Vec<String> {
     let config = config::current();
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default();
-    order::sorted(workspaces, &config.sort_order, &home)
+    order::sorted(workspaces, &config.sidebar_order, &home)
 }
 
 /// Sort the workspaces of a snapshot. Return the number of workspaces, or None if the order is

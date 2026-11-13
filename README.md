@@ -127,7 +127,7 @@ features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
 filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]
 ```
 
-`filters` gives the chips of the search line, in the order of `⇥` and `⇧⇥`. A filter outside the list has no chip and no shortcut, but its action still opens it: its chip then shows until `⇥` leaves it. The filter `panes` is off by default: it has one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
+`filters` gives the chips of the search line, in the order of `⇥` and `⇧⇥`. A filter outside the list has no chip and no shortcut, but its action still opens it: its chip then shows until `⇥` leaves it. The filter `panes` is off by default: it has one row for each pane of each tab. Without the key `filters`, the old feature `pane_rows` still adds it after `tabs`. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
 
 `recent_first` sorts the agents, the tabs, the panes and the workspaces by their last use: the tab of the popup goes after the others, so the first row is the tab before, like alt-tab (`⌘P` then `↵`). The group "Needs you" stays first. The watcher writes the time of each change of the focused tab in `recent.json`, in the state folder.
 

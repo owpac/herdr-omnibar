@@ -361,8 +361,10 @@ impl App {
             KeyCode::Char(character) if !ctrl && !alt => {
                 // On an empty text, a shortcut opens its filter from any filter, also from the
                 // creation. The shortcut of the current filter goes back to All.
-                let shortcut =
-                    Filter::of_shortcut(character).filter(|filter| self.filters.contains(filter));
+                let shortcut = Filter::of_shortcut(character).filter(|filter| {
+                    // The current filter can be hidden: an action opened it.
+                    self.filters.contains(filter) || *filter == self.filter
+                });
                 let empty = self.text().is_empty() && !renaming;
                 if empty && character == '?' {
                     self.help = true;

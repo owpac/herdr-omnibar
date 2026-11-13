@@ -467,7 +467,6 @@ pub fn home(path: &Path) -> String {
 mod tests {
     use super::*;
     use crate::model::{Snapshot, Workspace};
-    use crate::places::Branch;
     use std::path::PathBuf;
 
     fn agent(name: &str, status: Status) -> AgentRow {
@@ -578,27 +577,11 @@ mod tests {
         );
     }
 
-    fn project(name: &str, branches: &[(&str, Option<&str>)]) -> Project {
-        Project {
-            name: name.into(),
-            main: format!("/work/{name}").into(),
-            base: None,
-            branches: branches
-                .iter()
-                .map(|(branch, worktree)| Branch {
-                    name: branch.to_string(),
-                    worktree: worktree.map(PathBuf::from),
-                    time: None,
-                })
-                .collect(),
-        }
-    }
-
     #[test]
     fn the_filter_all_shows_the_worktrees_of_the_current_project_once() {
         let model = model();
         let open = [place(Kind::Workspace, "atlas", Some("w1"))];
-        let atlas = project(
+        let atlas = Project::sample(
             "atlas",
             &[("main", Some("/work/atlas")), ("fix-login", None)],
         );
@@ -637,7 +620,7 @@ mod tests {
     fn the_filter_workspaces_shows_all_the_workspaces() {
         let model = model();
         let open = [place(Kind::Workspace, "atlas", Some("w1"))];
-        let atlas = project("atlas", &[("main", Some("/work/atlas"))]);
+        let atlas = Project::sample("atlas", &[("main", Some("/work/atlas"))]);
         let sources = Sources {
             model: &model,
             others: &[],
@@ -720,7 +703,7 @@ mod tests {
 
     #[test]
     fn the_filter_worktrees_proposes_a_new_worktree_for_a_new_branch() {
-        let atlas = project("atlas", &[("main", Some("/work/atlas"))]);
+        let atlas = Project::sample("atlas", &[("main", Some("/work/atlas"))]);
         let lines = worktree_lines(Some(&atlas), &[], &[], "fix-login");
         assert_eq!(
             titles(&lines),
@@ -734,8 +717,8 @@ mod tests {
 
     #[test]
     fn the_filter_worktrees_shows_the_current_project_first_then_the_others() {
-        let atlas = project("atlas", &[("main", Some("/work/atlas")), ("old", None)]);
-        let pac = project("pac", &[("main", Some("/work/pac"))]);
+        let atlas = Project::sample("atlas", &[("main", Some("/work/atlas")), ("old", None)]);
+        let pac = Project::sample("pac", &[("main", Some("/work/pac"))]);
         let lines = worktree_lines(Some(&atlas), std::slice::from_ref(&pac), &[], "");
         assert_eq!(
             titles(&lines),
@@ -783,6 +766,7 @@ mod tests {
         );
         // A list without a known name gives the default filters: Tab needs at least one filter.
         assert_eq!(filters(&names(&[])), filters(&names(&DEFAULT_FILTERS)));
+        assert_eq!(filters(&names(&[])).len(), DEFAULT_FILTERS.len());
         assert_eq!(filters(&names(&["nothing"]))[0], Filter::All);
     }
 

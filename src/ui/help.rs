@@ -21,7 +21,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         ),
         (
             "@ # + > %",
-            "On an empty text: agents, folders, creation, actions, panes. Again: All.",
+            "On an empty text: agents, folders, creation, actions, panes, if the config shows the filter. Again: All.",
         ),
         (
             "~  /",

@@ -187,9 +187,28 @@ fn parse(text: &str) -> Config {
             Some("flat") => Pills::Flat,
             _ => Pills::Square,
         },
+        filters: file
+            .filters
+            .unwrap_or_else(|| default_filters(file.features.as_deref())),
         features: file.features.unwrap_or(defaults.features),
-        filters: file.filters.unwrap_or(defaults.filters),
     }
+}
+
+/// The default filters. The old feature pane_rows adds the filter panes after tabs: a config
+/// without the key filters keeps its filter Panes.
+fn default_filters(features: Option<&[String]>) -> Vec<String> {
+    let mut filters: Vec<String> = DEFAULT_FILTERS
+        .iter()
+        .map(|name| name.to_string())
+        .collect();
+    if features.is_some_and(|features| features.iter().any(|name| name == "pane_rows")) {
+        let after_tabs = filters
+            .iter()
+            .position(|name| name == "tabs")
+            .map_or(0, |at| at + 1);
+        filters.insert(after_tabs, "panes".to_string());
+    }
+    filters
 }
 
 #[cfg(test)]
@@ -234,6 +253,14 @@ mod tests {
             parse("filters = [\"agents\", \"panes\"]").filters,
             ["agents", "panes"]
         );
+    }
+
+    #[test]
+    fn the_old_feature_pane_rows_adds_the_filter_panes_without_the_key_filters() {
+        let config = parse("features = [\"mouse\", \"pane_rows\"]");
+        assert_eq!(config.filters[..4], ["all", "agents", "tabs", "panes"]);
+        let config = parse("features = [\"pane_rows\"]\nfilters = [\"all\"]");
+        assert_eq!(config.filters, ["all"]);
     }
 
     #[test]

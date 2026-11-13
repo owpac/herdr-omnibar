@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::Instant;
 
 use ratatui::layout::Rect;
@@ -365,8 +366,6 @@ impl App {
                     .filter(in_project)
                     .or_else(|| self.open.iter().find(|place| place.folder == *main))
                     .or_else(|| self.open.iter().find(in_project))
-                    // A test or a project without a known main checkout: the current place.
-                    .or_else(|| self.current_place())
             }
             _ => self.target_place(),
         }
@@ -495,10 +494,18 @@ impl App {
                 mains.push((&place.project, main));
             }
         }
-        let others: Vec<Project> = mains
-            .into_iter()
-            .map(|(name, main)| Project::read_worktrees(name, main))
-            .collect();
+        // Each project runs its git commands in its own thread: the popup waits for the slowest
+        // project only.
+        let others: Vec<Project> = thread::scope(|scope| {
+            let reads: Vec<_> = mains
+                .iter()
+                .map(|(name, main)| scope.spawn(move || Project::read_worktrees(name, main)))
+                .collect();
+            reads
+                .into_iter()
+                .filter_map(|read| read.join().ok())
+                .collect()
+        });
         for project in &others {
             self.ask_git_states(project);
         }
@@ -596,7 +603,15 @@ impl App {
     pub fn update_model(&mut self, mut model: Model) {
         let key = self.selected_item().map(Item::key);
         self.order(&mut model);
-        self.open = places::workspaces(&model);
+        let open = places::workspaces(&model);
+        // A workspace of another project opened or closed: read the other projects again.
+        let mains = |places: &[Place]| -> Vec<Option<PathBuf>> {
+            places.iter().map(|place| place.main.clone()).collect()
+        };
+        if mains(&open) != mains(&self.open) {
+            self.projects.others = None;
+        }
+        self.open = open;
         self.model = model;
         self.ask_times();
         self.previews.clear();
@@ -930,27 +945,11 @@ mod tests {
         app
     }
 
-    fn project(name: &str, branches: &[(&str, Option<&str>)]) -> Project {
-        Project {
-            name: name.into(),
-            main: format!("/work/{name}").into(),
-            base: None,
-            branches: branches
-                .iter()
-                .map(|(branch, worktree)| places::Branch {
-                    name: branch.to_string(),
-                    worktree: worktree.map(PathBuf::from),
-                    time: None,
-                })
-                .collect(),
-        }
-    }
-
     /// Give these branches to the current project atlas. No other project.
     fn set_branches(app: &mut App, branches: &[(&str, Option<&str>)]) {
         app.projects = Projects {
             current_read: true,
-            current: Some(project("atlas", branches)),
+            current: Some(Project::sample("atlas", branches)),
             others: Some(Vec::new()),
         };
     }
@@ -1096,8 +1095,9 @@ mod tests {
             app.shown_filters(),
             [Filter::All, Filter::Agents, Filter::New]
         );
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(app.filter, Filter::All);
+        // Its own shortcut goes back to All, like the shortcut of a filter of the config.
+        press(&mut app, KeyCode::Char('+'));
+        assert_eq!((app.filter, app.query.as_str()), (Filter::All, ""));
         assert_eq!(app.shown_filters(), [Filter::All, Filter::Agents]);
         press(&mut app, KeyCode::BackTab);
         assert_eq!(app.filter, Filter::Agents);
@@ -1287,7 +1287,7 @@ mod tests {
         app.open[0].main = Some("/work/atlas".into());
         app.open[1].main = Some("/work/pac".into());
         set_branches(&mut app, &[("main", Some("/work/atlas"))]);
-        app.projects.others = Some(vec![project(
+        app.projects.others = Some(vec![Project::sample(
             "pac",
             &[("main", Some("/work/pac")), ("fix", Some("/work/pac.fix"))],
         )]);

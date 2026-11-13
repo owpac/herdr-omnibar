@@ -251,16 +251,29 @@ impl Project {
         }
     }
 
-    /// Read only the branches with a worktree, without the default branch: the projects that are
-    /// not current show only their worktrees.
+    /// Read only the branches with a worktree, and the default branch: the projects that are not
+    /// current show only their worktrees.
     pub fn read_worktrees(name: &str, main: &Path) -> Project {
-        let mut branches = branches(main);
-        branches.retain(|branch| branch.worktree.is_some());
+        let mut project = Project::read(name, main);
+        project.branches.retain(|branch| branch.worktree.is_some());
+        project
+    }
+
+    /// A project in /work/<name> for the tests: its branches, and the folders of their worktrees.
+    #[cfg(test)]
+    pub fn sample(name: &str, branches: &[(&str, Option<&str>)]) -> Project {
         Project {
-            name: name.to_string(),
-            main: main.to_path_buf(),
+            name: name.into(),
+            main: format!("/work/{name}").into(),
             base: None,
-            branches,
+            branches: branches
+                .iter()
+                .map(|(branch, worktree)| Branch {
+                    name: branch.to_string(),
+                    worktree: worktree.map(PathBuf::from),
+                    time: None,
+                })
+                .collect(),
         }
     }
 

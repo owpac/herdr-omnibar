@@ -126,8 +126,8 @@ fn bar_config() -> Option<String> {
     fs::read_to_string(folder.parent()?.join(HERDR_BAR).join("config.json")).ok()
 }
 
-/// True if the watcher has work: the titles of the tabs (feature auto_titles), or the order of
-/// use of the tabs (feature recent_first).
+/// True if the watcher has work: the titles of the tabs (feature auto_titles), the order of use
+/// of the tabs (feature recent_first), or the sort of the workspaces (feature auto_sort).
 fn has_work(config: &config::Config) -> bool {
     config.has("auto_titles") || config.has("recent_first") || config.has("auto_sort")
 }
@@ -136,13 +136,13 @@ fn has_work(config: &config::Config) -> bool {
 /// the workspace ids changes (a workspace opens or closes). A move of the user (a drag in the
 /// sidebar) changes the order, not the set: it stays until the next change of the set.
 pub fn should_sort(previous: Option<&[String]>, current: &[String]) -> bool {
+    fn set(ids: &[String]) -> Vec<&String> {
+        let mut ids: Vec<&String> = ids.iter().collect();
+        ids.sort_unstable();
+        ids
+    }
     let Some(previous) = previous else {
         return true;
-    };
-    let set = |ids: &[String]| {
-        let mut ids = ids.to_vec();
-        ids.sort();
-        ids
     };
     set(previous) != set(current)
 }

@@ -431,17 +431,15 @@ mod tests {
 
     #[test]
     fn the_workspaces_and_the_groups_of_worktrees_follow_the_same_criteria() {
-        let workspace = |id: &str, status: &str| -> Workspace {
-            serde_json::from_value(serde_json::json!({
-                "workspace_id": id, "label": id, "agent_status": status
-            }))
-            .unwrap()
+        let workspace = |id: &str, agent_status: Status| Workspace {
+            agent_status,
+            ..crate::order::tests::workspace(id, id, None)
         };
         let snapshot = Snapshot {
             workspaces: vec![
-                workspace("w1", "idle"),
-                workspace("w2", "blocked"),
-                workspace("w3", "done"),
+                workspace("w1", Status::Idle),
+                workspace("w2", Status::Blocked),
+                workspace("w3", Status::Done),
             ],
             ..Snapshot::default()
         };
@@ -470,13 +468,6 @@ mod tests {
             })
             .collect();
         let projects = [project("a"), project("b"), project("c"), project("d")];
-        let projects: Vec<Project> = projects
-            .into_iter()
-            .map(|mut project| {
-                project.main = format!("/work/{}", project.name).into();
-                project
-            })
-            .collect();
         let ordered: Vec<&str> = ranker
             .projects(&projects, &places)
             .iter()

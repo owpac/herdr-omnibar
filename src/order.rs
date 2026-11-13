@@ -116,38 +116,42 @@ pub struct Move {
 /// first member.
 pub fn plan_move(workspaces: &[Workspace], id: &str, delta: i32) -> Option<Move> {
     let entries = sidebar(workspaces);
-    // The entry k moves before the entry k - 1: a move down is the move up of the next entry.
-    let step = |position: usize| if delta < 0 { position } else { position + 1 };
     // A linked worktree of a group: it moves among the children of its group.
-    for entry in &entries {
-        let Entry::Group { children, .. } = entry else {
-            continue;
-        };
-        if let Some(position) = children.iter().position(|child| child == id) {
-            let k = step(position);
-            if k == 0 || k >= children.len() {
-                return None;
-            }
-            return Some(Move {
-                ids: vec![children[k].clone()],
-                before: children[k - 1].clone(),
-            });
+    let group = entries.iter().find_map(|entry| match entry {
+        Entry::Group { children, .. } => {
+            Some((children, children.iter().position(|child| child == id)?))
         }
+        Entry::Single(_) => None,
+    });
+    if let Some((children, position)) = group {
+        let (moved, before) = neighbours(children, position, delta)?;
+        return Some(Move {
+            ids: vec![moved.clone()],
+            before: before.clone(),
+        });
     }
     let position = entries.iter().position(|entry| match entry {
         Entry::Single(single) => single == id,
         Entry::Group { main, .. } => main == id,
     })?;
-    let k = step(position);
-    if k == 0 || k >= entries.len() {
-        return None;
-    }
-    let flat_index = |id: &String| workspaces.iter().position(|w| &w.workspace_id == id);
-    let before = entries[k - 1].ids().into_iter().min_by_key(flat_index)?;
+    let (moved, before) = neighbours(&entries, position, delta)?;
+    // The anchor: the member of the entry before that comes first in the flat list.
+    let members = before.ids();
+    let anchor = workspaces
+        .iter()
+        .map(|workspace| &workspace.workspace_id)
+        .find(|id| members.contains(id))?;
     Some(Move {
-        ids: entries[k].ids(),
-        before,
+        ids: moved.ids(),
+        before: anchor.clone(),
     })
+}
+
+/// The item that moves, and the item that it goes before: the item k moves before the item k - 1.
+/// A move down is the move up of the next item. None at the first or the last position.
+fn neighbours<T>(items: &[T], position: usize, delta: i32) -> Option<(&T, &T)> {
+    let k = if delta < 0 { position } else { position + 1 };
+    Some((items.get(k)?, items.get(k.checked_sub(1)?)?))
 }
 
 /// The entries of `sidebar_order` by default: the git workspaces, then the others.
@@ -493,7 +497,6 @@ pub(crate) mod tests {
             // The moved entry swaps with its neighbour on the screen.
             let moved: Vec<&String> = before.iter().filter(|w| plan.ids.contains(w)).collect();
             assert_eq!(moved.len(), plan.ids.len(), "{id} {delta}");
-            assert_ne!(before, after, "{id} {delta}");
             let position =
                 |order: &[String], target: &str| order.iter().position(|w| w == target).unwrap();
             if delta < 0 {

@@ -8,6 +8,9 @@
 //! agent (`[[startup]]` and `[[events]]` of herdr-plugin.toml): `watch` starts the detached process
 //! `watch --run`, which takes a lock, then returns at once.
 //!
+//! The same watcher sorts the workspaces (feature `auto_sort`): at its start, and each time the
+//! set of the workspace ids changes.
+//!
 //! herdr-bar also writes the titles of the tabs. While herdr-bar is enabled with its own automatic
 //! titles, the watcher waits: 2 writers on the same tab fight.
 
@@ -28,6 +31,7 @@ use crate::create;
 use crate::herdr::{self, Plugin};
 use crate::model::{self, Snapshot};
 use crate::recent;
+use crate::sort;
 
 /// The time between 2 reads of the snapshot.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -125,7 +129,41 @@ fn bar_config() -> Option<String> {
 /// True if the watcher has work: the titles of the tabs (feature auto_titles), or the order of
 /// use of the tabs (feature recent_first).
 fn has_work(config: &config::Config) -> bool {
-    config.has("auto_titles") || config.has("recent_first")
+    config.has("auto_titles") || config.has("recent_first") || config.has("auto_sort")
+}
+
+/// True if the watcher sorts the workspaces: at its start (no previous ids), or when the set of
+/// the workspace ids changes (a workspace opens or closes). A move of the user (a drag in the
+/// sidebar, alt+Up) changes the order, not the set: it stays until the next change of the set.
+pub fn should_sort(previous: Option<&[String]>, current: &[String]) -> bool {
+    let Some(previous) = previous else {
+        return true;
+    };
+    let set = |ids: &[String]| {
+        let mut ids = ids.to_vec();
+        ids.sort();
+        ids
+    };
+    set(previous) != set(current)
+}
+
+/// Sort the workspaces of a snapshot if the set of ids changed. `seen` keeps the last ids. A
+/// failed sort does not repeat at the next read: it waits for the next change of the set.
+fn auto_sort(snapshot: &Snapshot, seen: &mut Option<Vec<String>>, log: &Log) {
+    let ids: Vec<String> = snapshot
+        .workspaces
+        .iter()
+        .map(|workspace| workspace.workspace_id.clone())
+        .collect();
+    if !should_sort(seen.as_deref(), &ids) {
+        return;
+    }
+    *seen = Some(ids);
+    match sort::apply(&snapshot.workspaces) {
+        Ok(Some(count)) => log.write(&format!("sorted {count} workspaces")),
+        Ok(None) => {}
+        Err(error) => log.write(&format!("cannot sort the workspaces: {error}")),
+    }
 }
 
 /// Start the watcher if it has work and if no watcher runs. Return at once.
@@ -165,10 +203,11 @@ pub fn run() -> Result<(), String> {
     let mut plugins_read: Option<Instant> = None;
     let mut waiting: Option<String> = Some("start".to_string());
     let mut focused: Option<String> = None;
+    let mut sorted_ids: Option<Vec<String>> = None;
     loop {
         let config = config::current();
         if !has_work(&config) {
-            log.write("auto_titles and recent_first are off: watcher stopped");
+            log.write("auto_titles, recent_first and auto_sort are off: watcher stopped");
             return Ok(());
         }
         if plugins_read.is_none_or(|time| time.elapsed() >= PLUGINS_INTERVAL) {
@@ -210,6 +249,9 @@ pub fn run() -> Result<(), String> {
                 failures = 0;
                 if config.has("recent_first") {
                     recent::follow(&state_dir, &snapshot, &mut focused);
+                }
+                if config.has("auto_sort") {
+                    auto_sort(&snapshot, &mut sorted_ids, &log);
                 }
                 if waiting.is_none() && config.has("auto_titles") {
                     rename(&snapshot, &mut written, &state_dir, &log);
@@ -478,6 +520,25 @@ impl Log {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ids(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|id| id.to_string()).collect()
+    }
+
+    #[test]
+    fn the_watcher_sorts_at_its_start_and_when_the_set_of_ids_changes() {
+        // At the start: no previous ids.
+        assert!(should_sort(None, &ids(&["w1", "w2"])));
+        // A workspace opens or closes.
+        assert!(should_sort(
+            Some(&ids(&["w1", "w2"])),
+            &ids(&["w1", "w2", "w3"])
+        ));
+        assert!(should_sort(Some(&ids(&["w1", "w2"])), &ids(&["w1"])));
+        // A move of the user changes the order, not the set.
+        assert!(!should_sort(Some(&ids(&["w1", "w2"])), &ids(&["w2", "w1"])));
+        assert!(!should_sort(Some(&ids(&["w1", "w2"])), &ids(&["w1", "w2"])));
+    }
 
     /// A binary that the watcher can run: an execute bit, and no change for 1 minute.
     fn ready_binary(path: &Path) {

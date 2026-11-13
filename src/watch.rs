@@ -134,7 +134,7 @@ fn has_work(config: &config::Config) -> bool {
 
 /// True if the watcher sorts the workspaces: at its start (no previous ids), or when the set of
 /// the workspace ids changes (a workspace opens or closes). A move of the user (a drag in the
-/// sidebar, alt+Up) changes the order, not the set: it stays until the next change of the set.
+/// sidebar) changes the order, not the set: it stays until the next change of the set.
 pub fn should_sort(previous: Option<&[String]>, current: &[String]) -> bool {
     let Some(previous) = previous else {
         return true;

@@ -49,6 +49,10 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             "Rename the tab, the workspace or the pane of the selected row. ↵ saves, esc keeps the name.",
         ),
         (
+            "⌃T",
+            "Give the tab of the selected row back to the automatic titles: it takes the title of its agent (feature auto_titles).",
+        ),
+        (
             "mouse",
             "Click a row, a chip or a key. Double click runs a row. The wheel moves.",
         ),

@@ -258,6 +258,22 @@ fn rename(snapshot: &Snapshot, written: &mut HashMap<String, String>, state_dir:
     }
 }
 
+/// Give a tab back to the watcher: rename it to its number, the name that herdr gives. The
+/// watcher then writes the title of its agent at its next read (2 seconds). Start the watcher if
+/// it is stopped. Return the number.
+pub fn give_back(tab_id: &str) -> Result<u32, String> {
+    let snapshot = herdr::snapshot().map_err(|error| error.to_string())?;
+    let number = snapshot
+        .tabs
+        .iter()
+        .find(|tab| tab.tab_id == tab_id)
+        .and_then(|tab| tab.number)
+        .ok_or_else(|| format!("no tab {tab_id}"))?;
+    herdr::rename_tab(tab_id, &number.to_string()).map_err(|error| error.to_string())?;
+    start()?;
+    Ok(number)
+}
+
 /// Print what the watcher does now: the renames, or the reason to wait.
 pub fn print() -> Result<(), String> {
     let plugins = herdr::plugins().map_err(|error| error.to_string())?;

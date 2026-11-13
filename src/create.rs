@@ -87,16 +87,17 @@ pub fn choices(
             }),
         }
     }
-    out.push(if place.workspace_id.is_some() {
-        Choice::NewTab
-    } else {
-        Choice::NewWorkspace
-    });
+    // A place with a workspace gets a tab, a split and a new workspace in its folder. A place
+    // without a workspace gets the new workspace.
+    if place.workspace_id.is_some() {
+        out.push(Choice::NewTab);
+    }
     if let (Some(_), Some(pane_id)) = (&place.workspace_id, split) {
         out.push(Choice::NewSplit {
             pane_id: pane_id.to_string(),
         });
     }
+    out.push(Choice::NewWorkspace);
     out.push(Choice::AnotherPlace);
     out
 }
@@ -147,7 +148,7 @@ pub fn plan(
     agent: &str,
     no_prompts: bool,
 ) -> Option<Plan> {
-    let name = name.trim().to_string();
+    let mut name = name.trim().to_string();
     let action = match choice {
         Choice::NewWorktree { branch } if is_branch_name(branch) => Action::Worktree {
             main: place.main.clone()?,
@@ -173,6 +174,16 @@ pub fn plan(
         Choice::NewTab => Action::NewTab {
             workspace_id: place.workspace_id.clone()?,
             folder: place.folder.clone(),
+        },
+        // A place that has a workspace: the typed name is the label of the new workspace, and the
+        // automatic titles name its first tab.
+        Choice::NewWorkspace if place.workspace_id.is_some() => Action::NewWorkspace {
+            folder: place.folder.clone(),
+            label: if name.is_empty() {
+                place.label.clone()
+            } else {
+                std::mem::take(&mut name)
+            },
         },
         Choice::NewWorkspace => Action::NewWorkspace {
             folder: place.folder.clone(),
@@ -529,6 +540,7 @@ mod tests {
                     branch: "notes".into()
                 },
                 Choice::NewTab,
+                Choice::NewWorkspace,
                 Choice::AnotherPlace
             ]
         );
@@ -601,6 +613,45 @@ mod tests {
     }
 
     #[test]
+    fn a_new_workspace_in_a_place_with_a_workspace_takes_the_typed_name_as_its_label() {
+        let notes = workspace("~", "/home/u", "w1", None);
+        let make = |name: &str| plan(&notes, &Choice::NewWorkspace, name, "claude", false).unwrap();
+        // The typed name is the label. The automatic titles name the first tab.
+        let named = make("ville france");
+        assert_eq!(
+            named.action,
+            Action::NewWorkspace {
+                folder: "/home/u".into(),
+                label: "ville france".into()
+            }
+        );
+        assert_eq!(named.name, "");
+        // Without a name, the label of the place.
+        let unnamed = make("");
+        assert_eq!(
+            unnamed.action,
+            Action::NewWorkspace {
+                folder: "/home/u".into(),
+                label: "~".into()
+            }
+        );
+        // A place without a workspace keeps the name for the first tab.
+        let folder = Place {
+            workspace_id: None,
+            ..notes.clone()
+        };
+        let plan = plan(&folder, &Choice::NewWorkspace, "draft", "claude", false).unwrap();
+        assert_eq!(plan.name, "draft");
+        assert_eq!(
+            plan.action,
+            Action::NewWorkspace {
+                folder: "/home/u".into(),
+                label: "~".into()
+            }
+        );
+    }
+
+    #[test]
     fn the_current_workspace_also_offers_a_split_of_its_focused_pane() {
         let notes = workspace("notes", "/notes", "w1", None);
         assert_eq!(
@@ -610,6 +661,7 @@ mod tests {
                 Choice::NewSplit {
                     pane_id: "w1:p2".into()
                 },
+                Choice::NewWorkspace,
                 Choice::AnotherPlace
             ]
         );

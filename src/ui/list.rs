@@ -462,6 +462,16 @@ fn context_of(item: &Item, app: &App) -> String {
             Choice::Existing { .. } => "create its worktree".into(),
             Choice::NewTab => format!("{}in {}", auto_name(app), target_label(app)),
             Choice::NewSplit { .. } => "next to the current pane".into(),
+            Choice::NewWorkspace
+                if app
+                    .create
+                    .place
+                    .as_ref()
+                    .is_some_and(|p| p.workspace_id.is_some()) =>
+            {
+                // The typed name is the label of the workspace: herdr names its first tab.
+                format!("a new workspace in {}", target_label(app))
+            }
             Choice::NewWorkspace => {
                 format!("{}in a new workspace {}", auto_name(app), target_label(app))
             }

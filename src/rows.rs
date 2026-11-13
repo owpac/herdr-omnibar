@@ -175,7 +175,7 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
                     .position(|id| *id == space.workspace.workspace_id)
                     .unwrap_or(usize::MAX)
             };
-            spaces.sort_by_key(at);
+            spaces.sort_by_cached_key(at);
         }
         let spaces = spaces.into_iter().map(Item::Workspace).collect();
         group(&mut lines, "Workspaces", matches(spaces, query));

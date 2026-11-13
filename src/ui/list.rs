@@ -79,8 +79,7 @@ pub(super) fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
             (ListLine::Row { .. }, None) => Line::raw(""),
             (ListLine::Row { item, positions }, Some((name, right))) => {
                 let name_width = columns.name;
-                let context_width = columns.context(sections[index]);
-                let right_width = columns.right(sections[index]);
+                let (right_width, context_width) = columns.section(sections[index]);
                 let is_selected = Some(index) == app.selected;
                 let mut spans = vec![
                     if is_selected {
@@ -118,19 +117,18 @@ pub(super) fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
 struct Columns {
     /// The width of the name column: the same for each row.
     name: usize,
-    /// The width of the right column, and of the context column, of each section.
-    sections: Vec<(usize, usize)>,
+    /// The width of the right column and of the context column of each section.
+    sections: Vec<Option<(usize, usize)>>,
 }
 
 impl Columns {
-    fn right(&self, section: usize) -> usize {
-        self.sections.get(section).map_or(0, |(right, _)| *right)
-    }
-
-    fn context(&self, section: usize) -> usize {
+    /// The widths `(right, context)` of a section. A section without a row has no column.
+    fn section(&self, section: usize) -> (usize, usize) {
         self.sections
             .get(section)
-            .map_or(0, |(_, context)| *context)
+            .copied()
+            .flatten()
+            .unwrap_or((0, 0))
     }
 }
 
@@ -141,26 +139,21 @@ impl Columns {
 fn columns(rows: &[(usize, usize, usize)], width: usize) -> Columns {
     let count = rows
         .iter()
-        .map(|(section, _, _)| section + 1)
+        .map(|(section, ..)| section + 1)
         .max()
         .unwrap_or(0);
-    let mut rights = vec![0; count];
-    let mut used = vec![false; count];
+    // The widest right side of each section. None for a section without a row.
+    let mut rights: Vec<Option<usize>> = vec![None; count];
     for (section, _, right) in rows {
-        rights[*section] = rights[*section].max(*right);
-        used[*section] = true;
+        let widest = rights[*section].unwrap_or(0).max(*right);
+        rights[*section] = Some(widest.min(width / 3));
     }
-    let rights: Vec<usize> = rights
-        .into_iter()
-        .map(|right| right.min(width / 3))
-        .collect();
     let room = |right: usize| width.saturating_sub(4 + right + 4);
     // The narrowest room of the sections that have rows: the names fit there.
     let narrowest = rights
         .iter()
-        .zip(&used)
-        .filter(|(_, used)| **used)
-        .map(|(right, _)| room(*right))
+        .flatten()
+        .map(|right| room(*right))
         .min()
         .unwrap_or(0);
     let name = rows
@@ -170,13 +163,11 @@ fn columns(rows: &[(usize, usize, usize)], width: usize) -> Columns {
         .unwrap_or(0)
         .min(narrowest * 3 / 5)
         .max(8.min(narrowest));
-    Columns {
-        name,
-        sections: rights
-            .iter()
-            .map(|right| (*right, room(*right).saturating_sub(name)))
-            .collect(),
-    }
+    let sections = rights
+        .iter()
+        .map(|right| right.map(|right| (right, room(right).saturating_sub(name))))
+        .collect();
+    Columns { name, sections }
 }
 
 /// The right part of a row.
@@ -481,28 +472,25 @@ mod tests {
         // Section 1: agents with "claude idle" (11). Section 2: worktrees with a badge (20).
         let rows = [(1, 20, 11), (1, 14, 11), (2, 30, 20), (2, 25, 20)];
         let columns = columns(&rows, 100);
-        assert_eq!(columns.right(1), 11);
-        assert_eq!(columns.right(2), 20);
+        let (agents_right, agents_context) = columns.section(1);
+        let (worktrees_right, worktrees_context) = columns.section(2);
+        assert_eq!((agents_right, worktrees_right), (11, 20));
         // The context column of the agents takes the width that the badge column took.
-        assert_eq!(columns.context(1), columns.context(2) + 9);
+        assert_eq!(agents_context, worktrees_context + 9);
         // The name column follows the widest name that fits in the narrowest section.
         assert_eq!(columns.name, 30);
     }
 
     #[test]
-    fn a_reserved_badge_keeps_the_columns_of_a_section_when_the_badge_arrives() {
-        // Before and after the answer of gh: the rows of the section have the same width.
-        let before = columns(&[(1, 20, 20), (1, 18, 20)], 100);
-        let after = columns(&[(1, 20, 20), (1, 18, 20)], 100);
-        assert_eq!(before, after);
-        // A section without a row has no column.
-        assert_eq!(columns(&[], 100).right(1), 0);
+    fn a_section_without_a_row_has_no_column() {
+        assert_eq!(columns(&[], 100).section(1), (0, 0));
+        assert_eq!(columns(&[(2, 10, 5)], 100).section(1), (0, 0));
     }
 
     #[test]
     fn the_right_column_stops_at_a_third_of_the_list_and_the_name_fits() {
         let columns = columns(&[(0, 60, 80)], 90);
-        assert_eq!(columns.right(0), 30);
+        assert_eq!(columns.section(0).0, 30);
         assert_eq!(columns.name, (90 - 4 - 30 - 4) * 3 / 5);
     }
 }

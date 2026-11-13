@@ -192,8 +192,7 @@ mod tests {
         }
     }
 
-    fn reserved_width(spans: Vec<Span<'static>>) -> usize {
-        let mut spans = spans;
+    fn reserved_width(mut spans: Vec<Span<'static>>) -> usize {
         reserve(&mut spans);
         spans_width(&spans)
     }

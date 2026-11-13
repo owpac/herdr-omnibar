@@ -437,7 +437,7 @@ impl App {
                         .current
                         .as_ref()
                         .filter(|_| self.filter == Filter::All),
-                    sidebar_order: self.config.has("move_workspaces"),
+                    in_sidebar_order: self.config.has("move_workspaces"),
                     attention: crate::rank::has(&self.config.order, "attention"),
                 };
                 rows::build(&sources, self.filter, &self.query)
@@ -1213,7 +1213,7 @@ mod tests {
     fn alt_up_and_down_move_a_workspace_only_with_the_feature_in_the_filter_workspaces() {
         let mut app = app(Filter::Workspaces);
         app.model.spaces = vec![crate::model::Space {
-            workspace: serde_json::from_str(r#"{"workspace_id": "w1", "label": "atlas"}"#).unwrap(),
+            workspace: crate::order::tests::workspace("w1", "atlas", None),
             folder: None,
             checkout: None,
         }];

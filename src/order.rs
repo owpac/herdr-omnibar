@@ -7,7 +7,7 @@
 //! list: the main workspace first, then the linked worktrees in the flat order. Any other
 //! workspace shows at its flat position.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::model::Workspace;
@@ -52,35 +52,26 @@ fn repo_key(workspace: &Workspace) -> Option<&str> {
 
 /// The entries of the sidebar, from the flat list of the workspaces.
 pub fn sidebar(workspaces: &[Workspace]) -> Vec<Entry> {
-    // The keys that have a main workspace and a linked worktree.
-    let mut grouped: HashMap<&str, (bool, bool)> = HashMap::new();
-    for workspace in workspaces {
-        if let Some(key) = repo_key(workspace) {
-            let seen = grouped.entry(key).or_default();
-            if is_linked(workspace) {
-                seen.1 = true;
-            } else {
-                seen.0 = true;
-            }
-        }
-    }
-    let is_group = |key: &str| {
-        grouped
-            .get(key)
-            .is_some_and(|(main, linked)| *main && *linked)
+    // The keys of the main workspaces, and the keys of the linked worktrees.
+    let keys = |linked: bool| -> HashSet<&str> {
+        workspaces
+            .iter()
+            .filter(|workspace| is_linked(workspace) == linked)
+            .filter_map(repo_key)
+            .collect()
     };
+    let (mains, linked) = (keys(false), keys(true));
+    let is_group = |key: &&str| mains.contains(key) && linked.contains(key);
     let mut entries: Vec<Entry> = Vec::new();
-    let mut done: Vec<&str> = Vec::new();
+    let mut done: HashSet<&str> = HashSet::new();
     for workspace in workspaces {
-        let id = workspace.workspace_id.clone();
-        let Some(key) = repo_key(workspace).filter(|key| is_group(key)) else {
-            entries.push(Entry::Single(id));
+        let Some(key) = repo_key(workspace).filter(is_group) else {
+            entries.push(Entry::Single(workspace.workspace_id.clone()));
             continue;
         };
-        if done.contains(&key) {
+        if !done.insert(key) {
             continue;
         }
-        done.push(key);
         let members = || {
             workspaces
                 .iter()
@@ -125,42 +116,46 @@ pub struct Move {
 /// first member.
 pub fn plan_move(workspaces: &[Workspace], id: &str, delta: i32) -> Option<Move> {
     let entries = sidebar(workspaces);
-    // The entry k moves before the entry k - 1: a move down is the move up of the next entry.
-    let step = |position: usize| if delta < 0 { position } else { position + 1 };
     // A linked worktree of a group: it moves among the children of its group.
-    for entry in &entries {
-        let Entry::Group { children, .. } = entry else {
-            continue;
-        };
-        if let Some(position) = children.iter().position(|child| child == id) {
-            let k = step(position);
-            if k == 0 || k >= children.len() {
-                return None;
-            }
-            return Some(Move {
-                ids: vec![children[k].clone()],
-                before: children[k - 1].clone(),
-            });
+    let group = entries.iter().find_map(|entry| match entry {
+        Entry::Group { children, .. } => {
+            Some((children, children.iter().position(|child| child == id)?))
         }
+        Entry::Single(_) => None,
+    });
+    if let Some((children, position)) = group {
+        let (moved, before) = neighbours(children, position, delta)?;
+        return Some(Move {
+            ids: vec![moved.clone()],
+            before: before.clone(),
+        });
     }
     let position = entries.iter().position(|entry| match entry {
         Entry::Single(single) => single == id,
         Entry::Group { main, .. } => main == id,
     })?;
-    let k = step(position);
-    if k == 0 || k >= entries.len() {
-        return None;
-    }
-    let flat_index = |id: &String| workspaces.iter().position(|w| &w.workspace_id == id);
-    let before = entries[k - 1].ids().into_iter().min_by_key(flat_index)?;
+    let (moved, before) = neighbours(&entries, position, delta)?;
+    // The anchor: the member of the entry before that comes first in the flat list.
+    let members = before.ids();
+    let anchor = workspaces
+        .iter()
+        .map(|workspace| &workspace.workspace_id)
+        .find(|member| members.contains(member))?;
     Some(Move {
-        ids: entries[k].ids(),
-        before,
+        ids: moved.ids(),
+        before: anchor.clone(),
     })
 }
 
-/// The entries of `sort_order` by default: the git workspaces, then the others.
-pub const DEFAULT_SORT_ORDER: [&str; 2] = ["git", "other"];
+/// The item that moves, and the item that it goes before: the item k moves before the item k - 1.
+/// A move down is the move up of the next item. None at the first or the last position.
+fn neighbours<T>(items: &[T], position: usize, delta: i32) -> Option<(&T, &T)> {
+    let k = if delta < 0 { position } else { position + 1 };
+    Some((items.get(k)?, items.get(k.checked_sub(1)?)?))
+}
+
+/// The entries of `sidebar_order` by default: the git workspaces, then the others.
+pub const DEFAULT_SIDEBAR_ORDER: [&str; 2] = ["git", "other"];
 
 /// The key of the default order of the sort:
 ///
@@ -170,7 +165,9 @@ pub const DEFAULT_SORT_ORDER: [&str; 2] = ["git", "other"];
 ///    a main workspace stays together too.
 /// 4. The workspaces without git go by label.
 ///
-/// The comparisons ignore the case. The flat order breaks a tie.
+/// The comparisons of the names and of the labels ignore the case. The comparison of `repo_key`
+/// keeps the case: 2 keys with a different case are 2 groups, and each group stays together. The
+/// flat order breaks a tie.
 type DefaultKey = (u8, String, String, bool, String, usize);
 
 fn default_key(index: usize, workspace: &Workspace) -> DefaultKey {
@@ -179,7 +176,7 @@ fn default_key(index: usize, workspace: &Workspace) -> DefaultKey {
         Some(worktree) => (
             0,
             worktree.repo_name.to_lowercase(),
-            worktree.repo_key.to_lowercase(),
+            worktree.repo_key.clone(),
             is_linked(workspace),
             label,
             index,
@@ -188,7 +185,7 @@ fn default_key(index: usize, workspace: &Workspace) -> DefaultKey {
     }
 }
 
-/// True if a folder entry of `sort_order` has a `/`: it is a folder. Any other entry but "git" and
+/// True if an entry of `sidebar_order` is a folder: it has a `/`. Any other entry but "git" and
 /// "other" is the label of a workspace.
 fn is_folder(entry: &str) -> bool {
     entry.contains('/')
@@ -202,7 +199,7 @@ fn expand(entry: &str, home: &Path) -> PathBuf {
     }
 }
 
-/// True if the entry of `sort_order` takes the members of a unit: a git group, or a workspace
+/// True if the entry of `sidebar_order` takes the members of a unit: a git group, or a workspace
 /// without git.
 fn takes(entry: &str, members: &[&Workspace], home: &Path) -> bool {
     let git = members.iter().any(|member| member.worktree.is_some());
@@ -224,7 +221,7 @@ fn takes(entry: &str, members: &[&Workspace], home: &Path) -> bool {
     }
 }
 
-/// The wanted order of the sort. `spec` is the list `sort_order`. Each entry takes the
+/// The wanted order of the sort. `spec` is the list `sidebar_order`. Each entry takes the
 /// workspaces that no earlier entry took:
 ///
 /// - "git": the git workspaces. "other": the workspaces without git.
@@ -237,29 +234,28 @@ fn takes(entry: &str, members: &[&Workspace], home: &Path) -> bool {
 /// default order.
 pub fn sorted(workspaces: &[Workspace], spec: &[String], home: &Path) -> Vec<String> {
     // The units: the workspaces of one `repo_key` go together. Any other workspace is alone.
-    let unit_of = |workspace: &Workspace| match repo_key(workspace) {
-        Some(key) => format!("key:{key}"),
-        None => format!("id:{}", workspace.workspace_id),
-    };
-    let mut units: HashMap<String, Vec<&Workspace>> = HashMap::new();
+    let mut groups: HashMap<&str, Vec<&Workspace>> = HashMap::new();
     for workspace in workspaces {
-        units.entry(unit_of(workspace)).or_default().push(workspace);
+        if let Some(key) = repo_key(workspace) {
+            groups.entry(key).or_default().push(workspace);
+        }
     }
     let bucket = |workspace: &Workspace| {
-        let members = &units[&unit_of(workspace)];
+        let members = match repo_key(workspace) {
+            Some(key) => groups[key].as_slice(),
+            None => std::slice::from_ref(&workspace),
+        };
         spec.iter()
             .position(|entry| takes(entry, members, home))
             .unwrap_or(spec.len())
     };
-    let mut keyed: Vec<(usize, DefaultKey, &Workspace)> = workspaces
-        .iter()
-        .enumerate()
-        .map(|(index, workspace)| (bucket(workspace), default_key(index, workspace), workspace))
-        .collect();
-    keyed.sort_by(|left, right| (left.0, &left.1).cmp(&(right.0, &right.1)));
-    keyed
+    let mut order: Vec<(usize, &Workspace)> = workspaces.iter().enumerate().collect();
+    order.sort_by_cached_key(|&(index, workspace)| {
+        (bucket(workspace), default_key(index, workspace))
+    });
+    order
         .into_iter()
-        .map(|(_, _, workspace)| workspace.workspace_id.clone())
+        .map(|(_, workspace)| workspace.workspace_id.clone())
         .collect()
 }
 
@@ -281,8 +277,7 @@ pub(crate) mod tests {
     }
 
     fn sorted_by_default(workspaces: &[Workspace]) -> Vec<String> {
-        let spec: Vec<String> = DEFAULT_SORT_ORDER.iter().map(|e| e.to_string()).collect();
-        sorted(workspaces, &spec, Path::new("/home/u"))
+        by(&DEFAULT_SIDEBAR_ORDER, workspaces)
     }
 
     /// A git workspace with its repository root.
@@ -487,30 +482,78 @@ pub(crate) mod tests {
             rest.splice(at..at, block);
             rest
         };
-        let workspaces = flat();
-        for (id, delta) in [
-            ("w5", 1),
-            ("w5", -1),
-            ("w3", -1),
-            ("w6", -1),
-            ("w2", 1),
-            ("w4", 1),
-        ] {
-            let before = screen_order(&workspaces);
-            let plan = plan_move(&workspaces, id, delta).unwrap();
-            let after = screen_order(&apply(&workspaces, &plan));
-            // The moved entry swaps with its neighbour on the screen.
-            let moved: Vec<&String> = before.iter().filter(|w| plan.ids.contains(w)).collect();
-            assert_eq!(moved.len(), plan.ids.len(), "{id} {delta}");
-            assert_ne!(before, after, "{id} {delta}");
-            let position =
-                |order: &[String], target: &str| order.iter().position(|w| w == target).unwrap();
-            if delta < 0 {
-                assert!(position(&after, id) < position(&before, id), "{id} {delta}");
-            } else {
-                assert!(position(&after, id) > position(&before, id), "{id} {delta}");
+        // The wanted screen order: the entry, or the linked worktree, swaps with its neighbour.
+        let swapped = |workspaces: &[Workspace], id: &str, delta: i32| -> Vec<String> {
+            let mut entries = sidebar(workspaces);
+            let child = entries
+                .iter()
+                .enumerate()
+                .find_map(|(index, entry)| match entry {
+                    Entry::Group { children, .. } => {
+                        Some((index, children.iter().position(|child| child == id)?))
+                    }
+                    Entry::Single(_) => None,
+                });
+            let other = |position: usize| {
+                if delta < 0 {
+                    position - 1
+                } else {
+                    position + 1
+                }
+            };
+            match child {
+                Some((index, position)) => {
+                    if let Entry::Group { children, .. } = &mut entries[index] {
+                        children.swap(position, other(position));
+                    }
+                }
+                None => {
+                    let position = entries
+                        .iter()
+                        .position(|entry| entry.ids()[0] == id)
+                        .unwrap();
+                    entries.swap(position, other(position));
+                }
+            }
+            entries.iter().flat_map(Entry::ids).collect()
+        };
+        // flat(), and a group with a workspace between its members: the group shows at w1.
+        let scattered = vec![
+            workspace("w1", "app.fix", Some(("/a", "app", true))),
+            workspace("w2", "notes", None),
+            workspace("w3", "app", Some(("/a", "app", false))),
+            workspace("w4", "app.more", Some(("/a", "app", true))),
+            workspace("w5", "Inbox", None),
+        ];
+        let mut moves = 0;
+        for workspaces in [flat(), scattered] {
+            for workspace in &workspaces {
+                let id = workspace.workspace_id.as_str();
+                for delta in [-1, 1] {
+                    let Some(plan) = plan_move(&workspaces, id, delta) else {
+                        continue;
+                    };
+                    moves += 1;
+                    assert_eq!(
+                        screen_order(&apply(&workspaces, &plan)),
+                        swapped(&workspaces, id, delta),
+                        "{id} {delta}"
+                    );
+                }
             }
         }
+        assert_eq!(moves, 18);
+    }
+
+    #[test]
+    fn repo_keys_with_a_different_case_stay_2_groups() {
+        let workspaces = vec![
+            workspace("w1", "a", Some(("/X", "x", false))),
+            workspace("w2", "b", Some(("/x", "x", false))),
+            workspace("w3", "c", Some(("/X", "x", true))),
+            workspace("w4", "d", Some(("/x", "x", true))),
+        ];
+        assert_eq!(sorted_by_default(&workspaces), ["w1", "w3", "w2", "w4"]);
     }
 
     #[test]

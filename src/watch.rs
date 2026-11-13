@@ -126,8 +126,8 @@ fn bar_config() -> Option<String> {
     fs::read_to_string(folder.parent()?.join(HERDR_BAR).join("config.json")).ok()
 }
 
-/// True if the watcher has work: the titles of the tabs (feature auto_titles), or the order of
-/// use of the tabs (criterion visit of the key order), or the sort of the workspaces (feature
+/// True if the watcher has work: the titles of the tabs (feature auto_titles), the order of use
+/// of the tabs (criterion visit of the key order), or the sort of the workspaces (feature
 /// auto_sort).
 fn has_work(config: &config::Config) -> bool {
     config.has("auto_titles") || config.orders_by_visit() || config.has("auto_sort")
@@ -135,22 +135,24 @@ fn has_work(config: &config::Config) -> bool {
 
 /// True if the watcher sorts the workspaces: at its start (no previous ids), or when the set of
 /// the workspace ids changes (a workspace opens or closes). A move of the user (a drag in the
-/// sidebar, alt+Up) changes the order, not the set: it stays until the next change of the set.
+/// sidebar, alt+Up, alt+Down) changes the order, not the set: it stays until the next change of
+/// the set.
 pub fn should_sort(previous: Option<&[String]>, current: &[String]) -> bool {
+    fn set(ids: &[String]) -> Vec<&String> {
+        let mut ids: Vec<&String> = ids.iter().collect();
+        ids.sort_unstable();
+        ids
+    }
     let Some(previous) = previous else {
         return true;
-    };
-    let set = |ids: &[String]| {
-        let mut ids = ids.to_vec();
-        ids.sort();
-        ids
     };
     set(previous) != set(current)
 }
 
-/// Sort the workspaces of a snapshot if the set of ids changed. `seen` keeps the last ids. A
-/// failed sort does not repeat at the next read: it waits for the next change of the set.
-fn auto_sort(snapshot: &Snapshot, seen: &mut Option<Vec<String>>, log: &Log) {
+/// Sort the workspaces of a snapshot if the set of ids changed. `spec` is the key `sidebar_order`
+/// of the config. `seen` keeps the last ids. A failed sort does not repeat at the next read: it
+/// waits for the next change of the set.
+fn auto_sort(snapshot: &Snapshot, spec: &[String], seen: &mut Option<Vec<String>>, log: &Log) {
     let ids: Vec<String> = snapshot
         .workspaces
         .iter()
@@ -160,8 +162,8 @@ fn auto_sort(snapshot: &Snapshot, seen: &mut Option<Vec<String>>, log: &Log) {
         return;
     }
     *seen = Some(ids);
-    match sort::apply(&snapshot.workspaces) {
-        Ok(Some(count)) => log.write(&format!("sorted {count} workspaces")),
+    match sort::apply(&snapshot.workspaces, spec) {
+        Ok(Some(order)) => log.write(&format!("sorted {} workspaces", order.len())),
         Ok(None) => {}
         Err(error) => log.write(&format!("cannot sort the workspaces: {error}")),
     }
@@ -252,7 +254,7 @@ pub fn run() -> Result<(), String> {
                     recent::follow(&state_dir, &snapshot, &mut focused);
                 }
                 if config.has("auto_sort") {
-                    auto_sort(&snapshot, &mut sorted_ids, &log);
+                    auto_sort(&snapshot, &config.sidebar_order, &mut sorted_ids, &log);
                 }
                 if waiting.is_none() && config.has("auto_titles") {
                     rename(&snapshot, &mut written, &state_dir, &log);

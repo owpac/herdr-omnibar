@@ -23,57 +23,53 @@ fn describe(order: &[String], workspaces: &[Workspace]) -> String {
         .collect()
 }
 
-/// The wanted order of the workspaces of a snapshot, with the `sort_order` of the config.
-fn wanted(workspaces: &[Workspace]) -> Vec<String> {
-    let config = config::current();
+/// The wanted order of the workspaces of a snapshot. `spec` is the key `sidebar_order` of the
+/// config.
+fn wanted(workspaces: &[Workspace], spec: &[String]) -> Vec<String> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default();
-    order::sorted(workspaces, &config.sort_order, &home)
+    order::sorted(workspaces, spec, &home)
 }
 
-/// Sort the workspaces of a snapshot. Return the number of workspaces, or None if the order is
-/// already right: then herdr gets no call.
-pub fn apply(workspaces: &[Workspace]) -> Result<Option<usize>, String> {
-    let wanted = wanted(workspaces);
-    let flat: Vec<&String> = workspaces.iter().map(|w| &w.workspace_id).collect();
-    if flat.iter().copied().eq(wanted.iter()) {
+/// True if the flat list of the workspaces has this order.
+fn has_order(workspaces: &[Workspace], order: &[String]) -> bool {
+    workspaces
+        .iter()
+        .map(|workspace| &workspace.workspace_id)
+        .eq(order)
+}
+
+/// Sort the workspaces of a snapshot. `spec` is the key `sidebar_order` of the config. Return the
+/// order that herdr got, or None if the order is already right: then herdr gets no call.
+pub fn apply(workspaces: &[Workspace], spec: &[String]) -> Result<Option<Vec<String>>, String> {
+    let wanted = wanted(workspaces, spec);
+    if has_order(workspaces, &wanted) {
         return Ok(None);
     }
     herdr::move_workspace_block(&wanted, None).map_err(|error| error.to_string())?;
-    Ok(Some(wanted.len()))
+    Ok(Some(wanted))
 }
 
 pub fn run(print_only: bool) -> Result<(), String> {
     let snapshot = herdr::snapshot().map_err(|error| error.to_string())?;
     let workspaces = &snapshot.workspaces;
-    let flat: Vec<String> = workspaces
-        .iter()
-        .map(|workspace| workspace.workspace_id.clone())
-        .collect();
-    let wanted = wanted(workspaces);
+    let spec = config::current().sidebar_order;
     if print_only {
-        let shown = order::screen_order(workspaces);
         print!(
             "now, as the sidebar shows it:\n{}new:\n{}",
-            describe(&shown, workspaces),
-            describe(&wanted, workspaces)
+            describe(&order::screen_order(workspaces), workspaces),
+            describe(&wanted(workspaces, &spec), workspaces)
         );
         return Ok(());
     }
-    if flat == wanted {
+    let Some(wanted) = apply(workspaces, &spec)? else {
         println!("the workspaces are already sorted");
         return Ok(());
-    }
-    apply(workspaces)?;
+    };
     // herdr answers also when the order does not change: read the order that herdr has now.
     let after = herdr::snapshot().map_err(|error| error.to_string())?;
-    let now: Vec<String> = after
-        .workspaces
-        .iter()
-        .map(|workspace| workspace.workspace_id.clone())
-        .collect();
-    if now == wanted {
+    if has_order(&after.workspaces, &wanted) {
         println!("sorted {} workspaces", wanted.len());
         Ok(())
     } else {

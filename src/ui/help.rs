@@ -25,7 +25,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         ),
         (
             "~  /",
-            "In the step where: the folders of the disk. ⇥ completes. The first row, new workspace…, makes a workspace in ~ with the typed name.",
+            "In the step where: the folders of the disk. ⇥ completes. The first row, new workspace “text”, creates a workspace in ~ with the text as its label.",
         ),
         ("⌃A", "On a row that opens a worktree: the next agent."),
         (

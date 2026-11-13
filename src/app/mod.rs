@@ -693,6 +693,12 @@ impl App {
         }
         let place = match self.selected_item() {
             Some(Item::Choice(choice)) => self.place_of_choice(choice),
+            // A row "new workspace “text”" creates in ~: its agent is the agent of ~.
+            Some(Item::Place(place))
+                if place.kind == crate::places::Kind::Home && !place.label.is_empty() =>
+            {
+                Some(place)
+            }
             _ => self.target_place(),
         };
         self.agent_for(place)
@@ -700,7 +706,7 @@ impl App {
 
     /// The agent of a place: its last agent, else the agent of its tabs, else the first agent on
     /// the PATH.
-    fn agent_for(&self, place: Option<&Place>) -> String {
+    pub(crate) fn agent_for(&self, place: Option<&Place>) -> String {
         let remembered = place.and_then(|place| {
             self.remembered
                 .get(&place.folder.display().to_string())
@@ -1190,26 +1196,21 @@ mod tests {
     }
 
     #[test]
-    fn the_row_new_workspace_makes_a_workspace_in_the_home_folder_with_the_typed_name() {
+    fn the_row_new_workspace_creates_a_workspace_in_ps_at_once_with_the_typed_text() {
         let mut app = app(Filter::New);
+        // Without a text: the row asks for a name, and the step stays.
         assert_eq!(selected_name(&app), "new workspace…");
-        press(&mut app, KeyCode::Enter);
-        assert_eq!(app.create.step, Step::What);
-        // Only the new workspace, then another place. Without a name: no plan.
-        let names: Vec<String> = app
-            .lines
-            .iter()
-            .filter_map(|line| match line {
-                Line::Row { item, .. } => Some(item.name()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(names, ["new workspace", "another place…"]);
         assert!(matches!(press(&mut app, KeyCode::Enter), Outcome::Continue));
+        assert_eq!(app.create.step, Step::Where);
+        assert_eq!(
+            app.message.as_deref(),
+            Some("type the name of the new workspace")
+        );
+        // With a text that no place matches: the row is selected, and ↵ creates at once.
         type_text(&mut app, "ville france");
+        assert_eq!(selected_name(&app), "new workspace “ville france”");
         match press(&mut app, KeyCode::Enter) {
             Outcome::Create(plan) => {
-                // The typed name is the label. The automatic titles name the first tab.
                 assert_eq!(plan.name, "");
                 assert!(matches!(
                     plan.action,
@@ -1221,7 +1222,7 @@ mod tests {
     }
 
     #[test]
-    fn the_row_new_workspace_stays_first_and_a_typed_filter_selects_the_first_place() {
+    fn the_row_stays_first_and_the_selection_goes_to_the_first_place_that_matches() {
         let mut app = app(Filter::New);
         type_text(&mut app, "pac");
         let first = app
@@ -1232,11 +1233,19 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(first, "new workspace…");
+        assert_eq!(first, "new workspace “pac”");
         assert_eq!(selected_name(&app), "pac");
-        // The filter text is not copied into the name of the step "what".
-        press(&mut app, KeyCode::Enter);
-        assert_eq!(app.create.name, "");
+        // The current place (atlas) does not match the text: it is hidden.
+        assert!(!app.lines.iter().any(|line| matches!(line,
+            Line::Row { item, .. } if item.name() == "atlas")));
+    }
+
+    #[test]
+    fn a_path_hides_the_row_new_workspace() {
+        let mut app = app(Filter::New);
+        type_text(&mut app, "~/");
+        assert!(!app.lines.iter().any(|line| matches!(line,
+            Line::Row { item, .. } if item.name().starts_with("new workspace"))));
     }
 
     #[test]

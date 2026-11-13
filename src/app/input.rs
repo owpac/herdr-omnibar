@@ -11,6 +11,7 @@ use crate::create::{self, Choice};
 use crate::filter::Filter;
 use crate::herdr;
 use crate::model::{AgentRow, Status};
+use crate::places::Kind;
 use crate::remove;
 use crate::rows::{self, Item, Line};
 
@@ -23,6 +24,24 @@ impl App {
             return Outcome::Continue;
         };
         match (self.filter, item) {
+            // The row "new workspace…": the typed text is the label, and ↵ creates it at once.
+            (_, Item::Place(place)) if place.kind == Kind::Home => {
+                if place.label.is_empty() {
+                    self.message = Some("type the name of the new workspace".to_string());
+                    return Outcome::Continue;
+                }
+                let agent = self.agent_for(Some(&place));
+                match create::plan(
+                    &place,
+                    &Choice::NewWorkspace,
+                    &place.label,
+                    &agent,
+                    self.create.no_prompts,
+                ) {
+                    Some(plan) => Outcome::Create(plan),
+                    None => Outcome::Continue,
+                }
+            }
             (_, Item::Place(place)) => {
                 if self.filter != Filter::New {
                     self.filter = Filter::New;

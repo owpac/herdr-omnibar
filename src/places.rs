@@ -22,8 +22,8 @@ pub enum Kind {
     Project,
     /// A folder outside git, without a workspace.
     Folder,
-    /// The home folder, for a new workspace that the typed name labels: the first row of the
-    /// step "where" of the filter New.
+    /// The home folder, for a new workspace that the typed text labels: the first row of the
+    /// step "where" of the filter New. ↵ creates the workspace at once.
     Home,
 }
 
@@ -44,12 +44,12 @@ pub struct Place {
 }
 
 impl Place {
-    /// The place of the row "new workspace…": the home folder. The home folder can already have a
-    /// workspace: the new workspace is another one.
-    pub fn home() -> Place {
+    /// The place of the row "new workspace…": the home folder, with the typed text as its label.
+    /// The home folder can already have a workspace: the new workspace is another one.
+    pub fn home(name: &str) -> Place {
         Place {
             kind: Kind::Home,
-            label: "~".to_string(),
+            label: name.trim().to_string(),
             project: "~".to_string(),
             folder: env::var_os("HOME").map(PathBuf::from).unwrap_or_default(),
             workspace_id: None,

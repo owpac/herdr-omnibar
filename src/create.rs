@@ -653,23 +653,20 @@ mod tests {
     }
 
     #[test]
-    fn the_home_place_offers_only_a_new_workspace_that_needs_a_name() {
-        let home = Place::home();
+    fn the_home_place_makes_a_workspace_with_its_label_and_needs_a_name() {
+        let home = Place::home(" ville france ");
         assert_eq!(home.kind, Kind::Home);
-        assert_eq!(
-            choices(&home, "ville france", &[], &[], None),
-            [Choice::NewWorkspace, Choice::AnotherPlace]
-        );
+        assert_eq!(home.label, "ville france");
         // Without a name: no plan. With a name: the label, and no name for the first tab.
-        assert!(plan(&home, &Choice::NewWorkspace, "  ", "claude", false).is_none());
-        let plan = plan(
-            &home,
+        assert!(plan(
+            &Place::home(""),
             &Choice::NewWorkspace,
-            "ville france",
+            "  ",
             "claude",
-            false,
+            false
         )
-        .unwrap();
+        .is_none());
+        let plan = plan(&home, &Choice::NewWorkspace, &home.label, "claude", false).unwrap();
         assert_eq!(plan.name, "");
         assert_eq!(
             plan.action,

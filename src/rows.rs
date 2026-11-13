@@ -40,7 +40,12 @@ impl Item {
             Item::Agent(agent) => agent.name.clone(),
             Item::Tab(tab) => tab.name.clone(),
             Item::Workspace(space) => space.label(),
-            Item::Place(place) if place.kind == Kind::Home => "new workspace…".to_string(),
+            Item::Place(place) if place.kind == Kind::Home && place.label.is_empty() => {
+                "new workspace…".to_string()
+            }
+            Item::Place(place) if place.kind == Kind::Home => {
+                format!("new workspace “{}”", place.label)
+            }
             Item::Place(place) => place.label.clone(),
             Item::Choice(choice) => match choice {
                 Choice::NewWorktree { branch } if branch.is_empty() => "new worktree…".into(),
@@ -302,16 +307,22 @@ pub fn where_lines(
     }
     let query = query.trim();
     let mut lines = Vec::new();
-    // The first row makes a new workspace in ~, with the typed name: it is always there.
+    // The first row makes a new workspace in ~, with the typed text as its label.
     group(
         &mut lines,
         "New",
-        vec![(Item::Place(Place::home()), Vec::new())],
+        vec![(Item::Place(Place::home(query)), Vec::new())],
     );
     let (here, rest): (Vec<Place>, Vec<Place>) = open
         .iter()
         .cloned()
         .partition(|place| place.workspace_id.as_deref() == current && current.is_some());
+    // The current place follows the filter by its name: its folder would keep it in the list for a
+    // text such as "pac" (owpac), before the places that really match.
+    let here: Vec<Place> = here
+        .into_iter()
+        .filter(|place| fuzzy::find(query, &place.label).is_some())
+        .collect();
     group(
         &mut lines,
         "Current place",

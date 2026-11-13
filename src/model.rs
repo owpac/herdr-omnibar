@@ -81,7 +81,7 @@ pub struct Snapshot {
 }
 
 /// An agent of the snapshot, by pane. Only the herdr name is read.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct AgentInfo {
     pub pane_id: String,
     #[serde(default)]

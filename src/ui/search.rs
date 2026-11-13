@@ -60,7 +60,10 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
         }
         (true, Step::Where) => {
             spans.extend([crumb(None), gap()]);
-            ("where ❯ ", "project, workspace or folder · ~ for a path")
+            (
+                "where ❯ ",
+                "a place, or the name of a new workspace · ~ for a path",
+            )
         }
         (true, Step::What) => {
             let place = app

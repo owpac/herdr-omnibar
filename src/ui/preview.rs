@@ -206,7 +206,7 @@ fn place_lines(app: &App, place: &Place, width: usize) -> Vec<Line<'static>> {
     }
     lines.push(Line::raw(""));
     let help = if place.kind == Kind::Home {
-        "↵ chooses ~. Then type the name of the new workspace."
+        "↵ creates a workspace in ~. Its label is the text that you typed."
     } else {
         "↵ chooses this place. Then type the name of the tab or of the branch."
     };

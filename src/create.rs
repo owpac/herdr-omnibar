@@ -397,6 +397,8 @@ pub fn execute(plan: &Plan) -> Result<(), String> {
 fn agent_name(plan: &Plan) -> String {
     let base = match &plan.action {
         Action::Worktree { branch, .. } => branch.clone(),
+        // A new workspace with a label and without a tab name: the agent takes the label.
+        Action::NewWorkspace { label, .. } if plan.name.is_empty() => label.clone(),
         _ if !plan.name.is_empty() => plan.name.clone(),
         _ => plan
             .folder
@@ -747,6 +749,13 @@ mod tests {
         .unwrap();
         let name = agent_name(&plan);
         assert!(name.starts_with("claude-review-the-omnibar-"), "{name}");
+    }
+
+    #[test]
+    fn the_agent_name_of_a_new_workspace_comes_from_its_label() {
+        let plan = new_workspace_plan("Ville France", "claude", false).unwrap();
+        let name = agent_name(&plan);
+        assert!(name.starts_with("claude-ville-france-"), "{name}");
     }
 
     #[test]

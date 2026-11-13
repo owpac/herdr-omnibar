@@ -406,6 +406,34 @@ impl App {
             .find(|place| place.workspace_id.as_deref() == Some(workspace_id))
     }
 
+    /// True if ↵ creates a workspace at once: the selected row is "new workspace “text”". Without
+    /// a text, ↵ only asks for a name.
+    pub fn enter_creates_workspace(&self) -> bool {
+        matches!(self.selected_item(), Some(Item::NewWorkspace(text)) if !text.is_empty())
+    }
+
+    /// The row that a new list selects: the first row. In the step "where" with a filter text, the
+    /// row "new workspace…" stays first, but the selection goes to the first place that matches
+    /// the text: typing a name and ↵ chooses the place.
+    fn first_row(&self, rows: &[usize]) -> Option<usize> {
+        let typed = self.filter == Filter::New
+            && self.create.step == Step::Where
+            && !self.create.filter.trim().is_empty();
+        let is_new_workspace = |index: &usize| {
+            matches!(
+                &self.lines[*index],
+                Line::Row {
+                    item: Item::NewWorkspace(_),
+                    ..
+                }
+            )
+        };
+        rows.iter()
+            .copied()
+            .find(|index| !typed || !is_new_workspace(index))
+            .or_else(|| rows.first().copied())
+    }
+
     /// Build the lines again. The selection stays on the row with this key, if it is still there.
     fn rebuild(&mut self, keep: Option<String>) {
         if matches!(self.filter, Filter::All | Filter::Worktrees) {
@@ -469,7 +497,7 @@ impl App {
                     |&index| matches!(&self.lines[index], Line::Row { item, .. } if item.key() == key),
                 )
             })
-            .or_else(|| rows.first().copied());
+            .or_else(|| self.first_row(&rows));
         // A name that is not a branch name selects the next choice: the new tab.
         if let (Some(index), true) = (selected, self.filter == Filter::New) {
             if let Line::Row {
@@ -702,6 +730,10 @@ impl App {
         if let Some(agent) = &self.create.agent {
             return agent.clone();
         }
+        // A row "new workspace “text”" creates in ~: its agent is the agent of ~.
+        if self.enter_creates_workspace() {
+            return self.home_agent();
+        }
         let place = match self.selected_item() {
             Some(Item::Choice(choice)) => self.place_of_choice(choice),
             _ => self.target_place(),
@@ -712,12 +744,19 @@ impl App {
     /// The agent of a place: its last agent, else the agent of its tabs, else the first agent on
     /// the PATH.
     fn agent_for(&self, place: Option<&Place>) -> String {
-        let remembered = place.and_then(|place| {
-            self.remembered
-                .get(&place.folder.display().to_string())
-                .cloned()
-        });
         let from_tabs = place.and_then(|place| place.tabs.iter().find_map(|tab| tab.agent.clone()));
+        self.agent_in(place.map(|place| place.folder.as_path()), from_tabs)
+    }
+
+    /// The agent of the row "new workspace": the last agent of ~, else the first agent on the PATH.
+    pub(crate) fn home_agent(&self) -> String {
+        self.agent_in(Some(&places::home_folder()), None)
+    }
+
+    /// The last agent of a folder, else the agent of the tabs, else the first agent on the PATH.
+    fn agent_in(&self, folder: Option<&Path>, from_tabs: Option<String>) -> String {
+        let remembered =
+            folder.and_then(|folder| self.remembered.get(&folder.display().to_string()).cloned());
         remembered
             .or(from_tabs)
             .filter(|agent| self.agents.contains(agent))
@@ -1160,6 +1199,9 @@ mod tests {
     fn the_creation_starts_at_the_current_place_then_keeps_the_name() {
         let mut app = app(Filter::New);
         assert_eq!(app.create.step, Step::Where);
+        // The first row makes a new workspace in ~. The current place comes next.
+        assert_eq!(selected_name(&app), "new workspace…");
+        press(&mut app, KeyCode::Down);
         assert_eq!(selected_name(&app), "atlas");
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.create.step, Step::What);
@@ -1188,6 +1230,7 @@ mod tests {
     #[test]
     fn tab_changes_the_agent_in_the_step_what_and_enter_gives_the_plan() {
         let mut app = app(Filter::New);
+        press(&mut app, KeyCode::Down);
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.agent(), "claude");
         press(&mut app, KeyCode::Tab);
@@ -1209,6 +1252,58 @@ mod tests {
             }
             other => panic!("no plan: {other:?}"),
         }
+    }
+
+    #[test]
+    fn the_row_new_workspace_creates_a_workspace_in_ps_at_once_with_the_typed_text() {
+        let mut app = app(Filter::New);
+        // Without a text: the row asks for a name, and the step stays.
+        assert_eq!(selected_name(&app), "new workspace…");
+        assert!(matches!(press(&mut app, KeyCode::Enter), Outcome::Continue));
+        assert_eq!(app.create.step, Step::Where);
+        assert_eq!(app.message.as_deref(), Some(crate::create::NAME_MISSING));
+        assert!(!app.enter_creates_workspace());
+        // With a text that no place matches: the row is selected, and ↵ creates at once.
+        type_text(&mut app, "ville france");
+        assert!(app.enter_creates_workspace());
+        assert_eq!(selected_name(&app), "new workspace “ville france”");
+        match press(&mut app, KeyCode::Enter) {
+            Outcome::Create(plan) => {
+                assert_eq!(plan.name, "");
+                assert!(matches!(
+                    plan.action,
+                    create::Action::NewWorkspace { ref label, .. } if label == "ville france"
+                ));
+            }
+            other => panic!("no plan: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_row_stays_first_and_the_selection_goes_to_the_first_place_that_matches() {
+        let mut app = app(Filter::New);
+        type_text(&mut app, "pac");
+        let first = app
+            .lines
+            .iter()
+            .find_map(|line| match line {
+                Line::Row { item, .. } => Some(item.name()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(first, "new workspace “pac”");
+        assert_eq!(selected_name(&app), "pac");
+        // The places match by their name: the current place (atlas) does not match, it is hidden.
+        assert!(!app.lines.iter().any(|line| matches!(line,
+            Line::Row { item, .. } if item.name() == "atlas")));
+    }
+
+    #[test]
+    fn a_path_hides_the_row_new_workspace() {
+        let mut app = app(Filter::New);
+        type_text(&mut app, "~/");
+        assert!(!app.lines.iter().any(|line| matches!(line,
+            Line::Row { item, .. } if item.name().starts_with("new workspace"))));
     }
 
     #[test]

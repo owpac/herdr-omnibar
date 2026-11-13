@@ -7,7 +7,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::Rect;
 
-use crate::create::{self, Choice};
+use crate::create::{self, Choice, NAME_MISSING};
 use crate::filter::Filter;
 use crate::herdr;
 use crate::model::{AgentRow, Status};
@@ -24,6 +24,17 @@ impl App {
             return Outcome::Continue;
         };
         match (self.filter, item) {
+            // The row "new workspace…": the typed text is the label, and ↵ creates it at once.
+            (_, Item::NewWorkspace(text)) => {
+                match create::new_workspace_plan(&text, &self.home_agent(), self.create.no_prompts)
+                {
+                    Some(plan) => Outcome::Create(plan),
+                    None => {
+                        self.message = Some(NAME_MISSING.to_string());
+                        Outcome::Continue
+                    }
+                }
+            }
             (_, Item::Place(place)) => {
                 if self.filter != Filter::New {
                     self.filter = Filter::New;

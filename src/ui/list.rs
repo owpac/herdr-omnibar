@@ -226,7 +226,7 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
             vec![Span::styled(tabs_text(count), Style::new().fg(dim_color()))]
         }
         Item::Place(place) => place_right(place, app),
-        Item::Action(_) | Item::Create(_) => Vec::new(),
+        Item::Action(_) | Item::Create(_) | Item::NewWorkspace(_) => Vec::new(),
         Item::Choice(choice) => match choice {
             Choice::Existing {
                 branch,
@@ -333,7 +333,9 @@ fn glyph(item: &Item) -> Span<'static> {
         Item::Pane(_) => Span::styled("▫", Style::new().fg(dim_color())),
         Item::Workspace(_) => Span::styled("▣", Style::new().fg(accent_color())),
         Item::Action(_) => Span::styled("›", Style::new().fg(accent_color())),
-        Item::Create(_) => Span::styled("+", Style::new().fg(green_color())),
+        Item::Create(_) | Item::NewWorkspace(_) => {
+            Span::styled("+", Style::new().fg(green_color()))
+        }
         Item::Place(place) => match place.kind {
             Kind::Workspace => Span::styled("▣", Style::new().fg(accent_color())),
             Kind::Project => Span::styled("□", Style::new().fg(muted_color())),
@@ -379,7 +381,8 @@ fn name_style(item: &Item) -> Style {
             | Choice::NewSplit { .. }
             | Choice::NewWorkspace,
         )
-        | Item::Create(_) => Style::new().fg(green_color()),
+        | Item::Create(_)
+        | Item::NewWorkspace(_) => Style::new().fg(green_color()),
         _ => Style::new(),
     }
 }
@@ -453,6 +456,16 @@ fn context_of(item: &Item, app: &App) -> String {
             Choice::Existing { .. } => "create its worktree".into(),
             Choice::NewTab => format!("{}in {}", auto_name(app), target_label(app)),
             Choice::NewSplit { .. } => "next to the current pane".into(),
+            Choice::NewWorkspace
+                if app
+                    .create
+                    .place
+                    .as_ref()
+                    .is_some_and(Place::labels_new_workspace) =>
+            {
+                // The typed name is the label of the workspace: herdr names its first tab.
+                format!("a new workspace in {}", target_label(app))
+            }
             Choice::NewWorkspace => {
                 format!("{}in a new workspace {}", auto_name(app), target_label(app))
             }

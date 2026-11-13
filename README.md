@@ -134,6 +134,8 @@ sort_order = ["git", "other"]
 
 `recent_first` sorts the agents, the tabs, the panes and the workspaces by their last use: the tab of the popup goes after the others, so the first row is the tab before, like alt-tab (`⌘P` then `↵`). The group "Needs you" stays first. The watcher writes the time of each change of the focused tab in `recent.json`, in the state folder.
 
+`auto_sort` is off by default, because it changes the order of the sidebar. The watcher then sorts the workspaces with `sort_order`, at its start and each time the set of the workspaces changes: a workspace opens or closes. A move of your own (a drag in the sidebar, `⌥↑`, `⌥↓`) stays until the next change of the set. If the order is already right, the watcher makes no call to herdr. It writes each sort in `watch.log`. The watcher needs the socket of herdr: it works when herdr starts it.
+
 `agent_logos` shows the logo of each agent before its name, if the font Herdr Agent Icons Max of [herdr-radar](https://github.com/hhdebb/herdr-radar) is installed, like herdr-bar. The omnibar never installs a font. On macOS:
 
 ```sh

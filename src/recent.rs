@@ -63,7 +63,8 @@ pub fn follow(state_dir: &Path, snapshot: &Snapshot, focused: &mut Option<String
 }
 
 /// Sort the rows of a model: the tab used last first. The current tab goes after the tabs that the
-/// user used: the first row is the tab before. A workspace takes the last time of its tabs. The
+/// user used: the first row is the tab before. The agents are not here: they go by their last
+/// activity (`model::order_agents`). A workspace takes the last time of its tabs. The
 /// sort is stable: the rows without a time keep their order.
 pub fn order(model: &mut Model, recent: &Recent, current: Option<&str>) {
     let time = |tab_id: &str| {
@@ -89,9 +90,6 @@ pub fn order(model: &mut Model, recent: &Recent, current: Option<&str>) {
         *last = (*last).max(time(tab_id));
     }
     let newest = |value: u64| std::cmp::Reverse(value);
-    model
-        .agents
-        .sort_by_key(|agent| newest(time(&agent.tab_id)));
     model.tabs.sort_by_key(|tab| newest(time(&tab.tab_id)));
     model.panes.sort_by_key(|pane| newest(time(&pane.tab_id)));
     model.spaces.sort_by_key(|space| {
@@ -107,29 +105,27 @@ pub fn order(model: &mut Model, recent: &Recent, current: Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{AgentRow, Status};
+    use crate::model::TabRow;
 
-    fn agent(name: &str, tab: &str) -> AgentRow {
-        AgentRow {
-            pane_id: format!("p-{name}"),
+    fn tab(name: &str, tab: &str) -> TabRow {
+        TabRow {
             tab_id: tab.into(),
             workspace_id: "w1".into(),
             name: name.into(),
-            kind: "claude".into(),
-            status: Status::Idle,
+            command: String::new(),
             place: "atlas".into(),
-            cwd: None,
+            pane_id: None,
         }
     }
 
     #[test]
     fn the_tab_used_last_comes_first_and_the_current_tab_goes_after() {
         let mut model = Model {
-            agents: vec![
-                agent("old", "t1"),
-                agent("current", "t2"),
-                agent("last", "t3"),
-                agent("never", "t4"),
+            tabs: vec![
+                tab("old", "t1"),
+                tab("current", "t2"),
+                tab("last", "t3"),
+                tab("never", "t4"),
             ],
             ..Model::default()
         };
@@ -139,11 +135,7 @@ mod tests {
             ("t3".to_string(), 20),
         ]);
         order(&mut model, &recent, Some("t2"));
-        let names: Vec<&str> = model
-            .agents
-            .iter()
-            .map(|agent| agent.name.as_str())
-            .collect();
+        let names: Vec<&str> = model.tabs.iter().map(|tab| tab.name.as_str()).collect();
         assert_eq!(names, ["last", "old", "current", "never"]);
     }
 

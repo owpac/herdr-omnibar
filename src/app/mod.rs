@@ -415,7 +415,11 @@ impl App {
             },
             (Filter::Worktrees, _) => rows::worktree_lines(
                 self.projects.current.as_ref(),
-                self.projects.others.as_deref().unwrap_or_default(),
+                &rows::order_projects(
+                    self.projects.others.as_deref().unwrap_or_default(),
+                    &self.model,
+                    &self.open,
+                ),
                 &self.open,
                 &self.query,
             ),
@@ -582,7 +586,7 @@ impl App {
 
     /// Take the times of use of the tabs, and the tab of the popup: the rows take their order of
     /// use (feature recent_first).
-    /// The selection goes to the first row: the tab before, like alt-tab.
+    /// The selection goes to the first row.
     pub fn use_recent(&mut self, recent: Recent, current_tab: Option<String>) {
         self.recent = recent;
         self.current_tab = current_tab;
@@ -593,11 +597,22 @@ impl App {
         self.rebuild(None);
     }
 
-    /// Sort the rows of a model by their use (feature recent_first).
+    /// Sort the rows of a model. The agents go by their last activity, with or without the
+    /// feature recent_first. With it, the other rows go by their use.
     fn order(&self, model: &mut Model) {
+        crate::model::order_agents(&mut model.agents, self.current_tab.as_deref());
         if self.config.has("recent_first") {
             recent::order(model, &self.recent, self.current_tab.as_deref());
         }
+    }
+
+    /// Take the tab of the popup: the agent of this tab goes at the end of its part of the list.
+    pub fn use_current_tab(&mut self, current_tab: Option<String>) {
+        self.current_tab = current_tab;
+        let mut model = std::mem::take(&mut self.model);
+        self.order(&mut model);
+        self.model = model;
+        self.rebuild(None);
     }
 
     /// Take a new model: the snapshot changed.
@@ -924,6 +939,7 @@ mod tests {
                 status: Status::Idle,
                 place: "atlas".into(),
                 cwd: None,
+                seq: None,
             })
             .collect();
         let model = Model {
@@ -1247,22 +1263,21 @@ mod tests {
     }
 
     #[test]
-    fn the_tab_used_last_comes_first_and_the_current_tab_last() {
+    fn the_agents_go_by_activity_and_the_agent_of_the_current_tab_goes_last() {
         let mut app = app(Filter::Agents);
-        let recent = Recent::from([
-            ("t-fix the login".to_string(), 10),
-            ("t-release notes".to_string(), 20),
-            ("t-omnibar design".to_string(), 30),
-        ]);
-        app.use_recent(recent, Some("t-omnibar design".to_string()));
-        assert_eq!(selected_name(&app), "release notes");
+        for (agent, seq) in app.model.agents.iter_mut().zip([5, 9, 7]) {
+            agent.seq = Some(seq);
+        }
+        app.use_current_tab(Some("t-omnibar design".to_string()));
         let names: Vec<&str> = app
             .model
             .agents
             .iter()
             .map(|agent| agent.name.as_str())
             .collect();
+        // release notes 7, fix the login 5, then the current tab (omnibar design, 9).
         assert_eq!(names, ["release notes", "fix the login", "omnibar design"]);
+        assert_eq!(selected_name(&app), "release notes");
     }
 
     #[test]

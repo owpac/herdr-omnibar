@@ -196,7 +196,7 @@ pub struct App {
     pub logos: bool,
     /// The focused pane of the current workspace, when the popup opens: a split goes next to it.
     pub focused_pane: Option<String>,
-    /// The order of the lists: the ranks of the rows (key `order` of the config).
+    /// The order of the lists: the ranks of the rows (key `list_order` of the config).
     ranker: Ranker,
     /// The times of use of the tabs, and the tab of the popup (criterion visit).
     recent: Recent,
@@ -438,7 +438,7 @@ impl App {
                         .as_ref()
                         .filter(|_| self.filter == Filter::All),
                     in_sidebar_order: self.config.has("move_workspaces"),
-                    attention: crate::rank::has(&self.config.order, "attention"),
+                    attention: crate::rank::has(&self.config.list_order, "attention"),
                 };
                 rows::build(&sources, self.filter, &self.query)
             }
@@ -601,12 +601,12 @@ impl App {
         self.rebuild(None);
     }
 
-    /// Sort the rows of a model with the key `order` of the config, then keep the ranks for the
-    /// groups of the filter Worktrees.
+    /// Sort the rows of a model with the key `list_order` of the config, then keep the ranks for
+    /// the groups of the filter Worktrees.
     fn order(&mut self, model: &mut Model) {
         let ranker = Ranker::new(
             model,
-            &self.config.order,
+            &self.config.list_order,
             &self.recent,
             self.current_tab.as_deref(),
             self.current.as_deref(),

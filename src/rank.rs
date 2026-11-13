@@ -1,6 +1,6 @@
-//! The order of the lists (config key `order`). One place compares the rows of all the lists.
+//! The order of the lists (config key `list_order`). One place compares the rows of all the lists.
 //!
-//! `order` is a list of criteria. The first criterion sorts, and the next criterion sorts the
+//! `list_order` is a list of criteria. The first criterion sorts, and the next criterion sorts the
 //! rows that are equal:
 //!
 //! - `attention`: the agents that need you first, then the agents that are done, then the others.
@@ -21,8 +21,8 @@ use crate::model::{AgentRow, Model, PaneRow, Space, Status, TabRow};
 use crate::places::{Place, Project};
 use crate::recent::Recent;
 
-/// The default `order`.
-pub const DEFAULT_ORDER: [&str; 3] = ["attention", "activity", "visit"];
+/// The default `list_order`.
+pub const DEFAULT_LIST_ORDER: [&str; 3] = ["attention", "activity", "visit"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Criterion {
@@ -32,7 +32,7 @@ pub enum Criterion {
     Herdr,
 }
 
-/// The criteria of an `order` list: an unknown entry and a duplicate do nothing. `herdr` is
+/// The criteria of a `list_order` list: an unknown entry and a duplicate do nothing. `herdr` is
 /// always the last one, also if the list does not have it. An empty list gives the order herdr.
 pub fn criteria(order: &[String]) -> Vec<Criterion> {
     let mut found: Vec<Criterion> = Vec::new();
@@ -53,7 +53,7 @@ pub fn criteria(order: &[String]) -> Vec<Criterion> {
     found
 }
 
-/// True if the `order` list has a criterion.
+/// True if the `list_order` list has a criterion.
 pub fn has(order: &[String], name: &str) -> bool {
     order.iter().any(|entry| entry == name)
 }

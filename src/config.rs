@@ -23,7 +23,7 @@
 //! # "attention": the agents that need you, then the agents that are done. "activity": the last
 //! # activity of the agents. "visit": the last visit of the tab. "herdr": the order of herdr (it
 //! # is always the last criterion).
-//! order = ["attention", "activity", "visit"]
+//! list_order = ["attention", "activity", "visit"]
 //! ```
 //!
 //! A missing file, a missing key or a wrong value gives the default.
@@ -106,14 +106,14 @@ pub struct Config {
     /// The entries of the sort of the workspaces, in order (see order::sorted).
     pub sidebar_order: Vec<String>,
     /// The criteria of the order of the lists (see rank).
-    pub order: Vec<String>,
+    pub list_order: Vec<String>,
 }
 
 impl Config {
     /// True if the order of the lists has the criterion `visit`: the watcher and the popup then
     /// record the visits of the tabs.
     pub fn orders_by_visit(&self) -> bool {
-        crate::rank::has(&self.order, "visit")
+        crate::rank::has(&self.list_order, "visit")
     }
 
     /// True if the feature is on.
@@ -140,7 +140,7 @@ impl Default for Config {
                 .iter()
                 .map(|name| name.to_string())
                 .collect(),
-            order: crate::rank::DEFAULT_ORDER
+            list_order: crate::rank::DEFAULT_LIST_ORDER
                 .iter()
                 .map(|criterion| criterion.to_string())
                 .collect(),
@@ -163,7 +163,7 @@ struct File {
     features: Option<Vec<String>>,
     filters: Option<Vec<String>>,
     sidebar_order: Option<Vec<String>>,
-    order: Option<Vec<String>>,
+    list_order: Option<Vec<String>>,
 }
 
 /// The config folder of the plugin.
@@ -218,7 +218,7 @@ fn parse(text: &str) -> Config {
         features: file.features.unwrap_or(defaults.features),
         filters: file.filters.unwrap_or(defaults.filters),
         sidebar_order: file.sidebar_order.unwrap_or(defaults.sidebar_order),
-        order: file.order.unwrap_or(defaults.order),
+        list_order: file.list_order.unwrap_or(defaults.list_order),
     }
 }
 
@@ -278,16 +278,19 @@ mod tests {
     }
 
     #[test]
-    fn order_has_a_default_and_a_wrong_value_gives_the_default() {
-        assert_eq!(parse("").order, ["attention", "activity", "visit"]);
-        assert_eq!(parse("order = [\"herdr\"]").order, ["herdr"]);
-        assert_eq!(parse("order = []").order, Vec::<String>::new());
-        assert_eq!(parse("order = 3").order, ["attention", "activity", "visit"]);
+    fn list_order_has_a_default_and_a_wrong_value_gives_the_default() {
+        assert_eq!(parse("").list_order, ["attention", "activity", "visit"]);
+        assert_eq!(parse("list_order = [\"herdr\"]").list_order, ["herdr"]);
+        assert_eq!(parse("list_order = []").list_order, Vec::<String>::new());
+        assert_eq!(
+            parse("list_order = 3").list_order,
+            ["attention", "activity", "visit"]
+        );
         // The old feature is a name that does nothing.
         assert!(!parse("").has("recent_first"));
         assert!(parse("features = [\"recent_first\"]").has("recent_first"));
         assert!(parse("").orders_by_visit());
-        assert!(!parse("order = [\"herdr\"]").orders_by_visit());
+        assert!(!parse("list_order = [\"herdr\"]").orders_by_visit());
     }
 
     #[test]

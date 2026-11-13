@@ -127,7 +127,7 @@ fn bar_config() -> Option<String> {
 }
 
 /// True if the watcher has work: the titles of the tabs (feature auto_titles), the order of use
-/// of the tabs (criterion visit of the key order), or the sort of the workspaces (feature
+/// of the tabs (criterion visit of the key list_order), or the sort of the workspaces (feature
 /// auto_sort).
 fn has_work(config: &config::Config) -> bool {
     config.has("auto_titles") || config.orders_by_visit() || config.has("auto_sort")

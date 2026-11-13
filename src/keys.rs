@@ -2,7 +2,7 @@
 //!
 //! The omnibar asks the terminal for the keyboard protocol of kitty: herdr then forwards the
 //! modifiers of Enter, Backspace and the arrows, if the terminal sends them to herdr. This tool
-//! shows if ctrl+Enter, ctrl+Backspace and ctrl+Left arrive as different keys.
+//! shows if ctrl+Enter, ctrl+Backspace, ctrl+Left, alt+Up and alt+Down arrive as different keys.
 
 use ratatui::crossterm::event::{
     self, Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
@@ -36,7 +36,7 @@ pub fn run() -> io::Result<()> {
 fn show(out: &mut impl Write, enhanced: bool) -> io::Result<()> {
     write!(
         out,
-        "Keyboard protocol of kitty: {}\r\nPress keys: ctrl+Enter, ctrl+Backspace, ctrl+Left, Tab.\r\nPress q 2 times to quit.\r\n\r\n",
+        "Keyboard protocol of kitty: {}\r\nPress keys: ctrl+Enter, ctrl+Backspace, ctrl+Left, alt+Up, alt+Down, Tab.\r\nPress q 2 times to quit.\r\n\r\n",
         if enhanced { "on" } else { "off: modified keys can look like plain keys" }
     )?;
     out.flush()?;

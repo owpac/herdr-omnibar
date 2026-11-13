@@ -49,6 +49,10 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             "Rename the tab, the workspace or the pane of the selected row. ↵ saves, esc keeps the name.",
         ),
         (
+            "⌥↑ ⌥↓",
+            "Move the selected workspace up or down in the sidebar (feature move_workspaces).",
+        ),
+        (
             "mouse",
             "Click a row, a chip or a key. Double click runs a row. The wheel moves.",
         ),

@@ -449,6 +449,7 @@ impl App {
                         .current
                         .as_ref()
                         .filter(|_| self.filter == Filter::All),
+                    sidebar_order: self.config.has("move_workspaces"),
                 };
                 rows::build(&sources, self.filter, &self.query)
             }
@@ -1248,6 +1249,22 @@ mod tests {
         let rename = app.rename.expect("a rename");
         assert_eq!(rename.target, RenameTarget::Pane("w1:p2".into()));
         assert_eq!(rename.text, "cargo watch");
+    }
+
+    #[test]
+    fn alt_up_and_down_move_a_workspace_only_with_the_feature_in_the_filter_workspaces() {
+        let mut app = app(Filter::Workspaces);
+        app.model.spaces = vec![crate::model::Space {
+            workspace: serde_json::from_str(r#"{"workspace_id": "w1", "label": "atlas"}"#).unwrap(),
+            folder: None,
+            checkout: None,
+        }];
+        app.rebuild(None);
+        assert!(!app.moves_workspace());
+        app.config.features.push("move_workspaces".to_string());
+        assert!(app.moves_workspace());
+        app.filter = Filter::Agents;
+        assert!(!app.moves_workspace());
     }
 
     #[test]

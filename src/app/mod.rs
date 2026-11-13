@@ -1268,6 +1268,18 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_t_needs_the_feature_auto_titles() {
+        let mut app = app(Filter::All);
+        app.config.features.retain(|name| name != "auto_titles");
+        app.on_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+        assert_eq!(
+            app.message.as_deref(),
+            Some("turn on the feature auto_titles to name a tab by itself")
+        );
+        assert!(!app.reload);
+    }
+
+    #[test]
     fn ctrl_r_does_nothing_on_a_row_without_a_target() {
         let mut app = app(Filter::Folders);
         app.on_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));

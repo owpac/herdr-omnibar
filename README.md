@@ -74,6 +74,7 @@ command = "herdr-omnibar.new"
 | `⌃↵` | A new tab, with its agent, in the open workspace of the selected row: an agent, a tab, a workspace or a worktree. |
 | `⌃⌫` | Close the tab of the selected row (the pane only, on a row of the filter Panes), or remove the worktree of the selected branch, after a question on the action line. The main checkout stays. See [Remove a worktree](#remove-a-worktree). |
 | `⌃R` | Rename the target of the selected row: the tab of an agent or of a tab, a workspace, or a pane. `↵` saves, `esc` keeps the old name. Other rows do nothing. |
+| `⌃T` | Give the tab of the selected agent or tab back to the automatic titles (feature `auto_titles`): the tab takes its number, then the watcher writes the title of its agent in 2 seconds. It also replaces a name that you gave with `⌃R`. |
 | `⌥↑`, `⌥↓` | Feature `move_workspaces`, off by default. On a row of the filter Workspaces: move the workspace up or down in the herdr sidebar. |
 | `⌃Y` | In the step "what": start the agent without its permission prompts, for this tab only. |
 | `⌃←`, `⌃→` | The view of the preview of a worktree: diff, log, changes. |

@@ -14,6 +14,7 @@ use crate::model::{AgentRow, Status};
 use crate::order;
 use crate::remove;
 use crate::rows::{self, Item, Line};
+use crate::watch;
 
 use super::{App, Confirm, Create, Outcome, Rename, RenameTarget, Step};
 
@@ -227,6 +228,23 @@ impl App {
         }
     }
 
+    /// ctrl+T: give the tab of the selected row back to the automatic titles (feature auto_titles).
+    /// The tab takes its number, then the watcher writes the title of its agent.
+    fn auto_title(&mut self) {
+        let Some((tab_id, name)) = self.selected_tab() else {
+            return;
+        };
+        if !self.config.has("auto_titles") {
+            self.message = Some("turn on the feature auto_titles to name a tab by itself".into());
+            return;
+        }
+        self.message = Some(match watch::give_back(&tab_id) {
+            Ok(_) => format!("the tab {name} takes the title of its agent"),
+            Err(error) => format!("cannot name the tab: {error}"),
+        });
+        self.reload = true;
+    }
+
     /// True if alt+Up and alt+Down move the selected workspace: the feature move_workspaces is on,
     /// and the selected row is a workspace of the filter Workspaces.
     pub fn moves_workspace(&self) -> bool {
@@ -368,6 +386,7 @@ impl App {
             KeyCode::Right if ctrl => self.view = (self.view + 1) % self.views().len(),
             KeyCode::Enter if ctrl && !creating => return self.new_tab_here(),
             KeyCode::Backspace if ctrl && !renaming => self.ask_close(),
+            KeyCode::Char('t') if ctrl && !creating && !renaming => self.auto_title(),
             KeyCode::Char('r') if ctrl && !creating && self.config.has("rename_tab") => {
                 self.start_rename()
             }

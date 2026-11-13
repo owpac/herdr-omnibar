@@ -141,6 +141,8 @@ pub struct Sources<'a> {
     pub open: &'a [Place],
     /// The current project and its local branches, for the filter All.
     pub project: Option<&'a Project>,
+    /// True if the filter Workspaces shows the order of the sidebar (feature move_workspaces).
+    pub sidebar_order: bool,
 }
 
 /// The lines of the filters that go somewhere (all the filters but New).
@@ -164,7 +166,18 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
         group(&mut lines, "Tabs", matches(tabs, query));
     }
     if filter == Filter::Workspaces {
-        let spaces = model.spaces.iter().cloned().map(Item::Workspace).collect();
+        let mut spaces: Vec<Space> = model.spaces.clone();
+        if sources.sidebar_order {
+            let order = crate::order::screen_order(&model.flat_workspaces);
+            let at = |space: &Space| {
+                order
+                    .iter()
+                    .position(|id| *id == space.workspace.workspace_id)
+                    .unwrap_or(usize::MAX)
+            };
+            spaces.sort_by_key(at);
+        }
+        let spaces = spaces.into_iter().map(Item::Workspace).collect();
         group(&mut lines, "Workspaces", matches(spaces, query));
     }
     if filter == Filter::All {
@@ -534,6 +547,7 @@ mod tests {
             actions,
             open: &[],
             project: None,
+            sidebar_order: false,
         };
         build(&sources, filter, query)
     }
@@ -548,6 +562,60 @@ mod tests {
                 Line::Row { item, .. } => Some(item.name()),
             })
             .collect()
+    }
+
+    #[test]
+    fn the_filter_workspaces_shows_the_order_of_the_sidebar_with_move_workspaces() {
+        let mut model = Model::default();
+        let workspace =
+            |id: &str, label: &str, key: &str, linked: bool| -> crate::model::Workspace {
+                serde_json::from_value(serde_json::json!({
+                    "workspace_id": id, "label": label,
+                    "worktree": {"repo_key": key, "repo_name": key, "is_linked_worktree": linked}
+                }))
+                .unwrap()
+            };
+        let flat = vec![
+            workspace("w1", "atlas.fix", "atlas", true),
+            workspace("w2", "pac", "pac", false),
+            workspace("w3", "atlas", "atlas", false),
+        ];
+        model.flat_workspaces = flat.clone();
+        // The model is in the order of use: w2 first.
+        model.spaces = ["w2", "w1", "w3"]
+            .iter()
+            .map(|id| Space {
+                workspace: flat.iter().find(|w| w.workspace_id == *id).unwrap().clone(),
+                folder: None,
+                checkout: None,
+            })
+            .collect();
+        let build_with = |sidebar_order| {
+            let sources = Sources {
+                model: &model,
+                others: &[],
+                actions: &[],
+                open: &[],
+                project: None,
+                sidebar_order,
+            };
+            build(&sources, Filter::Workspaces, "")
+        };
+        let ids = |lines: &[Line]| -> Vec<String> {
+            lines
+                .iter()
+                .filter_map(|line| match line {
+                    Line::Row {
+                        item: Item::Workspace(space),
+                        ..
+                    } => Some(space.workspace.workspace_id.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(ids(&build_with(false)), ["w2", "w1", "w3"]);
+        // The group atlas shows at its first member, w1: the main workspace w3 first.
+        assert_eq!(ids(&build_with(true)), ["w3", "w1", "w2"]);
     }
 
     #[test]
@@ -592,6 +660,7 @@ mod tests {
             actions: &[],
             open: &open,
             project: Some(&atlas),
+            sidebar_order: false,
         };
         let lines = build(&sources, Filter::All, "");
         assert_eq!(
@@ -628,6 +697,7 @@ mod tests {
             actions: &[],
             open: &open,
             project: Some(&atlas),
+            sidebar_order: false,
         };
         // In All, the workspace of a worktree of the current project is in the group of the
         // worktrees. The filter Workspaces shows it.

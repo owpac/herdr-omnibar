@@ -11,6 +11,7 @@ use crate::create::{self, Choice};
 use crate::filter::Filter;
 use crate::herdr;
 use crate::model::{AgentRow, Status};
+use crate::order;
 use crate::remove;
 use crate::rows::{self, Item, Line};
 
@@ -225,6 +226,41 @@ impl App {
         }
     }
 
+    /// True if alt+Up and alt+Down move the selected workspace: the feature move_workspaces is on,
+    /// and the selected row is a workspace of the filter Workspaces.
+    pub fn moves_workspace(&self) -> bool {
+        self.config.has("move_workspaces")
+            && self.filter == Filter::Workspaces
+            && self.rename.is_none()
+            && matches!(self.selected_item(), Some(Item::Workspace(_)))
+    }
+
+    /// alt+Up, alt+Down: move the selected workspace up or down in the sidebar. At the first or the
+    /// last position, nothing happens. The selection stays on the workspace.
+    fn move_workspace(&mut self, delta: i32) {
+        let Some(Item::Workspace(space)) = self.selected_item() else {
+            return;
+        };
+        let name = space.label();
+        let Some(plan) = order::plan_move(
+            &self.model.flat_workspaces,
+            &space.workspace.workspace_id,
+            delta,
+        ) else {
+            return;
+        };
+        self.message = Some(
+            match herdr::move_workspace_block(&plan.ids, Some(&plan.before)) {
+                Ok(()) => format!(
+                    "moved the workspace {name} {}",
+                    if delta < 0 { "up" } else { "down" }
+                ),
+                Err(error) => format!("cannot move the workspace {name}: {error}"),
+            },
+        );
+        self.reload = true;
+    }
+
     fn finish_rename(&mut self, save: bool) {
         let Some(rename) = self.rename.take() else {
             return;
@@ -328,6 +364,8 @@ impl App {
             KeyCode::Char('r') if ctrl && !creating && self.config.has("rename_tab") => {
                 self.start_rename()
             }
+            KeyCode::Up if alt && self.moves_workspace() => self.move_workspace(-1),
+            KeyCode::Down if alt && self.moves_workspace() => self.move_workspace(1),
             KeyCode::Esc if what => self.back_to_where(),
             KeyCode::Esc => return Outcome::Quit,
             KeyCode::Char('a') if ctrl && self.opens_worktree() => self.cycle_agent(),

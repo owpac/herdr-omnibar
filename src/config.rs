@@ -6,7 +6,9 @@
 //! roots = ["~/Workspace"]   # the folders of the projects, 2 levels deep
 //! preview = "full"   # "full": diff, log, changes of a worktree (ctrl+Left, ctrl+Right). "summary".
 //! pills = "square"   # the ends of the pills: "square", "round" (a Nerd Font), "flat".
-//! # The optional features. Remove a name to turn its feature off.
+//! # The optional features. Remove a name to turn its feature off. move_workspaces (off by default):
+//! # the filter Workspaces shows the order of the sidebar, and alt+Up and alt+Down move the
+//! # workspace.
 //! # auto_sort (off by default): the watcher sorts the workspaces with sort_order, at its start
 //! # and when a workspace opens or closes.
 //! features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]

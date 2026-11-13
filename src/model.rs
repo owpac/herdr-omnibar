@@ -330,6 +330,8 @@ pub struct Model {
     /// Each pane of each tab (filter Panes).
     pub panes: Vec<PaneRow>,
     pub focused_workspace_id: Option<String>,
+    /// The workspaces in the flat order of the snapshot: the sidebar order comes from it.
+    pub flat_workspaces: Vec<Workspace>,
     /// The tabs of each workspace, by workspace id, in their order.
     pub workspace_tabs: HashMap<String, Vec<TabSummary>>,
 }
@@ -472,6 +474,7 @@ impl Model {
             tabs,
             panes,
             focused_workspace_id: snapshot.focused_workspace_id.clone(),
+            flat_workspaces: snapshot.workspaces.clone(),
             workspace_tabs,
         }
     }

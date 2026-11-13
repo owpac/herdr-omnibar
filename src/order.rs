@@ -106,6 +106,59 @@ pub fn screen_order(workspaces: &[Workspace]) -> Vec<String> {
     sidebar(workspaces).iter().flat_map(Entry::ids).collect()
 }
 
+/// A move of the sidebar: these workspaces, in this order, go before another workspace.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Move {
+    pub ids: Vec<String>,
+    pub before: String,
+}
+
+/// The move of a workspace one position up (`delta` < 0) or down (`delta` > 0) in the sidebar. None
+/// at the first or the last position.
+///
+/// - A main workspace of a group moves with its group, among the entries of the top level. So does a
+///   workspace without a group.
+/// - A linked worktree of a group moves only among the linked worktrees of its group.
+///
+/// A move down is the move up of the next entry: it goes before the entry of the workspace. The
+/// anchor is the member of the entry that comes first in the flat list: the group shows at its
+/// first member.
+pub fn plan_move(workspaces: &[Workspace], id: &str, delta: i32) -> Option<Move> {
+    let entries = sidebar(workspaces);
+    // The entry k moves before the entry k - 1: a move down is the move up of the next entry.
+    let step = |position: usize| if delta < 0 { position } else { position + 1 };
+    // A linked worktree of a group: it moves among the children of its group.
+    for entry in &entries {
+        let Entry::Group { children, .. } = entry else {
+            continue;
+        };
+        if let Some(position) = children.iter().position(|child| child == id) {
+            let k = step(position);
+            if k == 0 || k >= children.len() {
+                return None;
+            }
+            return Some(Move {
+                ids: vec![children[k].clone()],
+                before: children[k - 1].clone(),
+            });
+        }
+    }
+    let position = entries.iter().position(|entry| match entry {
+        Entry::Single(single) => single == id,
+        Entry::Group { main, .. } => main == id,
+    })?;
+    let k = step(position);
+    if k == 0 || k >= entries.len() {
+        return None;
+    }
+    let flat_index = |id: &String| workspaces.iter().position(|w| &w.workspace_id == id);
+    let before = entries[k - 1].ids().into_iter().min_by_key(flat_index)?;
+    Some(Move {
+        ids: entries[k].ids(),
+        before,
+    })
+}
+
 /// The entries of `sort_order` by default: the git workspaces, then the others.
 pub const DEFAULT_SORT_ORDER: [&str; 2] = ["git", "other"];
 
@@ -364,6 +417,100 @@ pub(crate) mod tests {
             sorted_by_default(&workspaces),
             ["w7", "w4", "w5", "w6", "w2", "w3", "w8", "w1"]
         );
+    }
+
+    fn mv(ids: &[&str], before: &str) -> Option<Move> {
+        Some(Move {
+            ids: ids.iter().map(|id| id.to_string()).collect(),
+            before: before.into(),
+        })
+    }
+
+    #[test]
+    fn a_main_workspace_moves_with_its_group_among_the_entries() {
+        // The screen: w1, [w5 w2 w6], w3, w4, w7, w8.
+        let workspaces = flat();
+        // Up: the group goes before w1.
+        assert_eq!(
+            plan_move(&workspaces, "w5", -1),
+            mv(&["w5", "w2", "w6"], "w1")
+        );
+        // Down: w3 goes before the group, at its first member in the flat list: w2.
+        assert_eq!(plan_move(&workspaces, "w5", 1), mv(&["w3"], "w2"));
+        // A workspace without a group goes before the group, not inside it.
+        assert_eq!(plan_move(&workspaces, "w3", -1), mv(&["w3"], "w2"));
+        assert_eq!(
+            plan_move(&workspaces, "w1", 1),
+            mv(&["w5", "w2", "w6"], "w1")
+        );
+        assert_eq!(plan_move(&workspaces, "w4", -1), mv(&["w4"], "w3"));
+    }
+
+    #[test]
+    fn the_first_and_the_last_entry_do_not_move() {
+        let workspaces = flat();
+        assert_eq!(plan_move(&workspaces, "w1", -1), None);
+        assert_eq!(plan_move(&workspaces, "w8", 1), None);
+        assert_eq!(plan_move(&workspaces, "unknown", 1), None);
+    }
+
+    #[test]
+    fn a_linked_worktree_moves_only_among_the_worktrees_of_its_group() {
+        let workspaces = flat();
+        // The children of the group are w2 and w6.
+        assert_eq!(plan_move(&workspaces, "w6", -1), mv(&["w6"], "w2"));
+        assert_eq!(plan_move(&workspaces, "w2", 1), mv(&["w6"], "w2"));
+        assert_eq!(plan_move(&workspaces, "w2", -1), None);
+        assert_eq!(plan_move(&workspaces, "w6", 1), None);
+    }
+
+    #[test]
+    fn a_move_gives_the_wanted_screen_order_after_the_call() {
+        // Apply the move to the flat list as herdr does: the block goes before the anchor.
+        let apply = |workspaces: &[Workspace], plan: &Move| -> Vec<Workspace> {
+            let mut rest: Vec<Workspace> = workspaces
+                .iter()
+                .filter(|w| !plan.ids.contains(&w.workspace_id))
+                .cloned()
+                .collect();
+            let at = rest
+                .iter()
+                .position(|w| w.workspace_id == plan.before)
+                .unwrap();
+            let block = plan.ids.iter().map(|id| {
+                workspaces
+                    .iter()
+                    .find(|w| &w.workspace_id == id)
+                    .unwrap()
+                    .clone()
+            });
+            rest.splice(at..at, block);
+            rest
+        };
+        let workspaces = flat();
+        for (id, delta) in [
+            ("w5", 1),
+            ("w5", -1),
+            ("w3", -1),
+            ("w6", -1),
+            ("w2", 1),
+            ("w4", 1),
+        ] {
+            let before = screen_order(&workspaces);
+            let plan = plan_move(&workspaces, id, delta).unwrap();
+            let after = screen_order(&apply(&workspaces, &plan));
+            // The moved entry swaps with its neighbour on the screen.
+            let moved: Vec<&String> = before.iter().filter(|w| plan.ids.contains(w)).collect();
+            assert_eq!(moved.len(), plan.ids.len(), "{id} {delta}");
+            assert_ne!(before, after, "{id} {delta}");
+            let position =
+                |order: &[String], target: &str| order.iter().position(|w| w == target).unwrap();
+            if delta < 0 {
+                assert!(position(&after, id) < position(&before, id), "{id} {delta}");
+            } else {
+                assert!(position(&after, id) > position(&before, id), "{id} {delta}");
+            }
+        }
     }
 
     #[test]

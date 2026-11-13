@@ -12,7 +12,7 @@ use crate::app::{App, View};
 use crate::create::{self, Choice};
 use crate::herdr::PluginAction;
 use crate::model::{Space, TabSummary};
-use crate::places::{Kind, Place};
+use crate::places::{self, Kind, Place};
 use crate::pulls::Lookup;
 use crate::rows::{self, Item};
 
@@ -44,6 +44,7 @@ pub(super) fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
             ..
         }) if !creating(app) => branch_lines(app, main, branch, worktree.as_ref(), width, height),
         Item::Create(name) => create_lines(app, name, width),
+        Item::NewWorkspace(_) => new_workspace_lines(app, width),
         Item::Place(place) => place_lines(app, place, width),
         Item::Choice(choice) => choice_lines(app, choice, width),
     };
@@ -205,12 +206,26 @@ fn place_lines(app: &App, place: &Place, width: usize) -> Vec<Line<'static>> {
         lines.extend(tab_lines(&place.tabs, width, None));
     }
     lines.push(Line::raw(""));
-    let help = if place.is_home() {
-        "↵ creates a workspace in ~. Its label is the text that you typed."
-    } else {
-        "↵ chooses this place. Then type the name of the tab or of the branch."
-    };
-    lines.extend(help_lines(help, width));
+    lines.extend(help_lines(
+        "↵ chooses this place. Then type the name of the tab or of the branch.",
+        width,
+    ));
+    lines
+}
+
+/// The row "new workspace…": a workspace in ~, with the typed text as its label.
+fn new_workspace_lines(app: &App, width: usize) -> Vec<Line<'static>> {
+    let folder = places::home_folder();
+    let mut lines = vec![
+        title("NEW WORKSPACE"),
+        Line::from(round(vec![pill_span(false, "~")], app)),
+        muted(fit(&rows::home(&folder), width)),
+        Line::raw(""),
+    ];
+    lines.extend(help_lines(
+        "↵ creates a workspace in ~. Its label is the text that you typed.",
+        width,
+    ));
     lines
 }
 

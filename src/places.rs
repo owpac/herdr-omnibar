@@ -22,9 +22,6 @@ pub enum Kind {
     Project,
     /// A folder outside git, without a workspace.
     Folder,
-    /// The home folder, for a new workspace that the typed text labels: the first row of the
-    /// step "where" of the filter New. ↵ creates the workspace at once.
-    Home,
 }
 
 /// A place where the omnibar can create a tab or a worktree.
@@ -43,47 +40,23 @@ pub struct Place {
     pub tabs: Vec<TabSummary>,
 }
 
-/// The message of the row "new workspace…" when no text is typed.
-pub const NAME_MISSING: &str = "type the name of the new workspace";
+/// The home folder: the folder of the row "new workspace…".
+pub fn home_folder() -> PathBuf {
+    env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
+}
 
 impl Place {
-    /// The place of the row "new workspace…": the home folder, with the typed text as its label.
-    /// The home folder can already have a workspace: the new workspace is another one.
-    pub fn home(name: &str) -> Place {
-        Place {
-            kind: Kind::Home,
-            label: name.trim().to_string(),
-            project: "~".to_string(),
-            folder: env::var_os("HOME").map(PathBuf::from).unwrap_or_default(),
-            workspace_id: None,
-            main: None,
-            tabs: Vec::new(),
-        }
-    }
-
-    /// True for the row "new workspace…".
-    pub fn is_home(&self) -> bool {
-        self.kind == Kind::Home
-    }
-
-    /// True for the row "new workspace “text”": ↵ creates the workspace at once.
-    pub fn creates_at_once(&self) -> bool {
-        self.is_home() && !self.label.is_empty()
-    }
-
     /// True if the typed name labels the new workspace of this place, and not its first tab: the
-    /// place already has a workspace, or it is the row "new workspace…".
+    /// place already has a workspace.
     pub fn labels_new_workspace(&self) -> bool {
-        self.workspace_id.is_some() || self.is_home()
+        self.workspace_id.is_some()
     }
 
     /// A key that stays the same between 2 refreshes.
     pub fn key(&self) -> String {
-        match (&self.workspace_id, self.kind) {
-            (Some(id), _) => format!("workspace:{id}"),
-            // The row "new workspace…" and the folder ~ have the same folder: not the same key.
-            (None, Kind::Home) => "home".to_string(),
-            (None, _) => format!("folder:{}", self.folder.display()),
+        match &self.workspace_id {
+            Some(id) => format!("workspace:{id}"),
+            None => format!("folder:{}", self.folder.display()),
         }
     }
 }

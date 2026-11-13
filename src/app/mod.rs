@@ -381,7 +381,7 @@ impl App {
     /// True if ↵ creates a workspace at once: the selected row is "new workspace “text”". Without
     /// a text, ↵ only asks for a name.
     pub fn enter_creates_workspace(&self) -> bool {
-        matches!(self.selected_item(), Some(Item::Place(place)) if place.creates_at_once())
+        matches!(self.selected_item(), Some(Item::NewWorkspace(text)) if !text.is_empty())
     }
 
     /// The row that a new list selects: the first row. In the step "where" with a filter text, the
@@ -391,13 +391,18 @@ impl App {
         let typed = self.filter == Filter::New
             && self.create.step == Step::Where
             && !self.create.filter.trim().is_empty();
-        let is_home = |index: &usize| {
-            matches!(&self.lines[*index], Line::Row { item: Item::Place(place), .. }
-                if place.is_home())
+        let is_new_workspace = |index: &usize| {
+            matches!(
+                &self.lines[*index],
+                Line::Row {
+                    item: Item::NewWorkspace(_),
+                    ..
+                }
+            )
         };
         rows.iter()
             .copied()
-            .find(|index| !typed || !is_home(index))
+            .find(|index| !typed || !is_new_workspace(index))
             .or_else(|| rows.first().copied())
     }
 
@@ -697,10 +702,12 @@ impl App {
         if let Some(agent) = &self.create.agent {
             return agent.clone();
         }
+        // A row "new workspace “text”" creates in ~: its agent is the agent of ~.
+        if self.enter_creates_workspace() {
+            return self.home_agent();
+        }
         let place = match self.selected_item() {
             Some(Item::Choice(choice)) => self.place_of_choice(choice),
-            // A row "new workspace “text”" creates in ~: its agent is the agent of ~.
-            Some(Item::Place(place)) if place.creates_at_once() => Some(place),
             _ => self.target_place(),
         };
         self.agent_for(place)
@@ -708,13 +715,20 @@ impl App {
 
     /// The agent of a place: its last agent, else the agent of its tabs, else the first agent on
     /// the PATH.
-    pub(crate) fn agent_for(&self, place: Option<&Place>) -> String {
-        let remembered = place.and_then(|place| {
-            self.remembered
-                .get(&place.folder.display().to_string())
-                .cloned()
-        });
+    fn agent_for(&self, place: Option<&Place>) -> String {
         let from_tabs = place.and_then(|place| place.tabs.iter().find_map(|tab| tab.agent.clone()));
+        self.agent_in(place.map(|place| place.folder.as_path()), from_tabs)
+    }
+
+    /// The agent of the row "new workspace": the last agent of ~, else the first agent on the PATH.
+    pub(crate) fn home_agent(&self) -> String {
+        self.agent_in(Some(&places::home_folder()), None)
+    }
+
+    /// The last agent of a folder, else the agent of the tabs, else the first agent on the PATH.
+    fn agent_in(&self, folder: Option<&Path>, from_tabs: Option<String>) -> String {
+        let remembered =
+            folder.and_then(|folder| self.remembered.get(&folder.display().to_string()).cloned());
         remembered
             .or(from_tabs)
             .filter(|agent| self.agents.contains(agent))
@@ -1204,7 +1218,7 @@ mod tests {
         assert_eq!(selected_name(&app), "new workspace…");
         assert!(matches!(press(&mut app, KeyCode::Enter), Outcome::Continue));
         assert_eq!(app.create.step, Step::Where);
-        assert_eq!(app.message.as_deref(), Some(crate::places::NAME_MISSING));
+        assert_eq!(app.message.as_deref(), Some(crate::create::NAME_MISSING));
         assert!(!app.enter_creates_workspace());
         // With a text that no place matches: the row is selected, and ↵ creates at once.
         type_text(&mut app, "ville france");

@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::herdr;
-use crate::places::{Branch, Place};
+use crate::places::{self, Branch, Place};
 
 /// A choice of the step "what". The name is the text of the step.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -175,8 +175,6 @@ pub fn plan(
             workspace_id: place.workspace_id.clone()?,
             folder: place.folder.clone(),
         },
-        // The row "new workspace…" has no label without a name: no plan.
-        Choice::NewWorkspace if place.is_home() && name.is_empty() => return None,
         Choice::NewWorkspace => {
             // A place that has a workspace: the typed name is the label of the new workspace, and
             // the automatic titles name its first tab.
@@ -197,6 +195,29 @@ pub fn plan(
         agent: agent.to_string(),
         no_prompts,
         folder: place.folder.clone(),
+    })
+}
+
+/// The message of the row "new workspace…" when no text is typed.
+pub const NAME_MISSING: &str = "type the name of the new workspace";
+
+/// The plan of the row "new workspace “text”": a workspace in ~, with the text as its label. No
+/// plan without a text.
+pub fn new_workspace_plan(label: &str, agent: &str, no_prompts: bool) -> Option<Plan> {
+    let label = label.trim();
+    if label.is_empty() {
+        return None;
+    }
+    let folder = places::home_folder();
+    Some(Plan {
+        action: Action::NewWorkspace {
+            folder: folder.clone(),
+            label: label.to_string(),
+        },
+        name: String::new(),
+        agent: agent.to_string(),
+        no_prompts,
+        folder,
     })
 }
 
@@ -653,28 +674,21 @@ mod tests {
     }
 
     #[test]
-    fn the_home_place_makes_a_workspace_with_its_label_and_needs_a_name() {
-        let home = Place::home(" ville france ");
-        assert_eq!(home.kind, Kind::Home);
-        assert_eq!(home.label, "ville france");
-        // Without a name: no plan. With a name: the label, and no name for the first tab.
-        assert!(plan(
-            &Place::home(""),
-            &Choice::NewWorkspace,
-            "  ",
-            "claude",
-            false
-        )
-        .is_none());
-        let plan = plan(&home, &Choice::NewWorkspace, &home.label, "claude", false).unwrap();
+    fn the_row_new_workspace_makes_a_workspace_in_home_with_its_text_as_label() {
+        // Without a text: no plan.
+        assert!(new_workspace_plan("  ", "claude", false).is_none());
+        // With a text: the label, and no name for the first tab.
+        let plan = new_workspace_plan(" ville france ", "claude", true).unwrap();
         assert_eq!(plan.name, "");
+        assert!(plan.no_prompts);
         assert_eq!(
             plan.action,
             Action::NewWorkspace {
-                folder: home.folder.clone(),
+                folder: places::home_folder(),
                 label: "ville france".into()
             }
         );
+        assert_eq!(plan.folder, places::home_folder());
     }
 
     #[test]

@@ -29,6 +29,9 @@ pub enum Item {
     Action(PluginAction),
     /// The creation of a tab or a worktree with the query as its name: ↵ goes to the step "what".
     Create(String),
+    /// A new workspace in ~ with the text as its label: ↵ creates it at once. Without a text, the
+    /// row asks for a name.
+    NewWorkspace(String),
     /// A pane of a tab (filter Panes).
     Pane(PaneRow),
 }
@@ -40,12 +43,6 @@ impl Item {
             Item::Agent(agent) => agent.name.clone(),
             Item::Tab(tab) => tab.name.clone(),
             Item::Workspace(space) => space.label(),
-            Item::Place(place) if place.is_home() && place.label.is_empty() => {
-                "new workspace…".to_string()
-            }
-            Item::Place(place) if place.is_home() => {
-                format!("new workspace “{}”", place.label)
-            }
             Item::Place(place) => place.label.clone(),
             Item::Choice(choice) => match choice {
                 Choice::NewWorktree { branch } if branch.is_empty() => "new worktree…".into(),
@@ -59,6 +56,8 @@ impl Item {
             Item::Action(action) if action.title.is_empty() => action.action_id.clone(),
             Item::Action(action) => action.title.clone(),
             Item::Create(name) => format!("create “{name}”…"),
+            Item::NewWorkspace(text) if text.is_empty() => "new workspace…".to_string(),
+            Item::NewWorkspace(text) => format!("new workspace “{text}”"),
             Item::Pane(pane) => pane.name.clone(),
         }
     }
@@ -69,9 +68,6 @@ impl Item {
             Item::Agent(agent) => agent.place.clone(),
             Item::Tab(tab) => tab.place.clone(),
             Item::Workspace(space) => space.folder.as_deref().map(home).unwrap_or_default(),
-            Item::Place(place) if place.is_home() => {
-                format!("a new workspace in {}", home(&place.folder))
-            }
             Item::Place(place) => home(&place.folder),
             // The folder of a worktree: a query with the name of the project finds it.
             Item::Choice(Choice::Existing {
@@ -81,6 +77,7 @@ impl Item {
             Item::Choice(_) => String::new(),
             Item::Action(action) => action.plugin_id.clone(),
             Item::Create(_) => String::new(),
+            Item::NewWorkspace(_) => format!("a new workspace in {}", home(&places::home_folder())),
             Item::Pane(pane) => format!("{} ▸ {}", pane.place, pane.tab),
         }
     }
@@ -95,6 +92,7 @@ impl Item {
             Item::Choice(choice) => format!("choice:{choice:?}"),
             Item::Action(action) => format!("action:{}:{}", action.plugin_id, action.action_id),
             Item::Create(_) => "create".to_string(),
+            Item::NewWorkspace(_) => "new-workspace".to_string(),
             Item::Pane(pane) => format!("pane:{}", pane.pane_id),
         }
     }
@@ -313,7 +311,7 @@ pub fn where_lines(
     group(
         &mut lines,
         "New",
-        vec![(Item::Place(Place::home(query)), Vec::new())],
+        vec![(Item::NewWorkspace(query.to_string()), Vec::new())],
     );
     let (here, rest): (Vec<Place>, Vec<Place>) = open
         .iter()
@@ -549,6 +547,21 @@ mod tests {
             main: None,
             tabs: Vec::new(),
         }
+    }
+
+    #[test]
+    fn the_row_new_workspace_has_its_own_key_and_names() {
+        let folder = Place {
+            folder: places::home_folder(),
+            ..place(Kind::Folder, "~", None)
+        };
+        let empty = Item::NewWorkspace(String::new());
+        assert_ne!(empty.key(), Item::Place(folder).key());
+        assert_eq!(empty.name(), "new workspace…");
+        assert_eq!(
+            Item::NewWorkspace("ville".into()).name(),
+            "new workspace “ville”"
+        );
     }
 
     fn lines_of(

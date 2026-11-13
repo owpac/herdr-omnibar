@@ -162,7 +162,7 @@ fn right_spans(item: &Item, app: &App) -> Vec<Span<'static>> {
             vec![Span::styled(tabs_text(count), Style::new().fg(dim_color()))]
         }
         Item::Place(place) => place_right(place, app),
-        Item::Action(_) | Item::Create(_) => Vec::new(),
+        Item::Action(_) | Item::Create(_) | Item::NewWorkspace(_) => Vec::new(),
         Item::Choice(choice) => match choice {
             Choice::Existing {
                 branch,
@@ -245,7 +245,6 @@ fn place_right(place: &Place, app: &App) -> Vec<Span<'static>> {
         }
         Kind::Project => spans.push(Span::styled("no workspace", Style::new().fg(dim_color()))),
         Kind::Folder => spans.push(Span::styled("folder", Style::new().fg(dim_color()))),
-        Kind::Home => {}
     }
     spans
 }
@@ -264,12 +263,13 @@ fn glyph(item: &Item) -> Span<'static> {
         Item::Pane(_) => Span::styled("▫", Style::new().fg(dim_color())),
         Item::Workspace(_) => Span::styled("▣", Style::new().fg(accent_color())),
         Item::Action(_) => Span::styled("›", Style::new().fg(accent_color())),
-        Item::Create(_) => Span::styled("+", Style::new().fg(green_color())),
+        Item::Create(_) | Item::NewWorkspace(_) => {
+            Span::styled("+", Style::new().fg(green_color()))
+        }
         Item::Place(place) => match place.kind {
             Kind::Workspace => Span::styled("▣", Style::new().fg(accent_color())),
             Kind::Project => Span::styled("□", Style::new().fg(muted_color())),
             Kind::Folder => Span::styled("▸", Style::new().fg(dim_color())),
-            Kind::Home => Span::styled("+", Style::new().fg(green_color())),
         },
         Item::Choice(choice) => match choice {
             Choice::Existing { .. } => Span::styled("↪", Style::new().fg(accent_color())),
@@ -311,8 +311,8 @@ fn name_style(item: &Item) -> Style {
             | Choice::NewSplit { .. }
             | Choice::NewWorkspace,
         )
-        | Item::Create(_) => Style::new().fg(green_color()),
-        Item::Place(place) if place.is_home() => Style::new().fg(green_color()),
+        | Item::Create(_)
+        | Item::NewWorkspace(_) => Style::new().fg(green_color()),
         _ => Style::new(),
     }
 }

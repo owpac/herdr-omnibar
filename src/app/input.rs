@@ -7,11 +7,10 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::Rect;
 
-use crate::create::{self, Choice};
+use crate::create::{self, Choice, NAME_MISSING};
 use crate::filter::Filter;
 use crate::herdr;
 use crate::model::{AgentRow, Status};
-use crate::places::NAME_MISSING;
 use crate::remove;
 use crate::rows::{self, Item, Line};
 
@@ -25,21 +24,14 @@ impl App {
         };
         match (self.filter, item) {
             // The row "new workspace…": the typed text is the label, and ↵ creates it at once.
-            (_, Item::Place(place)) if place.is_home() => {
-                if place.label.is_empty() {
-                    self.message = Some(NAME_MISSING.to_string());
-                    return Outcome::Continue;
-                }
-                let agent = self.agent_for(Some(&place));
-                match create::plan(
-                    &place,
-                    &Choice::NewWorkspace,
-                    &place.label,
-                    &agent,
-                    self.create.no_prompts,
-                ) {
+            (_, Item::NewWorkspace(text)) => {
+                match create::new_workspace_plan(&text, &self.home_agent(), self.create.no_prompts)
+                {
                     Some(plan) => Outcome::Create(plan),
-                    None => Outcome::Continue,
+                    None => {
+                        self.message = Some(NAME_MISSING.to_string());
+                        Outcome::Continue
+                    }
                 }
             }
             (_, Item::Place(place)) => {

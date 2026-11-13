@@ -295,7 +295,9 @@ pub fn worktree_lines(
 }
 
 /// The lines of the step "where": the current place, the open workspaces, the projects without a
-/// workspace, the folders. A query that starts with ~, / or . lists the real folders.
+/// workspace, the folders. The places match by their name, not by their folder: a folder under
+/// ~/Workspace would match almost each text. A query that starts with ~, / or . lists the real
+/// folders.
 pub fn where_lines(
     open: &[Place],
     others: &[Place],
@@ -317,21 +319,15 @@ pub fn where_lines(
         .iter()
         .cloned()
         .partition(|place| place.workspace_id.as_deref() == current && current.is_some());
-    // The current place follows the filter by its name: its folder would keep it in the list for a
-    // text such as "pac" (owpac), before the places that really match.
-    let here: Vec<Place> = here
-        .into_iter()
-        .filter(|place| fuzzy::find(query, &place.label).is_some())
-        .collect();
     group(
         &mut lines,
         "Current place",
-        matches(here.into_iter().map(Item::Place).collect(), query),
+        matches_by_name(here.into_iter().map(Item::Place).collect(), query),
     );
     group(
         &mut lines,
         "Open workspaces",
-        matches(rest.into_iter().map(Item::Place).collect(), query),
+        matches_by_name(rest.into_iter().map(Item::Place).collect(), query),
     );
     let (projects, folders): (Vec<_>, Vec<_>) = others
         .iter()
@@ -340,12 +336,12 @@ pub fn where_lines(
     group(
         &mut lines,
         "Projects without a workspace",
-        matches(projects.into_iter().map(Item::Place).collect(), query),
+        matches_by_name(projects.into_iter().map(Item::Place).collect(), query),
     );
     group(
         &mut lines,
         "Folders",
-        matches(folders.into_iter().map(Item::Place).collect(), query),
+        matches_by_name(folders.into_iter().map(Item::Place).collect(), query),
     );
     lines
 }
@@ -437,6 +433,15 @@ pub fn complete_path(query: &str, lines: &[Line]) -> Option<String> {
 /// The items that match the query, with the positions in their names. With a query, the best
 /// matches come first.
 fn matches(items: Vec<Item>, query: &str) -> Vec<(Item, Vec<usize>)> {
+    matches_in(items, query, true)
+}
+
+/// The items whose name matches the query: the context (the folder) does not count.
+fn matches_by_name(items: Vec<Item>, query: &str) -> Vec<(Item, Vec<usize>)> {
+    matches_in(items, query, false)
+}
+
+fn matches_in(items: Vec<Item>, query: &str, with_context: bool) -> Vec<(Item, Vec<usize>)> {
     // An empty query keeps all the items, in their order.
     if query.is_empty() {
         return items.into_iter().map(|item| (item, Vec::new())).collect();
@@ -445,7 +450,11 @@ fn matches(items: Vec<Item>, query: &str) -> Vec<(Item, Vec<usize>)> {
         .into_iter()
         .filter_map(|item| {
             let name = item.name();
-            let all = fuzzy::find(query, &format!("{name} {}", item.context()))?;
+            let all = if with_context {
+                fuzzy::find(query, &format!("{name} {}", item.context()))?
+            } else {
+                fuzzy::find(query, &name)?
+            };
             let positions = fuzzy::find(query, &name)
                 .map(|found| found.positions)
                 .unwrap_or_default();
@@ -697,6 +706,31 @@ mod tests {
                 "Downloads"
             ]
         );
+    }
+
+    #[test]
+    fn the_step_where_matches_the_places_by_their_name_and_not_by_their_folder() {
+        // The folder of "atlas" is /work/Recettes: it contains the text, its name does not.
+        let atlas = Place {
+            folder: "/work/Recettes".into(),
+            ..place(Kind::Workspace, "atlas", Some("w1"))
+        };
+        let others = [Place {
+            folder: "/work/Recettes/pac".into(),
+            ..place(Kind::Project, "prompts", None)
+        }];
+        let open = [atlas];
+        let names = |query: &str| -> Vec<String> {
+            titles(&where_lines(&open, &others, Some("w1"), query))
+                .into_iter()
+                .filter(|title| !title.starts_with('#'))
+                .collect()
+        };
+        // Only the row of the new workspace is left: no place has "Recettes" in its name.
+        assert_eq!(names("Recettes"), ["new workspace “Recettes”"]);
+        assert_eq!(names("pac"), ["new workspace “pac”"]);
+        // A name that matches lists the place.
+        assert_eq!(names("atl"), ["new workspace “atl”", "atlas"]);
     }
 
     #[test]

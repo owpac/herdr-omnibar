@@ -1069,6 +1069,12 @@ mod tests {
         assert_eq!(app.filter, Filter::Folders);
         press(&mut app, KeyCode::Char('#'));
         assert_eq!(app.filter, Filter::All);
+        press(&mut app, KeyCode::Char('&'));
+        assert_eq!(app.filter, Filter::Workspaces);
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(app.filter, Filter::Worktrees);
+        press(&mut app, KeyCode::Char('*'));
+        assert_eq!(app.filter, Filter::All);
         // Without the filter panes in the config, % is a character of the text.
         press(&mut app, KeyCode::Char('%'));
         assert_eq!((app.filter, app.query.as_str()), (Filter::All, "%"));

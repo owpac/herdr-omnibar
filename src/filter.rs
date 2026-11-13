@@ -54,6 +54,10 @@ impl Filter {
     pub fn shortcut(self) -> Option<char> {
         match self {
             Filter::Agents => Some('@'),
+            // & is the key 1 without shift on an AZERTY keyboard.
+            Filter::Workspaces => Some('&'),
+            // git branch marks the current branch with *.
+            Filter::Worktrees => Some('*'),
             Filter::Folders => Some('#'),
             Filter::New => Some('+'),
             Filter::Actions => Some('>'),
@@ -66,6 +70,8 @@ impl Filter {
     pub fn of_shortcut(key: char) -> Option<Filter> {
         [
             Filter::Agents,
+            Filter::Workspaces,
+            Filter::Worktrees,
             Filter::Folders,
             Filter::New,
             Filter::Actions,
@@ -119,7 +125,7 @@ mod tests {
 
     #[test]
     fn each_shortcut_gives_its_filter_back() {
-        for key in ['@', '#', '+', '>', '%'] {
+        for key in ['@', '&', '*', '#', '+', '>', '%'] {
             assert_eq!(
                 Filter::of_shortcut(key).and_then(Filter::shortcut),
                 Some(key)

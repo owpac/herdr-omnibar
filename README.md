@@ -67,7 +67,7 @@ command = "herdr-omnibar.new"
 |-----|--------|
 | `↵` | Go to the selected row, choose a place, create, or run an action. |
 | `⇥`, `⇧⇥` | The next or the previous filter. In the step "what": the next agent (claude, codex, opencode, shell). In a path: complete the folder. |
-| `@`, `#`, `+`, `>`, `%` | On an empty text, from any filter: the agents, the folders, the creation, the actions, the panes. Only the filters of `filters` have a shortcut. The key of the current filter goes back to All. |
+| `@`, `&`, `*`, `#`, `+`, `>`, `%` | On an empty text, from any filter: the agents, the workspaces, the worktrees, the folders, the creation, the actions, the panes. Only the filters of `filters` have a shortcut. The key of the current filter goes back to All. |
 | `⌃A` | On a row of `open` that opens a worktree: the next agent. |
 | `⌃F` | Fork the session of the selected agent (Claude Code or Codex) into a new tab, with the plugin herdr-fork. The popup closes, the agent gets the focus, then herdr-fork runs its action `tab`. |
 | `⌃↵` | A new tab, with its agent, in the open workspace of the selected row: an agent, a tab, a workspace or a worktree. |

@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::herdr;
-use crate::places::{Branch, Place};
+use crate::places::{Branch, Kind, Place};
 
 /// A choice of the step "what". The name is the text of the step.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,7 +177,9 @@ pub fn plan(
         },
         // A place that has a workspace: the typed name is the label of the new workspace, and the
         // automatic titles name its first tab.
-        Choice::NewWorkspace if place.workspace_id.is_some() => Action::NewWorkspace {
+        // The row "new workspace…" has no label without a name: no plan.
+        Choice::NewWorkspace if place.kind == Kind::Home && name.is_empty() => return None,
+        Choice::NewWorkspace if place.labels_new_workspace() => Action::NewWorkspace {
             folder: place.folder.clone(),
             label: if name.is_empty() {
                 place.label.clone()
@@ -486,7 +488,6 @@ fn remember_agent(folder: &Path, agent: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::places::Kind;
 
     fn workspace(label: &str, folder: &str, id: &str, main: Option<&str>) -> Place {
         Place {
@@ -647,6 +648,34 @@ mod tests {
             Action::NewWorkspace {
                 folder: "/home/u".into(),
                 label: "~".into()
+            }
+        );
+    }
+
+    #[test]
+    fn the_home_place_offers_only_a_new_workspace_that_needs_a_name() {
+        let home = Place::home();
+        assert_eq!(home.kind, Kind::Home);
+        assert_eq!(
+            choices(&home, "ville france", &[], &[], None),
+            [Choice::NewWorkspace, Choice::AnotherPlace]
+        );
+        // Without a name: no plan. With a name: the label, and no name for the first tab.
+        assert!(plan(&home, &Choice::NewWorkspace, "  ", "claude", false).is_none());
+        let plan = plan(
+            &home,
+            &Choice::NewWorkspace,
+            "ville france",
+            "claude",
+            false,
+        )
+        .unwrap();
+        assert_eq!(plan.name, "");
+        assert_eq!(
+            plan.action,
+            Action::NewWorkspace {
+                folder: home.folder.clone(),
+                label: "ville france".into()
             }
         );
     }

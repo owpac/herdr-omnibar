@@ -245,6 +245,7 @@ fn place_right(place: &Place, app: &App) -> Vec<Span<'static>> {
         }
         Kind::Project => spans.push(Span::styled("no workspace", Style::new().fg(dim_color()))),
         Kind::Folder => spans.push(Span::styled("folder", Style::new().fg(dim_color()))),
+        Kind::Home => {}
     }
     spans
 }
@@ -268,6 +269,7 @@ fn glyph(item: &Item) -> Span<'static> {
             Kind::Workspace => Span::styled("▣", Style::new().fg(accent_color())),
             Kind::Project => Span::styled("□", Style::new().fg(muted_color())),
             Kind::Folder => Span::styled("▸", Style::new().fg(dim_color())),
+            Kind::Home => Span::styled("+", Style::new().fg(green_color())),
         },
         Item::Choice(choice) => match choice {
             Choice::Existing { .. } => Span::styled("↪", Style::new().fg(accent_color())),
@@ -310,6 +312,7 @@ fn name_style(item: &Item) -> Style {
             | Choice::NewWorkspace,
         )
         | Item::Create(_) => Style::new().fg(green_color()),
+        Item::Place(place) if place.kind == Kind::Home => Style::new().fg(green_color()),
         _ => Style::new(),
     }
 }
@@ -388,7 +391,7 @@ fn context_of(item: &Item, app: &App) -> String {
                     .create
                     .place
                     .as_ref()
-                    .is_some_and(|p| p.workspace_id.is_some()) =>
+                    .is_some_and(Place::labels_new_workspace) =>
             {
                 // The typed name is the label of the workspace: herdr names its first tab.
                 format!("a new workspace in {}", target_label(app))

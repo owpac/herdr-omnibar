@@ -205,10 +205,12 @@ fn place_lines(app: &App, place: &Place, width: usize) -> Vec<Line<'static>> {
         lines.extend(tab_lines(&place.tabs, width, None));
     }
     lines.push(Line::raw(""));
-    lines.extend(help_lines(
-        "↵ chooses this place. Then type the name of the tab or of the branch.",
-        width,
-    ));
+    let help = if place.kind == Kind::Home {
+        "↵ chooses ~. Then type the name of the new workspace."
+    } else {
+        "↵ chooses this place. Then type the name of the tab or of the branch."
+    };
+    lines.extend(help_lines(help, width));
     lines
 }
 

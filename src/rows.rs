@@ -40,6 +40,7 @@ impl Item {
             Item::Agent(agent) => agent.name.clone(),
             Item::Tab(tab) => tab.name.clone(),
             Item::Workspace(space) => space.label(),
+            Item::Place(place) if place.kind == Kind::Home => "new workspace…".to_string(),
             Item::Place(place) => place.label.clone(),
             Item::Choice(choice) => match choice {
                 Choice::NewWorktree { branch } if branch.is_empty() => "new worktree…".into(),
@@ -63,6 +64,9 @@ impl Item {
             Item::Agent(agent) => agent.place.clone(),
             Item::Tab(tab) => tab.place.clone(),
             Item::Workspace(space) => space.folder.as_deref().map(home).unwrap_or_default(),
+            Item::Place(place) if place.kind == Kind::Home => {
+                format!("a new workspace in {}", home(&place.folder))
+            }
             Item::Place(place) => home(&place.folder),
             // The folder of a worktree: a query with the name of the project finds it.
             Item::Choice(Choice::Existing {
@@ -298,6 +302,12 @@ pub fn where_lines(
     }
     let query = query.trim();
     let mut lines = Vec::new();
+    // The first row makes a new workspace in ~, with the typed name: it is always there.
+    group(
+        &mut lines,
+        "New",
+        vec![(Item::Place(Place::home()), Vec::new())],
+    );
     let (here, rest): (Vec<Place>, Vec<Place>) = open
         .iter()
         .cloned()
@@ -664,6 +674,8 @@ mod tests {
         assert_eq!(
             titles(&where_lines(&open, &others, Some("w1"), "")),
             [
+                "# New",
+                "new workspace…",
                 "# Current place",
                 "atlas",
                 "# Open workspaces",

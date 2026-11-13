@@ -189,7 +189,9 @@ A git workspace always moves with its group: the main workspace and the linked w
 
 ```toml
 sidebar_order = ["~", "~/Workspace/owpac", "~/Workspace/keplair", "git", "other"]
-``` `herdr-omnibar sort --print` prints the old and the new order, and changes nothing.
+```
+
+`herdr-omnibar sort --print` prints the old and the new order, and changes nothing.
 
 `herdr-omnibar list` prints the workspaces, the agents and the tabs, as the popup sees them. `herdr-omnibar titles` prints the renames of the watcher of the titles.
 

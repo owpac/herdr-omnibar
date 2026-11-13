@@ -1270,7 +1270,7 @@ mod tests {
             .unwrap();
         assert_eq!(first, "new workspace “pac”");
         assert_eq!(selected_name(&app), "pac");
-        // The current place (atlas) does not match the text: it is hidden.
+        // The places match by their name: the current place (atlas) does not match, it is hidden.
         assert!(!app.lines.iter().any(|line| matches!(line,
             Line::Row { item, .. } if item.name() == "atlas")));
     }

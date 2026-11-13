@@ -68,7 +68,7 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
                 Filter::Agents => "agent or workspace",
                 Filter::Tabs => "tab or workspace",
                 Filter::Workspaces => "workspace or folder",
-                Filter::Worktrees => "branch: go to it, or type a new name to create it",
+                Filter::Worktrees => "branch, or a new branch name",
                 Filter::Folders => "project or folder",
                 Filter::Actions => "action or plugin",
                 Filter::Panes => "pane, tab or workspace",

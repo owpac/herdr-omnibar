@@ -126,7 +126,11 @@ impl Ranker {
         current_tab: Option<&str>,
         current_workspace: Option<&str>,
     ) -> Ranker {
-        let screen = crate::order::screen_positions(&model.flat_workspaces);
+        let screen: HashMap<String, usize> = crate::order::screen_order(&model.flat_workspaces)
+            .into_iter()
+            .enumerate()
+            .map(|(index, id)| (id, index))
+            .collect();
         // The highest activity of the agents and the last visit of the tabs of each workspace,
         // in one pass over the agents and one pass over the panes.
         let mut activities: HashMap<&str, u64> = HashMap::new();

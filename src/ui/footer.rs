@@ -104,6 +104,7 @@ fn hints(app: &App) -> Vec<Hint> {
         ],
         selected => {
             let primary = match selected {
+                Some(Item::NewWorkspace(_)) => "create",
                 Some(Item::Place(_)) => "create in",
                 Some(Item::Action(_)) => "run",
                 Some(Item::Create(_)) => "create…",
@@ -139,8 +140,10 @@ fn hints(app: &App) -> Vec<Hint> {
 fn creation_hints(app: &App) -> Vec<Hint> {
     if app.create.step == Step::Where {
         let path = rows::is_path(&app.create.filter);
+        // The row "new workspace “text”" creates at once. Without a text, ↵ only asks for a name.
+        let creates = app.enter_creates_workspace();
         return vec![
-            hint("↵", "choose"),
+            hint("↵", if creates { "create" } else { "choose" }),
             hint("⇥", if path { "complete" } else { "filter" }),
             hint("⌃O", "preview"),
             hint("esc", "close"),

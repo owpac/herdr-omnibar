@@ -7,14 +7,15 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::Rect;
 
-use crate::create::{self, Choice};
+use crate::create::{self, Choice, NAME_MISSING};
 use crate::filter::Filter;
 use crate::herdr;
 use crate::model::{AgentRow, Status};
 use crate::remove;
 use crate::rows::{self, Item, Line};
+use crate::watch;
 
-use super::{App, Confirm, Create, Outcome, Rename, Step};
+use super::{App, Confirm, Create, Outcome, Rename, RenameTarget, Step};
 
 impl App {
     /// Enter on the selected row.
@@ -23,6 +24,17 @@ impl App {
             return Outcome::Continue;
         };
         match (self.filter, item) {
+            // The row "new workspace…": the typed text is the label, and ↵ creates it at once.
+            (_, Item::NewWorkspace(text)) => {
+                match create::new_workspace_plan(&text, &self.home_agent(), self.create.no_prompts)
+                {
+                    Some(plan) => Outcome::Create(plan),
+                    None => {
+                        self.message = Some(NAME_MISSING.to_string());
+                        Outcome::Continue
+                    }
+                }
+            }
             (_, Item::Place(place)) => {
                 if self.filter != Filter::New {
                     self.filter = Filter::New;
@@ -214,15 +226,34 @@ impl App {
         Outcome::Continue
     }
 
-    /// ctrl+R: rename the tab of the selected row, in the search line.
+    /// ctrl+R: rename the target of the selected row, in the search line: the tab of an agent or
+    /// of a tab row, a workspace, or a pane. Other rows do nothing.
     fn start_rename(&mut self) {
-        if let Some((tab_id, name)) = self.selected_tab() {
+        if let Some((target, name)) = self.selected_rename() {
             self.rename = Some(Rename {
-                tab_id,
+                target,
                 old: name.clone(),
                 text: name,
             });
         }
+    }
+
+    /// ctrl+T: give the tab of the selected row back to the automatic titles (feature auto_titles).
+    /// The tab takes its number, then the watcher writes the title of its agent.
+    fn auto_title(&mut self) {
+        let Some((tab_id, name)) = self.selected_tab() else {
+            return;
+        };
+        if !self.config.has("auto_titles") {
+            self.message = Some("turn on the feature auto_titles to name a tab by itself".into());
+            return;
+        }
+        self.message = Some(match watch::give_back(&tab_id) {
+            Ok(Some(_)) => format!("the tab {name} takes the title of its agent"),
+            Ok(None) => "no automatic title for this tab".to_string(),
+            Err(error) => format!("cannot name the tab: {error}"),
+        });
+        self.reload = true;
     }
 
     fn finish_rename(&mut self, save: bool) {
@@ -231,9 +262,15 @@ impl App {
         };
         let text = rename.text.trim();
         if save && !text.is_empty() && text != rename.old {
-            self.message = Some(match herdr::rename_tab(&rename.tab_id, text) {
-                Ok(()) => format!("renamed the tab {} to {text}", rename.old),
-                Err(error) => format!("cannot rename the tab: {error}"),
+            let noun = rename.target.noun();
+            let result = match &rename.target {
+                RenameTarget::Tab(id) => herdr::rename_tab(id, text),
+                RenameTarget::Workspace(id) => herdr::rename_workspace(id, text),
+                RenameTarget::Pane(id) => herdr::rename_pane(id, text),
+            };
+            self.message = Some(match result {
+                Ok(()) => format!("renamed the {noun} {} to {text}", rename.old),
+                Err(error) => format!("cannot rename the {noun}: {error}"),
             });
             self.reload = true;
         }
@@ -325,6 +362,7 @@ impl App {
             KeyCode::Right if ctrl => self.view = (self.view + 1) % self.views().len(),
             KeyCode::Enter if ctrl && !creating => return self.new_tab_here(),
             KeyCode::Backspace if ctrl && !renaming => self.ask_close(),
+            KeyCode::Char('t') if ctrl && !creating && !renaming => self.auto_title(),
             KeyCode::Char('r') if ctrl && !creating && self.config.has("rename_tab") => {
                 self.start_rename()
             }

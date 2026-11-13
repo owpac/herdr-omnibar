@@ -482,29 +482,67 @@ pub(crate) mod tests {
             rest.splice(at..at, block);
             rest
         };
-        let workspaces = flat();
-        for (id, delta) in [
-            ("w5", 1),
-            ("w5", -1),
-            ("w3", -1),
-            ("w6", -1),
-            ("w2", 1),
-            ("w4", 1),
-        ] {
-            let before = screen_order(&workspaces);
-            let plan = plan_move(&workspaces, id, delta).unwrap();
-            let after = screen_order(&apply(&workspaces, &plan));
-            // The moved entry swaps with its neighbour on the screen.
-            let moved: Vec<&String> = before.iter().filter(|w| plan.ids.contains(w)).collect();
-            assert_eq!(moved.len(), plan.ids.len(), "{id} {delta}");
-            let position =
-                |order: &[String], target: &str| order.iter().position(|w| w == target).unwrap();
-            if delta < 0 {
-                assert!(position(&after, id) < position(&before, id), "{id} {delta}");
-            } else {
-                assert!(position(&after, id) > position(&before, id), "{id} {delta}");
+        // The wanted screen order: the entry, or the linked worktree, swaps with its neighbour.
+        let swapped = |workspaces: &[Workspace], id: &str, delta: i32| -> Vec<String> {
+            let mut entries = sidebar(workspaces);
+            let child = entries
+                .iter()
+                .enumerate()
+                .find_map(|(index, entry)| match entry {
+                    Entry::Group { children, .. } => {
+                        Some((index, children.iter().position(|child| child == id)?))
+                    }
+                    Entry::Single(_) => None,
+                });
+            let other = |position: usize| {
+                if delta < 0 {
+                    position - 1
+                } else {
+                    position + 1
+                }
+            };
+            match child {
+                Some((index, position)) => {
+                    if let Entry::Group { children, .. } = &mut entries[index] {
+                        children.swap(position, other(position));
+                    }
+                }
+                None => {
+                    let position = entries
+                        .iter()
+                        .position(|entry| entry.ids()[0] == id)
+                        .unwrap();
+                    entries.swap(position, other(position));
+                }
+            }
+            entries.iter().flat_map(Entry::ids).collect()
+        };
+        // flat(), and a group with a workspace between its members: the group shows at w1.
+        let scattered = vec![
+            workspace("w1", "app.fix", Some(("/a", "app", true))),
+            workspace("w2", "notes", None),
+            workspace("w3", "app", Some(("/a", "app", false))),
+            workspace("w4", "app.more", Some(("/a", "app", true))),
+            workspace("w5", "Inbox", None),
+        ];
+        let mut moves = 0;
+        for workspaces in [flat(), scattered] {
+            for workspace in &workspaces {
+                let id = workspace.workspace_id.as_str();
+                for delta in [-1, 1] {
+                    let Some(plan) = plan_move(&workspaces, id, delta) else {
+                        continue;
+                    };
+                    moves += 1;
+                    assert_eq!(
+                        screen_order(&apply(&workspaces, &plan)),
+                        swapped(&workspaces, id, delta),
+                        "{id} {delta}"
+                    );
+                }
             }
         }
+        assert_eq!(moves, 18);
     }
 
     #[test]

@@ -105,16 +105,25 @@ pub fn snapshot() -> Result<crate::model::Snapshot, Error> {
 /// actions): one JSON line, then one JSON line for the answer. Return the field `result`. The CLI
 /// has no command for the move of a workspace. No live call in a demo.
 fn request(method: &str, params: serde_json::Value) -> Result<serde_json::Value, Error> {
-    use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixStream;
-    use std::time::Duration;
-
     if crate::demo::active() {
         return Err(Error::new("no call to herdr in the demo"));
     }
     let path = env::var_os("HERDR_SOCKET_PATH")
         .filter(|path| !path.is_empty())
         .ok_or_else(|| Error::new("HERDR_SOCKET_PATH is not set: run this inside herdr"))?;
+    request_at(Path::new(&path), method, params)
+}
+
+/// Send one request on the socket at this path. The tests call it with their own socket.
+fn request_at(
+    path: &Path,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, Error> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
+
     let failed = |error: std::io::Error| Error::new(format!("herdr {method}: {error}"));
     let mut stream = UnixStream::connect(path).map_err(failed)?;
     let timeout = Some(Duration::from_secs(10));
@@ -143,11 +152,19 @@ fn request(method: &str, params: serde_json::Value) -> Result<serde_json::Value,
 /// the end of the list: all the ids of the list set the full order in one call. The ids can be
 /// apart. The anchor is not in the list of ids.
 pub fn move_workspace_block(ids: &[String], before: Option<&str>) -> Result<(), Error> {
+    request(MOVE_BLOCK, move_block_params(ids, before)).map(|_| ())
+}
+
+/// The method of the socket that moves some workspaces.
+const MOVE_BLOCK: &str = "workspace.move_block";
+
+/// The parameters of `workspace.move_block`.
+fn move_block_params(ids: &[String], before: Option<&str>) -> serde_json::Value {
     let mut params = serde_json::json!({ "workspace_ids": ids });
     if let Some(anchor) = before {
         params["before_workspace_id"] = anchor.into();
     }
-    request("workspace.move_block", params).map(|_| ())
+    params
 }
 
 /// Focus a tab, and its workspace.
@@ -460,10 +477,10 @@ mod tests {
             writeln!(stream, r#"{{"id":"omnibar","result":{{"ok":true}}}}"#).unwrap();
             line
         });
-        // The only test that reads this variable.
-        env::set_var("HERDR_SOCKET_PATH", &path);
+        // The test does not read HERDR_SOCKET_PATH or OMNIBAR_DEMO: the call always connects, and
+        // the server thread always returns.
         let ids = ["w2".to_string(), "w1".to_string()];
-        let answer = move_workspace_block(&ids, Some("w3"));
+        let answer = request_at(&path, MOVE_BLOCK, move_block_params(&ids, Some("w3")));
         let sent: serde_json::Value = serde_json::from_str(&server.join().unwrap()).unwrap();
         let _ = std::fs::remove_file(&path);
         assert!(answer.is_ok());

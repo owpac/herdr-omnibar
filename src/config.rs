@@ -6,19 +6,19 @@
 //! roots = ["~/Workspace"]   # the folders of the projects, 2 levels deep
 //! preview = "full"   # "full": diff, log, changes of a worktree (ctrl+Left, ctrl+Right). "summary".
 //! pills = "square"   # the ends of the pills: "square", "round" (a Nerd Font), "flat".
-//! # The optional features. Remove a name to turn its feature off. move_workspaces (off by default):
-//! # the filter Workspaces shows the order of the sidebar, and alt+Up and alt+Down move the
-//! # workspace.
-//! # auto_sort (off by default): the watcher sorts the workspaces with sort_order, at its start
-//! # and when a workspace opens or closes.
+//! # The optional features. Remove a name to turn its feature off.
+//! # move_workspaces (off by default): the filter Workspaces shows the order of the sidebar, and
+//! # alt+Up and alt+Down move the workspace.
+//! # auto_sort (off by default): the watcher sorts the workspaces with sidebar_order, at its
+//! # start and when a workspace opens or closes.
 //! features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
 //! # The filters of the chips, in the order of Tab. Remove a name to hide its filter.
 //! filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]
-//! # The order of the sort of the workspaces: each entry takes the workspaces that no earlier
-//! # entry took. "git": the git workspaces. "other": the workspaces without git. An entry with a
-//! # "/": the git projects in this folder, at any depth (~ is the home folder). Any other entry:
-//! # the workspace with this label, with its worktrees if it is a git workspace.
-//! sort_order = ["git", "other"]
+//! # The order of the workspaces in the herdr sidebar: each entry takes the workspaces that no
+//! # earlier entry took. "git": the git workspaces. "other": the workspaces without git. An
+//! # entry with a "/": the git projects in this folder, at any depth (~ is the home folder). Any
+//! # other entry: the workspace with this label, with its worktrees if it is a git workspace.
+//! sidebar_order = ["git", "other"]
 //! ```
 //!
 //! A missing file, a missing key or a wrong value gives the default.
@@ -105,7 +105,7 @@ pub struct Config {
     /// The names of the filters of the chips, in the order of Tab.
     pub filters: Vec<String>,
     /// The entries of the sort of the workspaces, in order (see order::sorted).
-    pub sort_order: Vec<String>,
+    pub sidebar_order: Vec<String>,
 }
 
 impl Config {
@@ -133,7 +133,7 @@ impl Default for Config {
                 .iter()
                 .map(|name| name.to_string())
                 .collect(),
-            sort_order: crate::order::DEFAULT_SORT_ORDER
+            sidebar_order: crate::order::DEFAULT_SIDEBAR_ORDER
                 .iter()
                 .map(|entry| entry.to_string())
                 .collect(),
@@ -151,7 +151,7 @@ struct File {
     pills: Option<String>,
     features: Option<Vec<String>>,
     filters: Option<Vec<String>>,
-    sort_order: Option<Vec<String>>,
+    sidebar_order: Option<Vec<String>>,
 }
 
 /// The config folder of the plugin.
@@ -205,7 +205,7 @@ fn parse(text: &str) -> Config {
         },
         features: file.features.unwrap_or(defaults.features),
         filters: file.filters.unwrap_or(defaults.filters),
-        sort_order: file.sort_order.unwrap_or(defaults.sort_order),
+        sidebar_order: file.sidebar_order.unwrap_or(defaults.sidebar_order),
     }
 }
 
@@ -254,13 +254,14 @@ mod tests {
     }
 
     #[test]
-    fn sort_order_replaces_the_default_order_and_a_wrong_value_gives_the_default() {
-        assert_eq!(parse("").sort_order, ["git", "other"]);
+    fn sidebar_order_replaces_the_default_order_and_a_wrong_value_gives_the_default() {
+        assert_eq!(parse("").sidebar_order, ["git", "other"]);
         assert_eq!(
-            parse("sort_order = [\"~\", \"~/Workspace/owpac\", \"git\", \"other\"]").sort_order,
+            parse("sidebar_order = [\"~\", \"~/Workspace/owpac\", \"git\", \"other\"]")
+                .sidebar_order,
             ["~", "~/Workspace/owpac", "git", "other"]
         );
-        assert_eq!(parse("sort_order = 3").sort_order, ["git", "other"]);
+        assert_eq!(parse("sidebar_order = 3").sidebar_order, ["git", "other"]);
     }
 
     #[test]

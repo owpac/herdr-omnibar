@@ -567,18 +567,11 @@ mod tests {
     #[test]
     fn the_filter_workspaces_shows_the_order_of_the_sidebar_with_move_workspaces() {
         let mut model = Model::default();
-        let workspace =
-            |id: &str, label: &str, key: &str, linked: bool| -> crate::model::Workspace {
-                serde_json::from_value(serde_json::json!({
-                    "workspace_id": id, "label": label,
-                    "worktree": {"repo_key": key, "repo_name": key, "is_linked_worktree": linked}
-                }))
-                .unwrap()
-            };
+        use crate::order::tests::workspace;
         let flat = vec![
-            workspace("w1", "atlas.fix", "atlas", true),
-            workspace("w2", "pac", "pac", false),
-            workspace("w3", "atlas", "atlas", false),
+            workspace("w1", "atlas.fix", Some(("atlas", "atlas", true))),
+            workspace("w2", "pac", Some(("pac", "pac", false))),
+            workspace("w3", "atlas", Some(("atlas", "atlas", false))),
         ];
         model.flat_workspaces = flat.clone();
         // The model is in the order of use: w2 first.
@@ -601,21 +594,15 @@ mod tests {
             };
             build(&sources, Filter::Workspaces, "")
         };
-        let ids = |lines: &[Line]| -> Vec<String> {
-            lines
-                .iter()
-                .filter_map(|line| match line {
-                    Line::Row {
-                        item: Item::Workspace(space),
-                        ..
-                    } => Some(space.workspace.workspace_id.clone()),
-                    _ => None,
-                })
-                .collect()
-        };
-        assert_eq!(ids(&build_with(false)), ["w2", "w1", "w3"]);
+        assert_eq!(
+            titles(&build_with(false)),
+            ["# Workspaces", "pac", "atlas.fix", "atlas"]
+        );
         // The group atlas shows at its first member, w1: the main workspace w3 first.
-        assert_eq!(ids(&build_with(true)), ["w3", "w1", "w2"]);
+        assert_eq!(
+            titles(&build_with(true)),
+            ["# Workspaces", "atlas", "atlas.fix", "pac"]
+        );
     }
 
     #[test]

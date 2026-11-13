@@ -222,6 +222,7 @@ pub fn run() -> Result<(), String> {
             }
         }
         if let Some(watch) = binary.as_mut() {
+            watch.share_active_version(&state_dir);
             if let Some(next) = watch.binary_to_run(&state_dir) {
                 log.write(&format!("new binary: {}", next.display()));
                 // The lock file closes at the exec (close-on-exec): the new process takes the
@@ -366,6 +367,19 @@ impl BinaryWatch {
         }
     }
 
+    /// Write the binary of the active version in watch.binary, if the file gives another binary.
+    /// A binary older than this logic reads only this file: without this write, after a
+    /// downgrade, the old binary and this binary run each other in a loop.
+    fn share_active_version(&self, state_dir: &Path) {
+        let Some(active) = self.active.as_ref().filter(|path| path.is_file()) else {
+            return;
+        };
+        let written = read_wanted_binary(state_dir).map(|path| canonical(&path));
+        if written.as_ref() != Some(active) {
+            let _ = write_wanted_binary(state_dir, active);
+        }
+    }
+
     /// The binary that the watcher runs now: the binary of the active version in herdr, else the
     /// binary of the last `watch` command, or its own binary after a rebuild. None keeps the
     /// process.
@@ -452,10 +466,18 @@ mod tests {
         // Without an answer of herdr, the last watch gives the binary.
         watch.active = None;
         let third = watch.binary_to_run(&folder);
+        // A downgrade: herdr gives the old binary, the file gives this binary. The file gets the
+        // old binary: the old binary reads only the file, so it stays on itself.
+        let mut watch = BinaryWatch::new(current.clone());
+        write_wanted_binary(&folder, &current).unwrap();
+        watch.active = Some(old.clone());
+        watch.share_active_version(&folder);
+        let shared = read_wanted_binary(&folder);
         let _ = fs::remove_dir_all(&folder);
         assert_eq!(first, Some(active));
         assert_eq!(second, None);
-        assert_eq!(third, Some(old));
+        assert_eq!(third, Some(old.clone()));
+        assert_eq!(shared, Some(old));
     }
 
     fn snapshot(tabs: &str, panes: &str) -> Snapshot {

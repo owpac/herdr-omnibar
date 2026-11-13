@@ -49,14 +49,13 @@ impl Status {
         }
     }
 
-    /// The order of the agents: the agents that need the user first.
-    fn rank(self) -> u8 {
+    /// The part of the list of the agents: the agents that need the user, then the agents that
+    /// are done and not seen, then the other agents.
+    pub fn part(self) -> u8 {
         match self {
             Status::Blocked => 0,
             Status::Done => 1,
-            Status::Working => 2,
-            Status::Idle => 3,
-            Status::Unknown => 4,
+            _ => 2,
         }
     }
 }
@@ -86,6 +85,9 @@ pub struct AgentInfo {
     pub pane_id: String,
     #[serde(default)]
     pub name: Option<String>,
+    /// A counter of herdr that grows at each change of state of an agent: the last activity.
+    #[serde(default)]
+    pub state_change_seq: Option<u64>,
 }
 
 impl Snapshot {
@@ -97,6 +99,21 @@ impl Snapshot {
             .and_then(|agent| agent.name.as_deref())
             .filter(|name| !name.is_empty())
     }
+}
+
+/// Sort the agents: first the agents that need the user, then the agents that are done, then the
+/// others. In each part, the last activity comes first (the highest `seq`), and an agent without
+/// a `seq` goes last. The agent of the current tab goes at the end of its part. The sort is
+/// stable.
+pub fn order_agents(agents: &mut [AgentRow], current_tab: Option<&str>) {
+    agents.sort_by_key(|agent| {
+        (
+            agent.status.part(),
+            Some(agent.tab_id.as_str()) == current_tab,
+            agent.seq.is_none(),
+            std::cmp::Reverse(agent.seq),
+        )
+    });
 }
 
 /// True if the title of the terminal of an agent is noise, not a task: the herdr name of the
@@ -352,6 +369,9 @@ pub struct AgentRow {
     pub place: String,
     /// The folder of the pane of the agent.
     pub cwd: Option<PathBuf>,
+    /// The last change of state of the agent (`state_change_seq` of herdr): the highest is the
+    /// last activity.
+    pub seq: Option<u64>,
 }
 
 /// A pane of a tab (filter Panes).
@@ -475,10 +495,15 @@ impl Model {
                     status: pane.agent_status,
                     place: place_of(&pane.workspace_id),
                     cwd: pane.cwd.clone(),
+                    seq: snapshot
+                        .agents
+                        .iter()
+                        .find(|info| info.pane_id == pane.pane_id)
+                        .and_then(|info| info.state_change_seq),
                 })
             })
             .collect();
-        agents.sort_by_key(|agent| agent.status.rank());
+        order_agents(&mut agents, None);
         let panes = snapshot
             .panes
             .iter()
@@ -707,6 +732,67 @@ mod tests {
             ]
         );
         assert_eq!(model.agents[0].status, Status::Blocked);
+    }
+
+    fn row(name: &str, status: Status, seq: Option<u64>, tab: &str) -> AgentRow {
+        AgentRow {
+            pane_id: format!("p-{name}"),
+            tab_id: tab.into(),
+            workspace_id: "w1".into(),
+            name: name.into(),
+            kind: "claude".into(),
+            status,
+            place: "atlas".into(),
+            cwd: None,
+            seq,
+        }
+    }
+
+    #[test]
+    fn the_agents_go_by_need_then_done_then_the_last_activity() {
+        let mut agents = vec![
+            row("idle-old", Status::Idle, Some(10), "t1"),
+            row("working-new", Status::Working, Some(90), "t2"),
+            row("done-old", Status::Done, Some(20), "t3"),
+            row("blocked", Status::Blocked, Some(5), "t4"),
+            row("done-new", Status::Done, Some(80), "t5"),
+            row("no-seq", Status::Idle, None, "t6"),
+            row("done-current", Status::Done, Some(99), "t7"),
+        ];
+        order_agents(&mut agents, Some("t7"));
+        let names: Vec<&str> = agents.iter().map(|agent| agent.name.as_str()).collect();
+        // The blocked agent first, then the done agents (the current tab last of its part), then
+        // the others by activity: an agent without a value goes last.
+        assert_eq!(
+            names,
+            [
+                "blocked",
+                "done-new",
+                "done-old",
+                "done-current",
+                "working-new",
+                "idle-old",
+                "no-seq"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_seq_of_an_agent_comes_from_the_agents_of_the_snapshot() {
+        let mut snapshot = snapshot();
+        snapshot.agents = vec![AgentInfo {
+            pane_id: "w1:p1".into(),
+            name: None,
+            state_change_seq: Some(785),
+        }];
+        let model = Model::build(&snapshot, &checkouts());
+        let seqs: Vec<(String, Option<u64>)> = model
+            .agents
+            .iter()
+            .map(|agent| (agent.pane_id.clone(), agent.seq))
+            .collect();
+        assert!(seqs.contains(&("w1:p1".to_string(), Some(785))));
+        assert!(seqs.contains(&("w2:p1".to_string(), None)));
     }
 
     #[test]

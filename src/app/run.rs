@@ -56,6 +56,8 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
     if app.config.has("recent_first") {
         let recent = recent::open(&config::state_dir(), context.tab_id.as_deref());
         app.use_recent(recent, context.tab_id.clone());
+    } else {
+        app.use_current_tab(context.tab_id.clone());
     }
     if app.config.has("running_time") {
         app.times = Some(Times::start());

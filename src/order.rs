@@ -140,7 +140,7 @@ pub fn plan_move(workspaces: &[Workspace], id: &str, delta: i32) -> Option<Move>
     let anchor = workspaces
         .iter()
         .map(|workspace| &workspace.workspace_id)
-        .find(|id| members.contains(id))?;
+        .find(|member| members.contains(member))?;
     Some(Move {
         ids: moved.ids(),
         before: anchor.clone(),

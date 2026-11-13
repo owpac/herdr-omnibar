@@ -70,11 +70,63 @@ pub struct Snapshot {
     pub tabs: Vec<Tab>,
     #[serde(default)]
     pub panes: Vec<Pane>,
+    /// The agents that herdr detects. `name` is the herdr name of a named agent.
+    #[serde(default)]
+    pub agents: Vec<AgentInfo>,
     #[serde(default)]
     pub focused_workspace_id: Option<String>,
     /// The focused tab, for the order of use (feature recent_first).
     #[serde(default)]
     pub focused_tab_id: Option<String>,
+}
+
+/// An agent of the snapshot, by pane. Only the herdr name is read.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AgentInfo {
+    pub pane_id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+impl Snapshot {
+    /// The herdr name of the agent of a pane (`herdr agent start <name>`), if it has one.
+    pub fn agent_name(&self, pane_id: &str) -> Option<&str> {
+        self.agents
+            .iter()
+            .find(|agent| agent.pane_id == pane_id)
+            .and_then(|agent| agent.name.as_deref())
+            .filter(|name| !name.is_empty())
+    }
+}
+
+/// The names that a terminal title can give to an agent, besides its kind.
+const AGENT_NAMES: [&str; 4] = ["claude", "claude code", "codex", "opencode"];
+
+/// The known names of the agents, then the kind of this agent.
+fn agent_names(kind: &str) -> impl Iterator<Item = &str> {
+    AGENT_NAMES
+        .into_iter()
+        .chain(Some(kind).filter(|kind| !kind.is_empty()))
+}
+
+/// True if the title is the name of the agent, in any case: `Claude Code`, `OpenCode`.
+pub fn is_agent_name(title: &str, kind: &str) -> bool {
+    agent_names(kind).any(|name| name.eq_ignore_ascii_case(title))
+}
+
+/// True if the title of the terminal of an agent is noise, not a task: the herdr name of the
+/// agent, or the command line of the agent (an agent name, a space, then an option:
+/// `claude --name x`). Claude Code writes its `--name` in the title for all the session.
+pub fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
+    let title = title.trim();
+    if name.is_some_and(|name| name.eq_ignore_ascii_case(title)) {
+        return true;
+    }
+    agent_names(kind).any(|command| {
+        title
+            .strip_prefix(command)
+            .is_some_and(|rest| rest.starts_with(" -"))
+    })
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -92,6 +144,7 @@ pub struct Workspace {
 /// The git worktree data of a workspace, as herdr gives it.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Worktree {
+    /// The key of the repository: the sidebar groups the workspaces with the same key.
     #[serde(default)]
     pub repo_key: String,
     #[serde(default)]
@@ -99,7 +152,25 @@ pub struct Worktree {
     #[serde(default)]
     pub repo_root: Option<PathBuf>,
     #[serde(default)]
+    pub checkout_path: Option<PathBuf>,
+    #[serde(default)]
     pub is_linked_worktree: bool,
+}
+
+impl Workspace {
+    /// The name that the user gave, if there is one. herdr does not tell it: a label is a user
+    /// label if it is not the name of the repository, not the folder of the checkout and not the
+    /// folder of the repository root. A workspace outside git has no such default.
+    pub fn user_label(&self) -> Option<&str> {
+        let worktree = self.worktree.as_ref()?;
+        let label = self.label.trim();
+        let folder = |path: &Option<PathBuf>| path.as_deref().map(file_name);
+        let is_default = label.is_empty()
+            || label == worktree.repo_name
+            || folder(&worktree.checkout_path).is_some_and(|name| name == label)
+            || folder(&worktree.repo_root).is_some_and(|name| name == label);
+        (!is_default).then_some(label)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -137,6 +208,9 @@ pub struct Pane {
     pub agent_status: Status,
     #[serde(default)]
     pub terminal_title_stripped: Option<String>,
+    /// The label that herdr sets after `herdr pane rename`.
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 /// The git checkout of a folder.
@@ -252,17 +326,27 @@ impl Space {
     }
 
     /// The name of the workspace: the project, or `<project> ▸ <branch>` for a linked worktree.
+    /// A name that the user gave replaces the project of a main workspace and the branch of a
+    /// linked worktree.
     pub fn label(&self) -> String {
-        match &self.checkout {
-            Some(checkout) if !checkout.is_main() => {
-                let branch = checkout
-                    .branch
-                    .clone()
-                    .unwrap_or_else(|| file_name(&checkout.root));
-                format!("{} ▸ {}", checkout.project(), branch)
-            }
-            _ => self.project(),
+        let user = self.workspace.user_label();
+        let linked = match (&self.checkout, &self.workspace.worktree) {
+            (Some(checkout), _) => !checkout.is_main(),
+            (None, Some(worktree)) => worktree.is_linked_worktree,
+            (None, None) => false,
+        };
+        if !linked {
+            return user.map(str::to_string).unwrap_or_else(|| self.project());
         }
+        let branch = match (user, &self.checkout) {
+            (Some(label), _) => label.to_string(),
+            (None, Some(checkout)) => checkout
+                .branch
+                .clone()
+                .unwrap_or_else(|| file_name(&checkout.root)),
+            (None, None) => self.workspace.label.clone(),
+        };
+        format!("{} ▸ {}", self.project(), branch)
     }
 }
 
@@ -364,13 +448,30 @@ impl Model {
         // The name of a tab. herdr names a new tab with its number: then the title of the terminal
         // is a better name, because an agent writes its task there. The title of an idle shell
         // is its prompt (user@host:folder): the name is then "shell".
-        let label_of = |tab_id: &str, title: Option<&str>| {
+        let label_of = |tab_id: &str, title: Option<&str>, title_pane: Option<&str>| {
             let tab = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id);
             let label = tab.map(|tab| tab.label.clone()).unwrap_or_default();
             let numbered = tab.is_none_or(Tab::has_default_label);
+            // The pane of the title, if it holds an agent: the herdr name and the command of this
+            // agent are not a task.
+            let agent_pane = title_pane.and_then(|id| {
+                snapshot
+                    .panes
+                    .iter()
+                    .find(|pane| pane.pane_id == id && pane.agent.is_some())
+            });
+            let noise = |title: &str| {
+                agent_pane.is_some_and(|pane| {
+                    is_agent_noise(
+                        title,
+                        pane.agent.as_deref().unwrap_or_default(),
+                        snapshot.agent_name(&pane.pane_id),
+                    )
+                })
+            };
             match title.map(str::trim).filter(|title| !title.is_empty()) {
                 Some(title) if numbered && is_prompt_title(title) => "shell".to_string(),
-                Some(title) if numbered => title.to_string(),
+                Some(title) if numbered && !noise(title) => title.to_string(),
                 _ => label,
             }
         };
@@ -383,7 +484,11 @@ impl Model {
                     pane_id: pane.pane_id.clone(),
                     tab_id: pane.tab_id.clone(),
                     workspace_id: pane.workspace_id.clone(),
-                    name: label_of(&pane.tab_id, pane.terminal_title_stripped.as_deref()),
+                    name: label_of(
+                        &pane.tab_id,
+                        pane.terminal_title_stripped.as_deref(),
+                        Some(&pane.pane_id),
+                    ),
                     kind,
                     status: pane.agent_status,
                     place: place_of(&pane.workspace_id),
@@ -401,7 +506,14 @@ impl Model {
                     .as_deref()
                     .map(str::trim)
                     .unwrap_or_default();
-                let name = if title.is_empty() || is_prompt_title(title) {
+                let label = pane
+                    .label
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty());
+                let name = if let Some(label) = label {
+                    label.to_string()
+                } else if title.is_empty() || is_prompt_title(title) {
                     pane.agent.clone().unwrap_or_else(|| "shell".to_string())
                 } else {
                     title.to_string()
@@ -411,7 +523,11 @@ impl Model {
                     tab_id: pane.tab_id.clone(),
                     workspace_id: pane.workspace_id.clone(),
                     name,
-                    tab: label_of(&pane.tab_id, pane.terminal_title_stripped.as_deref()),
+                    tab: label_of(
+                        &pane.tab_id,
+                        pane.terminal_title_stripped.as_deref(),
+                        Some(&pane.pane_id),
+                    ),
                     place: place_of(&pane.workspace_id),
                     agent: pane.agent.clone(),
                     status: pane.agent_status,
@@ -441,7 +557,7 @@ impl Model {
                 TabRow {
                     tab_id: tab.tab_id.clone(),
                     workspace_id: tab.workspace_id.clone(),
-                    name: label_of(&tab.tab_id, Some(&title)),
+                    name: label_of(&tab.tab_id, Some(&title), None),
                     command,
                     place: place_of(&tab.workspace_id),
                     pane_id: first.map(|pane| pane.pane_id.clone()),
@@ -454,16 +570,13 @@ impl Model {
                 .panes
                 .iter()
                 .find(|pane| pane.tab_id == tab.tab_id && pane.agent.is_some());
-            let title = snapshot
-                .panes
-                .iter()
-                .find(|pane| pane.tab_id == tab.tab_id)
-                .and_then(|pane| pane.terminal_title_stripped.as_deref());
+            let first = snapshot.panes.iter().find(|pane| pane.tab_id == tab.tab_id);
+            let title = first.and_then(|pane| pane.terminal_title_stripped.as_deref());
             workspace_tabs
                 .entry(tab.workspace_id.clone())
                 .or_default()
                 .push(TabSummary {
-                    name: label_of(&tab.tab_id, title),
+                    name: label_of(&tab.tab_id, title, first.map(|pane| pane.pane_id.as_str())),
                     agent: agent_pane.and_then(|pane| pane.agent.clone()),
                     status: agent_pane.map(|pane| pane.agent_status).unwrap_or_default(),
                 });
@@ -629,6 +742,84 @@ mod tests {
                 ("shell", "", "my notes")
             ]
         );
+    }
+
+    fn git_workspace(label: &str, linked: bool, checkout: &str) -> Workspace {
+        serde_json::from_value(serde_json::json!({
+            "workspace_id": "w9",
+            "label": label,
+            "worktree": {
+                "repo_key": "/work/atlas/.git",
+                "repo_name": "atlas",
+                "repo_root": "/work/atlas",
+                "checkout_path": checkout,
+                "is_linked_worktree": linked
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_default_label_is_not_a_user_label() {
+        assert_eq!(
+            git_workspace("atlas", false, "/work/atlas").user_label(),
+            None
+        );
+        assert_eq!(
+            git_workspace("atlas.fix", true, "/work/atlas.fix").user_label(),
+            None
+        );
+        assert_eq!(
+            git_workspace("billing", false, "/work/atlas").user_label(),
+            Some("billing")
+        );
+        // A workspace outside git has no worktree data: no user label.
+        let plain: Workspace =
+            serde_json::from_str(r#"{"workspace_id": "w1", "label": "notes"}"#).unwrap();
+        assert_eq!(plain.user_label(), None);
+    }
+
+    #[test]
+    fn a_user_label_shows_in_the_name_of_a_git_workspace() {
+        let checkout = |root: &str, branch: &str| Checkout {
+            root: PathBuf::from(root),
+            common: PathBuf::from("/work/atlas/.git"),
+            branch: Some(branch.into()),
+        };
+        let space = |workspace, checkout| Space {
+            workspace,
+            folder: None,
+            checkout: Some(checkout),
+        };
+        let main = space(
+            git_workspace("billing", false, "/work/atlas"),
+            checkout("/work/atlas", "main"),
+        );
+        assert_eq!(main.label(), "billing");
+        assert_eq!(main.project(), "atlas");
+        let linked = space(
+            git_workspace("my fix", true, "/work/atlas.fix"),
+            checkout("/work/atlas.fix", "fix"),
+        );
+        assert_eq!(linked.label(), "atlas ▸ my fix");
+        let default = space(
+            git_workspace("atlas.fix", true, "/work/atlas.fix"),
+            checkout("/work/atlas.fix", "fix"),
+        );
+        assert_eq!(default.label(), "atlas ▸ fix");
+    }
+
+    #[test]
+    fn the_label_of_a_pane_is_its_name() {
+        let mut snapshot = snapshot();
+        snapshot.panes[1].label = Some("logs".into());
+        let model = Model::build(&snapshot, &checkouts());
+        let pane = model
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == "w1:p2")
+            .unwrap();
+        assert_eq!(pane.name, "logs");
     }
 
     #[test]

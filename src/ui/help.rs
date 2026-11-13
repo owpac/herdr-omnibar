@@ -25,7 +25,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         ),
         (
             "~  /",
-            "In the step where: the folders of the disk. ⇥ completes.",
+            "In the step where: the folders of the disk. ⇥ completes. The first row, new workspace “text”, creates a workspace in ~ with the text as its label.",
         ),
         ("⌃A", "On a row that opens a worktree: the next agent."),
         (
@@ -46,7 +46,11 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         ),
         (
             "⌃R",
-            "Rename the tab of the selected row. ↵ saves, esc keeps the name.",
+            "Rename the tab, the workspace or the pane of the selected row. ↵ saves, esc keeps the name.",
+        ),
+        (
+            "⌃T",
+            "Give the tab of the selected row back to the automatic titles: it takes the title of its agent (feature auto_titles). A tab without such a title keeps its name.",
         ),
         (
             "⌥↑ ⌥↓",

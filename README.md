@@ -18,10 +18,10 @@ The install downloads the release binary for your machine, and checks it with th
 
 - **`open`** goes to what exists. The list has the agents that need you first, then the other agents, the tabs without an agent, the worktrees of the current project, the other workspaces and the git projects. `↵` goes to the selected row. If you type a text, the last row is `create “<text>”…`: `↵` on it starts the creation in the current place, with this text as the name. A branch of the current project shows the git state of its worktree: `✓` no change, `●` changes that are not committed, `○` no worktree. Its right column tells if its workspace is open, and the age of its last commit.
 - **`new`** creates a tab or a worktree, in 2 steps:
-  1. **Where:** the current place first, then the open workspaces, the git projects without a workspace and the other folders. Type `~` or `/` for any folder of the disk: `⇥` completes it.
-  2. **What:** type the name. In a git project, `new worktree <name>` comes first: wt creates the branch, its worktree and its own workspace. `new tab` adds a tab to the workspace of the place. In the current workspace, `new split` adds a pane next to the focused pane: to the right of a wide pane, below a tall pane. A name that is not a branch name selects `new tab`.
+  1. **Where:** the first row is `+ new workspace…`. Type a text: the row becomes `+ new workspace “<text>”`, and `↵` on it creates a workspace in `~` at once, with the text as its label (also if `~` already has a workspace). Without a text, `↵` on it asks for a name. The automatic titles name the first tab, and the agent is the agent of `~`. The text also filters the places under the row: the current place, then the open workspaces, the git projects without a workspace and the other folders. A place matches by its name, not by its folder. The selection goes to the first place that matches, or to the row `+ new workspace “<text>”` if no place matches. Type `~` or `/` for any folder of the disk: the row goes, and `⇥` completes the path.
+  2. **What:** type the name. In a git project, `new worktree <name>` comes first: wt creates the branch, its worktree and its own workspace. `new tab` adds a tab to the workspace of the place. `new workspace` makes a new workspace in the folder of the place, also if the place already has a workspace: the typed name is then the label of the new workspace (the label of the place without a name), and the automatic titles name its first tab. In a place without a workspace, `new workspace` is the first choice after the worktree, and the typed name is the name of its first tab. In the current workspace, `new split` adds a pane next to the focused pane: to the right of a wide pane, below a tall pane. A name that is not a branch name selects `new tab`.
 
-The typed text is a filter in the step "where", and a name in the step "what". It is never both. A worktree always gets its own workspace, under its project: `herdr-worktrunk ▸ fix-login`.
+In the step "where", the typed text filters the places and also names a new workspace of `~`. In the step "what", it is the name of the tab or of the branch. A worktree always gets its own workspace, under its project: `herdr-worktrunk ▸ fix-login`.
 
 After `↵`, the popup closes at once. A detached process creates the tab, the workspace or the worktree, then starts the agent. If the creation fails, a herdr notification gives the error.
 
@@ -73,7 +73,8 @@ command = "herdr-omnibar.new"
 | `⌃F` | Fork the session of the selected agent (Claude Code or Codex) into a new tab, with the plugin herdr-fork. The popup closes, the agent gets the focus, then herdr-fork runs its action `tab`. |
 | `⌃↵` | A new tab, with its agent, in the open workspace of the selected row: an agent, a tab, a workspace or a worktree. |
 | `⌃⌫` | Close the tab of the selected row (the pane only, on a row of the filter Panes), or remove the worktree of the selected branch, after a question on the action line. The main checkout stays. See [Remove a worktree](#remove-a-worktree). |
-| `⌃R` | Rename the tab of the selected row. `↵` saves, `esc` keeps the old name. |
+| `⌃R` | Rename the target of the selected row: the tab of an agent or of a tab, a workspace, or a pane. `↵` saves, `esc` keeps the old name. Other rows do nothing. |
+| `⌃T` | Give the tab of the selected agent or tab back to the automatic titles (feature `auto_titles`): the tab takes its number, then the watcher writes the title of its agent in 2 seconds. If the agent gives no useful title (the terminal title of a brief agent is its herdr name), the tab keeps its name and the popup says so. It also replaces a name that you gave with `⌃R`. |
 | `⌥↑`, `⌥↓` | Feature `move_workspaces`, off by default. On a row of the filter Workspaces: move the workspace up or down in the herdr sidebar. |
 | `⌃Y` | In the step "what": start the agent without its permission prompts, for this tab only. |
 | `⌃←`, `⌃→` | The view of the preview of a worktree: diff, log, changes. |
@@ -130,6 +131,8 @@ filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new",
 # The order of the workspaces in the herdr sidebar (see below).
 sidebar_order = ["git", "other"]
 ```
+
+`rename_tab` turns on `⌃R`: it renames the tab, the workspace or the pane of the selected row. The filter `panes` shows the label that herdr gives to a pane. A git workspace with a name that you gave shows this name: `<project> ▸ <name>` for a linked worktree.
 
 `move_workspaces` is off by default: add it to `features` to turn it on. The filter `workspaces` then shows the order of the herdr sidebar, not the order of use. `⌥↑` and `⌥↓` move the selected workspace. A main workspace moves with its worktrees, and a workspace without a group moves alone. A linked worktree moves only among the worktrees of its project. At the first or the last position, the key does nothing. The move uses the socket of herdr (`workspace.move_block`). The sidebar groups the worktrees of a project: the number of a workspace is not its position on the screen. Run `herdr-omnibar.keys` to check that your terminal sends `⌥↑` and `⌥↓`.
 

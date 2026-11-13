@@ -113,7 +113,12 @@ impl Config {
     /// True if the order of the lists has the criterion `visit`: the watcher and the popup then
     /// record the visits of the tabs.
     pub fn orders_by_visit(&self) -> bool {
-        crate::rank::has(&self.list_order, "visit")
+        self.orders_by("visit")
+    }
+
+    /// True if the order of the lists has this criterion.
+    pub fn orders_by(&self, criterion: &str) -> bool {
+        self.list_order.iter().any(|entry| entry == criterion)
     }
 
     /// True if the feature is on.

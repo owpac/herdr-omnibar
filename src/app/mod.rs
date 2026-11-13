@@ -438,7 +438,7 @@ impl App {
                         .as_ref()
                         .filter(|_| self.filter == Filter::All),
                     in_sidebar_order: self.config.has("move_workspaces"),
-                    attention: crate::rank::has(&self.config.list_order, "attention"),
+                    attention: self.config.orders_by("attention"),
                 };
                 rows::build(&sources, self.filter, &self.query)
             }

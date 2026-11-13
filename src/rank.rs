@@ -53,11 +53,6 @@ pub fn criteria(order: &[String]) -> Vec<Criterion> {
     found
 }
 
-/// True if the `list_order` list has a criterion.
-pub fn has(order: &[String], name: &str) -> bool {
-    order.iter().any(|entry| entry == name)
-}
-
 /// The value of a row for each criterion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rank {

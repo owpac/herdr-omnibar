@@ -397,6 +397,14 @@ impl App {
             .find(|place| place.workspace_id.as_deref() == Some(workspace_id))
     }
 
+    /// True if ↵ creates a workspace at once: the selected row is "new workspace “text”". Without
+    /// a text, ↵ only asks for a name.
+    pub fn enter_creates_workspace(&self) -> bool {
+        matches!(self.selected_item(),
+            Some(Item::Place(place)) if place.kind == crate::places::Kind::Home
+                && !place.label.is_empty())
+    }
+
     /// The row that a new list selects: the first row. In the step "where" with a filter text, the
     /// row "new workspace…" stays first, but the selection goes to the first place that matches
     /// the text: typing a name and ↵ chooses the place.
@@ -1241,8 +1249,10 @@ mod tests {
             app.message.as_deref(),
             Some("type the name of the new workspace")
         );
+        assert!(!app.enter_creates_workspace());
         // With a text that no place matches: the row is selected, and ↵ creates at once.
         type_text(&mut app, "ville france");
+        assert!(app.enter_creates_workspace());
         assert_eq!(selected_name(&app), "new workspace “ville france”");
         match press(&mut app, KeyCode::Enter) {
             Outcome::Create(plan) => {

@@ -66,7 +66,7 @@ command = ["bin/herdr-omnibar", "open", "actions"]
 [[actions]]
 id = "panes"
 title = "Omnibar: panes"
-description = "Search each pane of each tab, then go to one (feature pane_rows)"
+description = "Search each pane of each tab, then go to one"
 contexts = ["global"]
 command = ["bin/herdr-omnibar", "open", "panes"]
 

@@ -267,7 +267,7 @@ pub struct AgentRow {
     pub cwd: Option<PathBuf>,
 }
 
-/// A pane of a tab (feature pane_rows).
+/// A pane of a tab (filter Panes).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PaneRow {
     pub pane_id: String,
@@ -311,7 +311,7 @@ pub struct Model {
     pub spaces: Vec<Space>,
     pub agents: Vec<AgentRow>,
     pub tabs: Vec<TabRow>,
-    /// Each pane of each tab (feature pane_rows).
+    /// Each pane of each tab (filter Panes).
     pub panes: Vec<PaneRow>,
     pub focused_workspace_id: Option<String>,
     /// The tabs of each workspace, by workspace id, in their order.

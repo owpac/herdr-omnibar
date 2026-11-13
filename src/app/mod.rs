@@ -113,7 +113,7 @@ impl View {
 pub enum Confirm {
     /// Close a tab: its id and its name.
     CloseTab { tab_id: String, name: String },
-    /// Close a pane (feature pane_rows): its id and its name.
+    /// Close a pane (filter Panes): its id and its name.
     ClosePane { pane_id: String, name: String },
     /// Remove a worktree: its folder, its branch, and the number of agents in its workspace.
     RemoveWorktree {
@@ -127,7 +127,8 @@ pub enum Confirm {
 pub struct App {
     pub model: Model,
     pub filter: Filter,
-    /// The filters of the chips and of Tab, from the features of config.toml.
+    /// The filters of the chips, of Tab and of the shortcuts, from config.toml. The action of a
+    /// filter outside this list still opens it: see `shown_filters`.
     pub filters: Vec<Filter>,
     /// The text of the filters that go somewhere.
     pub query: String,
@@ -221,7 +222,7 @@ impl App {
         config: Config,
     ) -> App {
         let open = places::workspaces(&model);
-        let filters = rows::filters(config.has("pane_rows"));
+        let filters = rows::filters(&config.filters);
         let mut app = App {
             model,
             filter,
@@ -539,14 +540,24 @@ impl App {
         self.rebuild(None);
     }
 
+    /// The filters of the chips and of Tab: the filters of the config, and the current filter at
+    /// the end if the config hides it. An action can open a hidden filter.
+    pub fn shown_filters(&self) -> Vec<Filter> {
+        let mut filters = self.filters.clone();
+        if !filters.contains(&self.filter) {
+            filters.push(self.filter);
+        }
+        filters
+    }
+
     fn cycle_filter(&mut self, delta: i32) {
-        let count = self.filters.len() as i32;
-        let at = self
-            .filters
+        let filters = self.shown_filters();
+        let count = filters.len() as i32;
+        let at = filters
             .iter()
             .position(|filter| *filter == self.filter)
             .unwrap_or(0) as i32;
-        self.set_filter(self.filters[(at + delta).rem_euclid(count) as usize]);
+        self.set_filter(filters[(at + delta).rem_euclid(count) as usize]);
     }
 
     fn edit(&mut self, change: impl FnOnce(&mut String)) {
@@ -957,7 +968,7 @@ mod tests {
         assert_eq!(app.filter, Filter::Folders);
         press(&mut app, KeyCode::Char('#'));
         assert_eq!(app.filter, Filter::All);
-        // Without the feature pane_rows, % is a character of the text.
+        // Without the filter panes in the config, % is a character of the text.
         press(&mut app, KeyCode::Char('%'));
         assert_eq!((app.filter, app.query.as_str()), (Filter::All, "%"));
     }
@@ -972,6 +983,26 @@ mod tests {
         press(&mut app, KeyCode::Char('@'));
         assert_eq!(app.filter, Filter::Agents);
         assert!(app.query.is_empty());
+    }
+
+    #[test]
+    fn the_action_of_a_hidden_filter_opens_it_until_tab_leaves_it() {
+        // The action herdr-omnibar.new opens the filter New, but the config hides it.
+        let mut app = app(Filter::New);
+        app.filters = vec![Filter::All, Filter::Agents];
+        assert_eq!(
+            app.shown_filters(),
+            [Filter::All, Filter::Agents, Filter::New]
+        );
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.filter, Filter::All);
+        assert_eq!(app.shown_filters(), [Filter::All, Filter::Agents]);
+        press(&mut app, KeyCode::BackTab);
+        assert_eq!(app.filter, Filter::Agents);
+        // The shortcut of a hidden filter is a character of the text.
+        press(&mut app, KeyCode::Tab);
+        press(&mut app, KeyCode::Char('+'));
+        assert_eq!((app.filter, app.query.as_str()), (Filter::All, "+"));
     }
 
     #[test]

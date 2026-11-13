@@ -182,7 +182,8 @@ EOF
 cat > "$demo/config/config.toml" <<EOF
 roots = ["$demo/projects"]
 pills = "square"
-features = ["mouse", "rename_tab", "recent_first", "running_time", "pane_rows"]
+features = ["mouse", "rename_tab", "recent_first", "running_time"]
+filters = ["all", "agents", "tabs", "panes", "worktrees", "folders", "new", "actions"]
 EOF
 printf '[theme]\nname = "dracula"\n' > "$demo/herdr.toml"
 

@@ -12,7 +12,7 @@ pub enum Filter {
     Worktrees,
     Folders,
     Actions,
-    /// One row for each pane (feature pane_rows).
+    /// One row for each pane. Off by default: add "panes" to the filters of config.toml.
     Panes,
 }
 

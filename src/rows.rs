@@ -7,6 +7,7 @@
 use std::env;
 use std::path::Path;
 
+use crate::config::DEFAULT_FILTERS;
 use crate::create::{self, Choice};
 use crate::filter::Filter;
 use crate::fuzzy;
@@ -28,7 +29,7 @@ pub enum Item {
     Action(PluginAction),
     /// The creation of a tab or a worktree with the query as its name: ↵ goes to the step "what".
     Create(String),
-    /// A pane of a tab (feature pane_rows).
+    /// A pane of a tab (filter Panes).
     Pane(PaneRow),
 }
 
@@ -111,20 +112,21 @@ pub enum Line {
     Row { item: Item, positions: Vec<usize> },
 }
 
-/// The filters that the popup shows, in the order of Tab. The filter Panes needs the feature
-/// pane_rows.
-pub fn filters(pane_rows: bool) -> Vec<Filter> {
-    let mut filters = vec![
-        Filter::All,
-        Filter::Agents,
-        Filter::Tabs,
-        Filter::Worktrees,
-        Filter::Folders,
-        Filter::New,
-        Filter::Actions,
-    ];
-    if pane_rows {
-        filters.insert(3, Filter::Panes);
+/// The filters of the chips, in the order of Tab, from their names in config.toml. An unknown
+/// name and a second copy of a name stay without effect. A list without a known name gives the
+/// default filters.
+pub fn filters(names: &[String]) -> Vec<Filter> {
+    let mut filters = Vec::new();
+    for filter in names.iter().filter_map(|name| Filter::parse(name)) {
+        if !filters.contains(&filter) {
+            filters.push(filter);
+        }
+    }
+    if filters.is_empty() {
+        filters = DEFAULT_FILTERS
+            .iter()
+            .filter_map(|name| Filter::parse(name))
+            .collect();
     }
     filters
 }
@@ -684,6 +686,18 @@ mod tests {
         );
         let lines = worktree_lines(&branches, &[], "atlas", "");
         assert_eq!(titles(&lines), ["# Worktrees of atlas", "main"]);
+    }
+
+    #[test]
+    fn the_filters_follow_their_names_in_the_config() {
+        let names = |list: &[&str]| list.iter().map(|name| name.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            filters(&names(&["agents", "panes", "nothing", "agents"])),
+            [Filter::Agents, Filter::Panes]
+        );
+        // A list without a known name gives the default filters: Tab needs at least one filter.
+        assert_eq!(filters(&names(&[])), filters(&names(&DEFAULT_FILTERS)));
+        assert_eq!(filters(&names(&["nothing"]))[0], Filter::All);
     }
 
     #[test]

@@ -16,16 +16,14 @@ use super::{creating, style::*, text::*};
 /// Draw the search line. Return the area of each chip, for the mouse.
 pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect, Filter)> {
     // A narrow popup shows only the chip of the current filter.
-    let all_width: u16 = app
-        .filters
+    let filters = app.shown_filters();
+    let all_width: u16 = filters
         .iter()
         .map(|filter| filter.label().len() as u16 + 3)
         .sum();
     let all_fit = area.width > all_width + 30;
-    let shown: Vec<Filter> = app
-        .filters
-        .iter()
-        .copied()
+    let shown: Vec<Filter> = filters
+        .into_iter()
         .filter(|filter| all_fit || *filter == app.filter)
         .collect();
     let chips: Vec<Span> = shown
@@ -54,6 +52,7 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
     .areas(area);
     // The creation shows its step before the prompt: "new › where", or "new › <place>".
     let mut spans = Vec::new();
+    let search = search_placeholder(&app.filters);
     let (prompt, placeholder) = match (creating(app), app.create.step) {
         _ if app.rename.is_some() => {
             spans.extend([
@@ -89,7 +88,7 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
                 Filter::Folders => "project or folder",
                 Filter::Actions => "action or plugin",
                 Filter::Panes => "pane, tab or workspace",
-                _ => "search · @ agents · # folders · + new · > actions",
+                _ => &search,
             },
         ),
     };
@@ -129,4 +128,40 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
     let cursor = field.x + (before + text.width()) as u16;
     frame.set_cursor_position((cursor.min(field.right().saturating_sub(1)), field.y));
     areas
+}
+
+/// The placeholder of the filter All: "search", then the shortcut of each filter of the config.
+fn search_placeholder(filters: &[Filter]) -> String {
+    let mut text = "search".to_string();
+    for filter in filters {
+        if let Some(key) = filter.shortcut() {
+            text.push_str(&format!(" · {key} {}", filter.name()));
+        }
+    }
+    text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_placeholder_gives_the_shortcuts_of_the_filters_of_the_config() {
+        let filters = [
+            Filter::All,
+            Filter::Agents,
+            Filter::Tabs,
+            Filter::Folders,
+            Filter::New,
+            Filter::Actions,
+        ];
+        assert_eq!(
+            search_placeholder(&filters),
+            "search · @ agents · # folders · + new · > actions"
+        );
+        assert_eq!(
+            search_placeholder(&[Filter::All, Filter::Panes]),
+            "search · % panes"
+        );
+    }
 }

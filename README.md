@@ -43,7 +43,7 @@ Each filter has its own action. Bind a key to the action of your choice in `~/.c
 | `herdr-omnibar.worktrees` | The branches of the current project, and a new worktree |
 | `herdr-omnibar.folders` | The projects and the folders |
 | `herdr-omnibar.actions` | The actions of the herdr plugins |
-| `herdr-omnibar.panes` | Each pane of each tab (feature `pane_rows`) |
+| `herdr-omnibar.panes` | Each pane of each tab |
 | `herdr-omnibar.keys` | A tool that shows the keys that the popup receives |
 
 ```toml
@@ -64,7 +64,7 @@ command = "herdr-omnibar.new"
 |-----|--------|
 | `↵` | Go to the selected row, choose a place, create, or run an action. |
 | `⇥`, `⇧⇥` | The next or the previous filter. In the step "what": the next agent (claude, codex, opencode, shell). In a path: complete the folder. |
-| `@`, `#`, `+`, `>`, `%` | On an empty text, from any filter: the agents, the folders, the creation, the actions, the panes (feature `pane_rows`). The key of the current filter goes back to All. |
+| `@`, `#`, `+`, `>`, `%` | On an empty text, from any filter: the agents, the folders, the creation, the actions, the panes. Only the filters of `filters` have a shortcut. The key of the current filter goes back to All. |
 | `⌃A` | On a row of `open` that opens a worktree: the next agent. |
 | `⌃F` | Fork the session of the selected agent (Claude Code or Codex) into a new tab, with the plugin herdr-fork. The popup closes, the agent gets the focus, then herdr-fork runs its action `tab`. |
 | `⌃↵` | A new tab, with its agent, in the open workspace of the selected row: an agent, a tab, a workspace or a worktree. |
@@ -120,7 +120,11 @@ preview = "full"   # "full": the 3 views of a worktree. "summary": one view.
 pills = "square"
 # The optional features. Remove a name to turn its feature off.
 features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
+# The filters of the chips, in the order of ⇥. Remove a name to hide its filter.
+filters = ["all", "agents", "tabs", "worktrees", "folders", "new", "actions"]
 ```
+
+`filters` gives the chips of the search line, in the order of `⇥` and `⇧⇥`. A filter outside the list has no chip and no shortcut, but its action still opens it: its chip then shows until `⇥` leaves it. The filter `panes` is off by default: it has one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
 
 `recent_first` sorts the agents, the tabs, the panes and the workspaces by their last use: the tab of the popup goes after the others, so the first row is the tab before, like alt-tab (`⌘P` then `↵`). The group "Needs you" stays first. The watcher writes the time of each change of the focused tab in `recent.json`, in the state folder.
 
@@ -131,9 +135,8 @@ curl -fsSL -o ~/Library/Fonts/HerdrAgentIconsMax-Regular.ttf \
   https://raw.githubusercontent.com/hhdebb/herdr-radar/main/dist/HerdrAgentIconsMax-Regular.ttf
 ```
 
-3 features are off by default. Add their names to `features` to turn them on:
+2 features are off by default. Add their names to `features` to turn them on:
 
-- `pane_rows`: the filter Panes, with one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
 - `pull_requests`: the pull request of each branch of the current project. A branch row shows the number of its pull request in the color of its state (open, draft, merged, closed), and the glyph of its checks (✓ passed, ✗ failed, ◐ running). The preview of a worktree gets a 4th view, PR: its title, its state, its size, its checks, its review, its merge state and its last update. One `gh pr list` for each project reads the last 50 pull requests in the background: the network takes 1 to 2 s. gh must be installed and logged in.
 - `running_time`: the running time of each agent and of each command, at the right of its row: `47s`, `12m`, `2h04m`, `3d`. A thread reads it in the background, one time for each pane: `herdr pane process-info`, then `ps`. The times show some time after the popup opens.
 

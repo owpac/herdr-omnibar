@@ -53,7 +53,7 @@ pub(super) fn badge(pull: &Pull) -> Vec<Span<'static>> {
 /// The width that the badge column reserves: `#123`, a space, the glyph of the checks and 2 spaces.
 /// A usual badge fills it. The reserve keeps the columns of the list at their place while the
 /// pull requests arrive from gh.
-pub(super) const BADGE_WIDTH: usize = 8;
+const BADGE_WIDTH: usize = 8;
 
 /// Fill the badge of a row to `BADGE_WIDTH` with spaces before it: a row without a badge, or with
 /// a short one, keeps the same column positions. A longer badge makes the column wider.

@@ -43,25 +43,22 @@ pub(super) fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
     // The widths of the columns: the name column is the same for each row. Each section (each
     // group of the list) has its own right column, and its context column takes the rest.
     let mut section = 0;
-    let sections: Vec<usize> = app
-        .lines
-        .iter()
-        .map(|line| {
-            if matches!(line, ListLine::Group(_)) {
-                section += 1;
-            }
-            section
-        })
-        .collect();
-    let measures: Vec<(usize, usize, usize)> = cells
-        .iter()
-        .zip(&sections)
-        .filter_map(|(cell, section)| {
-            let (name, right) = cell.as_ref()?;
-            Some((*section, name.width(), spans_width(right)))
-        })
-        .collect();
-    let columns = columns(&measures, width);
+    let mut sections = Vec::with_capacity(cells.len());
+    let mut measures = Vec::new();
+    for (line, cell) in app.lines.iter().zip(&cells) {
+        if matches!(line, ListLine::Group(_)) {
+            section += 1;
+        }
+        sections.push(section);
+        if let Some((name, right)) = cell {
+            measures.push(Measure {
+                section,
+                name: name.width(),
+                right: spans_width(right),
+            });
+        }
+    }
+    let layout = columns(&measures, width);
     let offset = app.list_offset;
     let lines: Vec<Line> = app
         .lines
@@ -78,8 +75,8 @@ pub(super) fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
             )),
             (ListLine::Row { .. }, None) => Line::raw(""),
             (ListLine::Row { item, positions }, Some((name, right))) => {
-                let name_width = columns.name;
-                let (right_width, context_width) = columns.section(sections[index]);
+                let name_width = layout.name;
+                let (right_width, context_width) = layout.section(sections[index]);
                 let is_selected = Some(index) == app.selected;
                 let mut spans = vec![
                     if is_selected {
@@ -112,6 +109,13 @@ pub(super) fn draw_list(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(lines), area);
 }
 
+/// The widths of the name and of the right side of a row, and the section of the row.
+struct Measure {
+    section: usize,
+    name: usize,
+    right: usize,
+}
+
 /// The widths of the columns of the list.
 #[derive(Debug, PartialEq, Eq)]
 struct Columns {
@@ -132,21 +136,17 @@ impl Columns {
     }
 }
 
-/// The widths of the columns, for the rows `(section, name width, right width)` and a list of this
+/// The widths of the columns, for the measures of the rows and a list of this
 /// width. The right column of a section follows its widest row, up to a third of the list. The
 /// context column takes the free width of the section. The name column follows the widest name,
 /// and it fits in each section.
-fn columns(rows: &[(usize, usize, usize)], width: usize) -> Columns {
-    let count = rows
-        .iter()
-        .map(|(section, ..)| section + 1)
-        .max()
-        .unwrap_or(0);
+fn columns(rows: &[Measure], width: usize) -> Columns {
+    let count = rows.iter().map(|row| row.section + 1).max().unwrap_or(0);
     // The widest right side of each section. None for a section without a row.
     let mut rights: Vec<Option<usize>> = vec![None; count];
-    for (section, _, right) in rows {
-        let widest = rights[*section].unwrap_or(0).max(*right);
-        rights[*section] = Some(widest.min(width / 3));
+    for row in rows {
+        let widest = rights[row.section].unwrap_or(0).max(row.right);
+        rights[row.section] = Some(widest.min(width / 3));
     }
     let room = |right: usize| width.saturating_sub(4 + right + 4);
     // The narrowest room of the sections that have rows: the names fit there.
@@ -158,7 +158,7 @@ fn columns(rows: &[(usize, usize, usize)], width: usize) -> Columns {
         .unwrap_or(0);
     let name = rows
         .iter()
-        .map(|(_, name, _)| *name)
+        .map(|row| row.name)
         .max()
         .unwrap_or(0)
         .min(narrowest * 3 / 5)
@@ -470,7 +470,28 @@ mod tests {
     #[test]
     fn each_section_has_its_own_right_column_and_the_name_column_is_the_same() {
         // Section 1: agents with "claude idle" (11). Section 2: worktrees with a badge (20).
-        let rows = [(1, 20, 11), (1, 14, 11), (2, 30, 20), (2, 25, 20)];
+        let rows = [
+            Measure {
+                section: 1,
+                name: 20,
+                right: 11,
+            },
+            Measure {
+                section: 1,
+                name: 14,
+                right: 11,
+            },
+            Measure {
+                section: 2,
+                name: 30,
+                right: 20,
+            },
+            Measure {
+                section: 2,
+                name: 25,
+                right: 20,
+            },
+        ];
         let columns = columns(&rows, 100);
         let (agents_right, agents_context) = columns.section(1);
         let (worktrees_right, worktrees_context) = columns.section(2);
@@ -484,12 +505,30 @@ mod tests {
     #[test]
     fn a_section_without_a_row_has_no_column() {
         assert_eq!(columns(&[], 100).section(1), (0, 0));
-        assert_eq!(columns(&[(2, 10, 5)], 100).section(1), (0, 0));
+        assert_eq!(
+            columns(
+                &[Measure {
+                    section: 2,
+                    name: 10,
+                    right: 5
+                }],
+                100
+            )
+            .section(1),
+            (0, 0)
+        );
     }
 
     #[test]
     fn the_right_column_stops_at_a_third_of_the_list_and_the_name_fits() {
-        let columns = columns(&[(0, 60, 80)], 90);
+        let columns = columns(
+            &[Measure {
+                section: 0,
+                name: 60,
+                right: 80,
+            }],
+            90,
+        );
         assert_eq!(columns.section(0).0, 30);
         assert_eq!(columns.name, (90 - 4 - 30 - 4) * 3 / 5);
     }

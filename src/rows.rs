@@ -4,6 +4,7 @@
 //! the tabs without an agent, the workspaces, then the projects. The creation (filter New) has 2
 //! steps: "where" lists the places, "what" lists the choices for the chosen place.
 
+use std::collections::HashMap;
 use std::env;
 use std::path::Path;
 
@@ -168,14 +169,18 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
     if filter == Filter::Workspaces {
         let mut spaces: Vec<Space> = model.spaces.clone();
         if sources.in_sidebar_order {
-            let order = crate::order::screen_order(&model.flat_workspaces);
-            let at = |space: &Space| {
-                order
-                    .iter()
-                    .position(|id| *id == space.workspace.workspace_id)
+            let positions: HashMap<String, usize> =
+                crate::order::screen_order(&model.flat_workspaces)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(position, id)| (id, position))
+                    .collect();
+            spaces.sort_by_key(|space| {
+                positions
+                    .get(&space.workspace.workspace_id)
+                    .copied()
                     .unwrap_or(usize::MAX)
-            };
-            spaces.sort_by_cached_key(at);
+            });
         }
         let spaces = spaces.into_iter().map(Item::Workspace).collect();
         group(&mut lines, "Workspaces", matches(spaces, query));

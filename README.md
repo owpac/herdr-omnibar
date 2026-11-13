@@ -30,6 +30,8 @@ After `↵`, the popup closes at once. A detached process creates the tab, the w
 
 ![The filter Worktrees: the branches of the current project, the git state of their worktrees, and the diff of the selected branch](docs/worktrees.png)
 
+The filter Worktrees has a group for each project with an open workspace. The current project comes first, with all its branches, and a new worktree if the text is a new branch name. The other projects show only their worktrees, in the order of their workspaces. `↵` goes to the workspace of a worktree, or opens the worktree in its own project.
+
 ## Actions
 
 Each filter has its own action. Bind a key to the action of your choice in `~/.config/herdr/config.toml`:
@@ -41,7 +43,7 @@ Each filter has its own action. Bind a key to the action of your choice in `~/.c
 | `herdr-omnibar.agents` | The agents |
 | `herdr-omnibar.tabs` | The tabs without an agent |
 | `herdr-omnibar.workspaces` | The open workspaces |
-| `herdr-omnibar.worktrees` | The branches of the current project, and a new worktree |
+| `herdr-omnibar.worktrees` | The worktrees of the projects with an open workspace, all the branches of the current project, and a new worktree |
 | `herdr-omnibar.folders` | The projects and the folders |
 | `herdr-omnibar.actions` | The actions of the herdr plugins |
 | `herdr-omnibar.panes` | Each pane of each tab |
@@ -138,7 +140,7 @@ curl -fsSL -o ~/Library/Fonts/HerdrAgentIconsMax-Regular.ttf \
 
 2 features are off by default. Add their names to `features` to turn them on:
 
-- `pull_requests`: the pull request of each branch of the current project. A branch row shows the number of its pull request in the color of its state (open, draft, merged, closed), and the glyph of its checks (✓ passed, ✗ failed, ◐ running). The preview of a worktree gets a 4th view, PR: its title, its state, its size, its checks, its review, its merge state and its last update. One `gh pr list` for each project reads the last 50 pull requests in the background: the network takes 1 to 2 s. gh must be installed and logged in.
+- `pull_requests`: the pull request of each branch row. A branch row shows the number of its pull request in the color of its state (open, draft, merged, closed), and the glyph of its checks (✓ passed, ✗ failed, ◐ running). The preview of a worktree gets a 4th view, PR: its title, its state, its size, its checks, its review, its merge state and its last update. One `gh pr list` for each project reads the last 50 pull requests in the background: the network takes 1 to 2 s. gh must be installed and logged in.
 - `running_time`: the running time of each agent and of each command, at the right of its row: `47s`, `12m`, `2h04m`, `3d`. A thread reads it in the background, one time for each pane: `herdr pane process-info`, then `ps`. The times show some time after the popup opens.
 
 zoxide adds its folders to the projects and the folders, when it is installed.

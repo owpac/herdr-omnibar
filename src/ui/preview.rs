@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::app::{App, View};
 use crate::create::{self, Choice};
@@ -38,8 +38,11 @@ pub(super) fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
         Item::Agent(_) | Item::Tab(_) | Item::Pane(_) => pane_lines(app, width, height),
         Item::Action(action) => action_lines(action, width),
         Item::Choice(Choice::Existing {
-            branch, worktree, ..
-        }) if !creating(app) => branch_lines(app, branch, worktree.as_ref(), width, height),
+            branch,
+            worktree,
+            main,
+            ..
+        }) if !creating(app) => branch_lines(app, main, branch, worktree.as_ref(), width, height),
         Item::Create(name) => create_lines(app, name, width),
         Item::Place(place) => place_lines(app, place, width),
         Item::Choice(choice) => choice_lines(app, choice, width),
@@ -113,6 +116,7 @@ fn action_lines(action: &PluginAction, width: usize) -> Vec<Line<'static>> {
 /// A branch of the current project: the view of its diff, its log or its changes.
 fn branch_lines(
     app: &mut App,
+    main: &Path,
     branch: &str,
     worktree: Option<&PathBuf>,
     width: usize,
@@ -137,7 +141,7 @@ fn branch_lines(
         titles.push(Span::styled("  ⌃← ⌃→", Style::new().fg(match_color())));
     }
     let mut lines = vec![Line::from(titles)];
-    let pull = app.pull(branch);
+    let pull = app.pull(main, branch);
     // The view PR (feature pull_requests) comes from gh, not from git.
     if current == View::Pull {
         if let Some(pull) = &pull {
@@ -149,7 +153,7 @@ fn branch_lines(
     if let (View::Summary, Some(found @ Lookup::Found(_))) = (current, &pull) {
         lines.extend(super::pull::lines(found, width).into_iter().take(1));
     }
-    let text = app.view_text(branch, worktree, current);
+    let text = app.view_text(main, branch, worktree, current);
     lines.extend(
         text.lines()
             .take(height.saturating_sub(1))
@@ -250,6 +254,7 @@ fn choice_lines(app: &App, choice: &Choice, width: usize) -> Vec<Line<'static>> 
                 branch,
                 worktree,
                 workspace_id,
+                ..
             },
             _,
         ) => {

@@ -6,7 +6,8 @@
 //! roots = ["~/Workspace"]   # the folders of the projects, 2 levels deep
 //! preview = "full"   # "full": diff, log, changes of a worktree (ctrl+Left, ctrl+Right). "summary".
 //! pills = "square"   # the ends of the pills: "square", "round" (a Nerd Font), "flat".
-//! # The optional features. Remove a name to turn its feature off.
+//! # The optional features. Remove a name to turn its feature off. rename_tab: ctrl+R renames the
+//! # tab, the workspace or the pane of the selected row.
 //! features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
 //! # The filters of the chips, in the order of Tab. Remove a name to hide its filter.
 //! filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]

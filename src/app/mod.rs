@@ -70,10 +70,29 @@ impl Create {
     }
 }
 
-/// A tab to rename: its id, its old name, and the new name that the user types.
+/// What a rename changes: a tab, a workspace or a pane, with its herdr id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RenameTarget {
+    Tab(String),
+    Workspace(String),
+    Pane(String),
+}
+
+impl RenameTarget {
+    /// The word for the target, in the messages.
+    pub fn noun(&self) -> &'static str {
+        match self {
+            RenameTarget::Tab(_) => "tab",
+            RenameTarget::Workspace(_) => "workspace",
+            RenameTarget::Pane(_) => "pane",
+        }
+    }
+}
+
+/// A rename: its target, the old name, and the new name that the user types.
 #[derive(Clone, Debug)]
 pub struct Rename {
-    pub tab_id: String,
+    pub target: RenameTarget,
     pub old: String,
     pub text: String,
 }
@@ -161,7 +180,7 @@ pub struct App {
     pub config: Config,
     /// The tab to close or the worktree to remove, while the action line asks the question.
     pub confirm: Option<Confirm>,
-    /// The tab to rename, while the search line holds its new name.
+    /// The tab, the workspace or the pane to rename, while the search line holds its new name.
     pub rename: Option<Rename>,
     /// A message on the action line: the result of the last command.
     pub message: Option<String>,
@@ -856,6 +875,21 @@ impl App {
         }
     }
 
+    /// What ctrl+R renames for the selected row, with its name for the search line. The name of
+    /// a workspace is its herdr label, not the name that the omnibar shows.
+    pub fn selected_rename(&self) -> Option<(RenameTarget, String)> {
+        match self.selected_item()? {
+            Item::Workspace(space) => Some((
+                RenameTarget::Workspace(space.workspace.workspace_id.clone()),
+                space.workspace.label.clone(),
+            )),
+            Item::Pane(pane) => Some((RenameTarget::Pane(pane.pane_id.clone()), pane.name.clone())),
+            _ => self
+                .selected_tab()
+                .map(|(id, name)| (RenameTarget::Tab(id), name)),
+        }
+    }
+
     /// True if ctrl+Backspace on the selected row removes a worktree: a branch with a worktree
     /// that is not the main checkout of its project.
     pub fn can_remove_worktree(&self) -> bool {
@@ -1184,6 +1218,46 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_r_renames_a_workspace_with_its_herdr_label_and_a_pane_with_its_name() {
+        let mut app = app(Filter::Workspaces);
+        app.model.spaces = vec![crate::model::Space {
+            workspace: serde_json::from_str(r#"{"workspace_id": "w1", "label": "atlas"}"#).unwrap(),
+            folder: None,
+            checkout: None,
+        }];
+        app.rebuild(None);
+        app.on_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        let rename = app.rename.clone().expect("a rename");
+        assert_eq!(rename.target, RenameTarget::Workspace("w1".into()));
+        assert_eq!(rename.text, "atlas");
+        press(&mut app, KeyCode::Esc);
+        app.model.panes = vec![crate::model::PaneRow {
+            pane_id: "w1:p2".into(),
+            tab_id: "w1:t1".into(),
+            workspace_id: "w1".into(),
+            name: "cargo watch".into(),
+            tab: "build".into(),
+            place: "atlas".into(),
+            agent: None,
+            status: Status::Unknown,
+            labeled: false,
+        }];
+        app.filters.push(Filter::Panes);
+        app.set_filter(Filter::Panes);
+        app.on_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        let rename = app.rename.expect("a rename");
+        assert_eq!(rename.target, RenameTarget::Pane("w1:p2".into()));
+        assert_eq!(rename.text, "cargo watch");
+    }
+
+    #[test]
+    fn ctrl_r_does_nothing_on_a_row_without_a_target() {
+        let mut app = app(Filter::Folders);
+        app.on_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        assert!(app.rename.is_none());
+    }
+
+    #[test]
     fn ctrl_backspace_asks_and_escape_cancels() {
         let mut app = app(Filter::All);
         app.on_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
@@ -1260,6 +1334,7 @@ mod tests {
             place: "atlas".into(),
             agent: None,
             status: Status::Unknown,
+            labeled: false,
         }];
         app.filters.push(Filter::Panes);
         app.set_filter(Filter::Panes);

@@ -195,6 +195,11 @@ fn place_of(kind: Kind, folder: PathBuf) -> Place {
     }
 }
 
+/// The place of the home folder: the place of the row "new workspace…".
+pub fn home_place() -> Place {
+    place_of(Kind::Folder, home_folder())
+}
+
 /// A place for a folder that the user typed.
 pub fn folder_place(folder: PathBuf) -> Place {
     let kind = if is_project(&folder) {

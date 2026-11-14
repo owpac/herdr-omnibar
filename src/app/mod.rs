@@ -740,7 +740,7 @@ impl App {
         }
         // A row "new workspace “text”" creates in ~: its agent is the agent of ~.
         if self.enter_creates_workspace() {
-            return self.home_agent();
+            return self.agent_for(Some(&places::home_place()));
         }
         let place = match self.selected_item() {
             Some(Item::Choice(choice)) => self.place_of_choice(choice),
@@ -754,11 +754,6 @@ impl App {
     fn agent_for(&self, place: Option<&Place>) -> String {
         let from_tabs = place.and_then(|place| place.tabs.iter().find_map(|tab| tab.agent.clone()));
         self.agent_in(place.map(|place| place.folder.as_path()), from_tabs)
-    }
-
-    /// The agent of the row "new workspace": the last agent of ~, else the first agent on the PATH.
-    pub(crate) fn home_agent(&self) -> String {
-        self.agent_in(Some(&places::home_folder()), None)
     }
 
     /// The last agent of a folder, else the agent of the tabs, else the first agent on the PATH.

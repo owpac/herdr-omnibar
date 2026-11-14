@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::herdr;
-use crate::places::{self, Branch, Place};
+use crate::places::{Branch, Place};
 
 /// A choice of the step "what". The name is the text of the step.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -227,26 +227,6 @@ pub fn new_workspace_names(place: &Place, name: &str, labelled: bool) -> (String
 
 /// The message of the row "new workspace…" when no text is typed.
 pub const NAME_MISSING: &str = "type the name of the new workspace";
-
-/// The plan of the row "new workspace “text”": a workspace in ~, with the text as its label. No
-/// plan without a text.
-pub fn new_workspace_plan(label: &str, agent: &str, no_prompts: bool) -> Option<Plan> {
-    let label = label.trim();
-    if label.is_empty() {
-        return None;
-    }
-    let folder = places::home_folder();
-    Some(Plan {
-        action: Action::NewWorkspace {
-            folder: folder.clone(),
-            label: label.to_string(),
-        },
-        name: String::new(),
-        agent: agent.to_string(),
-        no_prompts,
-        folder,
-    })
-}
 
 /// The agents on the PATH, then "shell".
 pub fn installed_agents() -> Vec<String> {
@@ -537,6 +517,7 @@ fn remember_agent(folder: &Path, agent: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::places;
     use crate::places::Kind;
 
     fn workspace(label: &str, folder: &str, id: &str, main: Option<&str>) -> Place {
@@ -726,10 +707,16 @@ mod tests {
 
     #[test]
     fn the_row_new_workspace_makes_a_workspace_in_home_with_its_text_as_label() {
-        // Without a text: no plan.
-        assert!(new_workspace_plan("  ", "claude", false).is_none());
-        // With a text: the label, and no name for the first tab.
-        let plan = new_workspace_plan(" ville france ", "claude", true).unwrap();
+        // The label is the text, and the first tab has no name. The app asks for a text first.
+        let home = places::home_place();
+        let plan = plan(
+            &home,
+            &Choice::LabelledWorkspace,
+            " ville france ",
+            "claude",
+            true,
+        );
+        let plan = plan.unwrap();
         assert_eq!(plan.name, "");
         assert!(plan.no_prompts);
         assert_eq!(
@@ -802,7 +789,15 @@ mod tests {
 
     #[test]
     fn the_agent_name_of_a_new_workspace_comes_from_its_label() {
-        let plan = new_workspace_plan("Ville France", "claude", false).unwrap();
+        let home = places::home_place();
+        let plan = plan(
+            &home,
+            &Choice::LabelledWorkspace,
+            "Ville France",
+            "claude",
+            false,
+        );
+        let plan = plan.unwrap();
         let name = agent_name(&plan);
         assert!(name.starts_with("claude-ville-france-"), "{name}");
     }

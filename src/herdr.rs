@@ -25,21 +25,26 @@ impl Error {
         }
     }
 
-    /// The error of the standard error of herdr: {"error":{"code":…,"message":…}}, or its text.
+    /// The error of a JSON answer of herdr: {"error":{"code":…,"message":…}}. None without a
+    /// message.
+    fn of_json(json: &serde_json::Value) -> Option<Error> {
+        let error = &json["error"];
+        Some(Error {
+            code: error["code"].as_str().map(str::to_string),
+            message: error["message"].as_str()?.to_string(),
+        })
+    }
+
+    /// The error of the standard error of herdr: its JSON error, or its text.
     fn of_stderr(stderr: &str, arguments: &[&str]) -> Error {
-        let parsed: Option<serde_json::Value> = serde_json::from_str(stderr.trim()).ok();
-        let field = |name: &str| {
-            parsed
-                .as_ref()
-                .and_then(|json| json["error"][name].as_str())
-                .map(str::to_string)
-        };
-        match (field("code"), field("message")) {
-            (code, Some(message)) => Error { code, message },
-            _ if stderr.trim().is_empty() => {
+        let stderr = stderr.trim();
+        let parsed: Option<serde_json::Value> = serde_json::from_str(stderr).ok();
+        match parsed.as_ref().and_then(Error::of_json) {
+            Some(error) => error,
+            None if stderr.is_empty() => {
                 Error::new(format!("herdr {} failed", arguments.join(" ")))
             }
-            _ => Error::new(stderr.trim()),
+            None => Error::new(stderr),
         }
     }
 }
@@ -137,13 +142,9 @@ fn request_at(
         .map_err(failed)?;
     let mut value: serde_json::Value = serde_json::from_str(answer.trim())
         .map_err(|error| Error::new(format!("herdr {method}: {error}")))?;
-    if let Some(error) = value.get("error").filter(|error| !error.is_null()) {
-        return Err(Error {
-            code: error["code"].as_str().map(str::to_string),
-            message: error["message"]
-                .as_str()
-                .map_or_else(|| error.to_string(), str::to_string),
-        });
+    if value.get("error").is_some_and(|error| !error.is_null()) {
+        let error = Error::of_json(&value);
+        return Err(error.unwrap_or_else(|| Error::new(format!("herdr {method} failed"))));
     }
     Ok(value["result"].take())
 }
@@ -464,6 +465,22 @@ pub fn open_plugin_pane(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_error_of_herdr_comes_from_its_json_or_from_its_text() {
+        let json = r#"{"error":{"code":"not_found","message":"no tab w9:t1"}}"#;
+        let error = Error::of_stderr(json, &["tab", "focus"]);
+        assert_eq!(error.code.as_deref(), Some("not_found"));
+        assert_eq!(error.message, "no tab w9:t1");
+        // Without a message, the JSON is not an error of herdr: the text stays.
+        let error = Error::of_stderr(r#"{"error":{"code":"x"}}"#, &["tab"]);
+        assert_eq!(error.message, r#"{"error":{"code":"x"}}"#);
+        assert_eq!(
+            Error::of_stderr("  ", &["tab", "focus"]).message,
+            "herdr tab focus failed"
+        );
+        assert_eq!(Error::of_stderr("boom\n", &["tab"]).message, "boom");
+    }
 
     #[test]
     fn a_request_writes_one_line_and_reads_one_line_on_the_socket() {

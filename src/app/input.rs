@@ -240,10 +240,12 @@ impl App {
     }
 
     /// True if alt+Up and alt+Down move the selected workspace: the feature move_workspaces is on,
-    /// and the selected row is a workspace of the filter Workspaces.
+    /// and the selected row is a workspace of the filter Workspaces. A typed text sorts the rows by
+    /// the score of the match, not in the order of the sidebar: then the keys do not move.
     pub fn moves_workspace(&self) -> bool {
         self.config.has("move_workspaces")
             && self.filter == Filter::Workspaces
+            && self.query.is_empty()
             && self.rename.is_none()
             && matches!(self.selected_item(), Some(Item::Workspace(_)))
     }

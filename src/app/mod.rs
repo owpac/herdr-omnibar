@@ -1411,6 +1411,13 @@ pub(crate) mod tests {
         assert!(!app.moves_workspace());
         app.config.features.push("move_workspaces".to_string());
         assert!(app.moves_workspace());
+        // A typed text gives the order of the match, not the order of the sidebar.
+        type_text(&mut app, "at");
+        assert_eq!(selected_name(&app), "atlas");
+        assert!(!app.moves_workspace());
+        app.query.clear();
+        app.rebuild(None);
+        assert!(app.moves_workspace());
         app.filter = Filter::Agents;
         assert!(!app.moves_workspace());
     }

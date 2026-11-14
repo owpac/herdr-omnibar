@@ -75,7 +75,7 @@ command = "herdr-omnibar.new"
 | `⌃⌫` | Close the tab of the selected row (the pane only, on a row of the filter Panes), or remove the worktree of the selected branch, after a question on the action line. The main checkout stays. See [Remove a worktree](#remove-a-worktree). |
 | `⌃R` | Rename the target of the selected row: the tab of an agent or of a tab, a workspace, or a pane. `↵` saves, `esc` keeps the old name. Other rows do nothing. |
 | `⌃T` | Give the tab of the selected agent or tab back to the automatic titles (feature `auto_titles`): the tab takes its number, then the watcher writes the title of its agent in 2 seconds. If the agent gives no useful title (the terminal title of a brief agent is its herdr name), the tab keeps its name and the popup says so. It also replaces a name that you gave with `⌃R`. |
-| `⌥↑`, `⌥↓` | Feature `move_workspaces`, off by default. On a row of the filter Workspaces: move the workspace up or down in the herdr sidebar. |
+| `⌥↑`, `⌥↓` | Feature `move_workspaces`, off by default. On a row of the filter Workspaces, without a typed text: move the workspace up or down in the herdr sidebar. |
 | `⌃Y` | In the step "what": start the agent without its permission prompts, for this tab only. |
 | `⌃←`, `⌃→` | The view of the preview of a worktree: diff, log, changes. |
 | `⌃O` | Show or hide the preview. |
@@ -136,7 +136,7 @@ list_order = ["attention", "activity", "visit"]
 
 `rename_tab` turns on `⌃R`: it renames the tab, the workspace or the pane of the selected row. The filter `panes` shows the label that herdr gives to a pane. A git workspace with a name that you gave shows this name: `<project> ▸ <name>` for a linked worktree.
 
-`move_workspaces` is off by default: add it to `features` to turn it on. The filter `workspaces` then shows the order of the herdr sidebar, not the order of use. `⌥↑` and `⌥↓` move the selected workspace. A main workspace moves with its worktrees, and a workspace without a group moves alone. A linked worktree moves only among the worktrees of its project. At the first or the last position, the key does nothing. The move uses the socket of herdr (`workspace.move_block`). The sidebar groups the worktrees of a project: the number of a workspace is not its position on the screen. Run `herdr-omnibar.keys` to check that your terminal sends `⌥↑` and `⌥↓`.
+`move_workspaces` is off by default: add it to `features` to turn it on. The filter `workspaces` then shows the order of the herdr sidebar, not the order of use. `⌥↑` and `⌥↓` move the selected workspace, if you typed no text: a text sorts the rows by the score of the match. A main workspace moves with its worktrees, and a workspace without a group moves alone. A linked worktree moves only among the worktrees of its project. At the first or the last position, the key does nothing. The move uses the socket of herdr (`workspace.move_block`). The sidebar groups the worktrees of a project: the number of a workspace is not its position on the screen. Run `herdr-omnibar.keys` to check that your terminal sends `⌥↑` and `⌥↓`.
 
 `filters` gives the chips of the search line, in the order of `⇥` and `⇧⇥`. A filter outside the list has no chip and no shortcut, but its action still opens it: its chip then shows until `⇥` leaves it. The filter `panes` is off by default: it has one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
 

@@ -95,6 +95,13 @@ fn hints(app: &App) -> Vec<Hint> {
             hint("⌃⌫", "close pane"),
             hint("esc", "close"),
         ],
+        Some(Item::Workspace(_)) if app.moves_workspace() => vec![
+            hint("↵", "go"),
+            ("⌃↵", new_tab),
+            hint("⌥↑↓", "move"),
+            hint("⇥", "filter"),
+            hint("esc", "close"),
+        ],
         Some(Item::Workspace(_)) => vec![
             hint("↵", "go"),
             ("⌃↵", new_tab),

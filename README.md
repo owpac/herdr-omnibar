@@ -75,6 +75,7 @@ command = "herdr-omnibar.new"
 | `⌃⌫` | Close the tab of the selected row (the pane only, on a row of the filter Panes), or remove the worktree of the selected branch, after a question on the action line. The main checkout stays. See [Remove a worktree](#remove-a-worktree). |
 | `⌃R` | Rename the target of the selected row: the tab of an agent or of a tab, a workspace, or a pane. `↵` saves, `esc` keeps the old name. Other rows do nothing. |
 | `⌃T` | Give the tab of the selected agent or tab back to the automatic titles (feature `auto_titles`): the tab takes its number, then the watcher writes the title of its agent in 2 seconds. If the agent gives no useful title (the terminal title of a brief agent is its herdr name), the tab keeps its name and the popup says so. It also replaces a name that you gave with `⌃R`. |
+| `⌥↑`, `⌥↓` | Feature `move_workspaces`, off by default. On a row of the filter Workspaces: move the workspace up or down in the herdr sidebar. |
 | `⌃Y` | In the step "what": start the agent without its permission prompts, for this tab only. |
 | `⌃←`, `⌃→` | The view of the preview of a worktree: diff, log, changes. |
 | `⌃O` | Show or hide the preview. |
@@ -133,11 +134,13 @@ sidebar_order = ["git", "other"]
 
 `rename_tab` turns on `⌃R`: it renames the tab, the workspace or the pane of the selected row. The filter `panes` shows the label that herdr gives to a pane. A git workspace with a name that you gave shows this name: `<project> ▸ <name>` for a linked worktree.
 
+`move_workspaces` is off by default: add it to `features` to turn it on. The filter `workspaces` then shows the order of the herdr sidebar, not the order of use. `⌥↑` and `⌥↓` move the selected workspace. A main workspace moves with its worktrees, and a workspace without a group moves alone. A linked worktree moves only among the worktrees of its project. At the first or the last position, the key does nothing. The move uses the socket of herdr (`workspace.move_block`). The sidebar groups the worktrees of a project: the number of a workspace is not its position on the screen. Run `herdr-omnibar.keys` to check that your terminal sends `⌥↑` and `⌥↓`.
+
 `filters` gives the chips of the search line, in the order of `⇥` and `⇧⇥`. A filter outside the list has no chip and no shortcut, but its action still opens it: its chip then shows until `⇥` leaves it. The filter `panes` is off by default: it has one row for each pane of each tab. `%` opens it on an empty text. `↵` goes to the tab of the pane, and to the pane of an agent.
 
 `recent_first` sorts the agents, the tabs, the panes and the workspaces by their last use: the tab of the popup goes after the others, so the first row is the tab before, like alt-tab (`⌘P` then `↵`). The group "Needs you" stays first. The watcher writes the time of each change of the focused tab in `recent.json`, in the state folder.
 
-`auto_sort` is off by default, because it changes the order of the sidebar. The watcher then sorts the workspaces with `sidebar_order`, at its start and each time the set of the workspaces changes: a workspace opens or closes. A move of your own (a drag in the sidebar) stays until the next change of the set. If the order is already right, the watcher makes no call to herdr. It writes each sort in `watch.log`. The watcher needs the socket of herdr: it works when herdr starts it.
+`auto_sort` is off by default, because it changes the order of the sidebar. The watcher then sorts the workspaces with `sidebar_order`, at its start and each time the set of the workspaces changes: a workspace opens or closes. A move of your own (a drag in the sidebar, `⌥↑`, `⌥↓`) stays until the next change of the set. If the order is already right, the watcher makes no call to herdr. It writes each sort in `watch.log`. The watcher needs the socket of herdr: it works when herdr starts it.
 
 `agent_logos` shows the logo of each agent before its name, if the font Herdr Agent Icons Max of [herdr-radar](https://github.com/hhdebb/herdr-radar) is installed, like herdr-bar. The omnibar never installs a font. On macOS:
 
@@ -161,7 +164,7 @@ With `auto_switch`, herdr asks the terminal for its appearance (dark or light), 
 
 ## The keyboard
 
-The omnibar asks the terminal for the keyboard protocol of kitty. herdr then forwards the modifiers of Enter, Backspace and the arrows to the popup, if your terminal sends them to herdr. The action `herdr-omnibar.keys` shows each key that the popup receives: use it to check `ctrl+Enter`, `ctrl+Backspace` and `ctrl+Left`.
+The omnibar asks the terminal for the keyboard protocol of kitty. herdr then forwards the modifiers of Enter, Backspace and the arrows to the popup, if your terminal sends them to herdr. The action `herdr-omnibar.keys` shows each key that the popup receives: use it to check `ctrl+Enter`, `ctrl+Backspace`, `ctrl+Left`, `alt+Up` and `alt+Down`.
 
 ## Development
 

@@ -8,6 +8,8 @@
 //! pills = "square"   # the ends of the pills: "square", "round" (a Nerd Font), "flat".
 //! # The optional features. Remove a name to turn its feature off.
 //! # rename_tab: ctrl+R renames the tab, the workspace or the pane of the selected row.
+//! # move_workspaces (off by default): the filter Workspaces shows the order of the sidebar, and
+//! # alt+Up and alt+Down move the workspace.
 //! # auto_sort (off by default): the watcher sorts the workspaces with sidebar_order, at its
 //! # start and when a workspace opens or closes.
 //! features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]

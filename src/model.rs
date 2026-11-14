@@ -102,8 +102,38 @@ fn agent_names(kind: &str) -> impl Iterator<Item = &str> {
         .chain(Some(kind).filter(|kind| !kind.is_empty()))
 }
 
+/// The task that the terminal title of an agent tells, or None. A prompt, the name of the agent,
+/// the name of the folder, the herdr name of the agent (`name`) and the command line of the agent
+/// (`claude --name x`) tell nothing. Codex adds ` | <folder>` to its title: this part goes. The
+/// watcher and the names of the tabs in the list use this one rule.
+pub fn agent_task(
+    title: &str,
+    kind: &str,
+    name: Option<&str>,
+    folder: Option<&Path>,
+) -> Option<String> {
+    let folder_name = folder
+        .and_then(Path::file_name)
+        .map(|name| name.to_string_lossy().into_owned());
+    let mut title = title.trim();
+    if let (Some(name), Some((head, tail))) = (&folder_name, title.rsplit_once(" | ")) {
+        if tail.trim() == name {
+            title = head.trim();
+        }
+    }
+    if title.is_empty()
+        || is_prompt_title(title)
+        || is_agent_name(title, kind)
+        || folder_name.as_deref() == Some(title)
+        || is_agent_noise(title, kind, name)
+    {
+        return None;
+    }
+    Some(title.to_string())
+}
+
 /// True if the title is the name of the agent, in any case: `Claude Code`, `OpenCode`.
-pub fn is_agent_name(title: &str, kind: &str) -> bool {
+fn is_agent_name(title: &str, kind: &str) -> bool {
     agent_names(kind).any(|name| name.eq_ignore_ascii_case(title))
 }
 
@@ -111,7 +141,7 @@ pub fn is_agent_name(title: &str, kind: &str) -> bool {
 /// agent, or the command line of the agent (an agent name, a space, then an option:
 /// `claude --name x`). Claude Code writes its `--name` in the title for all the session. The
 /// comparisons ignore the case, as `is_agent_name` does.
-pub fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
+fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
     let title = title.trim();
     if name.is_some_and(|name| name.eq_ignore_ascii_case(title)) {
         return true;
@@ -481,19 +511,23 @@ impl Model {
             let tab = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id);
             let label = tab.map(|tab| tab.label.clone()).unwrap_or_default();
             let numbered = tab.is_none_or(Tab::has_default_label);
-            let title = pane.and_then(|pane| pane.terminal_title_stripped.as_deref());
-            // If the pane holds an agent, the herdr name and the command of this agent are not a
-            // task.
-            let noise = |title: &str| {
-                pane.is_some_and(|pane| {
-                    pane.agent.as_deref().is_some_and(|kind| {
-                        is_agent_noise(title, kind, snapshot.agent_name(&pane.pane_id))
-                    })
-                })
-            };
-            match title.map(str::trim).filter(|title| !title.is_empty()) {
-                Some(title) if numbered && is_prompt_title(title) => "shell".to_string(),
-                Some(title) if numbered && !noise(title) => title.to_string(),
+            let title = pane
+                .and_then(|pane| pane.terminal_title_stripped.as_deref())
+                .map(str::trim)
+                .filter(|title| !title.is_empty());
+            let agent = pane.and_then(|pane| Some((pane, pane.agent.as_deref()?)));
+            match (title, agent) {
+                (Some(title), _) if numbered && is_prompt_title(title) => "shell".to_string(),
+                // The title of an agent names the tab only if it tells the task, as for the
+                // watcher.
+                (Some(title), Some((pane, kind))) if numbered => agent_task(
+                    title,
+                    kind,
+                    snapshot.agent_name(&pane.pane_id),
+                    pane.cwd.as_deref(),
+                )
+                .unwrap_or(label),
+                (Some(title), None) if numbered => title.to_string(),
                 _ => label,
             }
         };
@@ -878,6 +912,83 @@ mod tests {
             .find(|pane| pane.pane_id == "w1:p2")
             .unwrap();
         assert_eq!(pane.name, "logs");
+    }
+
+    #[test]
+    fn a_title_without_the_task_is_not_useful() {
+        let folder = Some(Path::new("/work/atlas"));
+        assert_eq!(agent_task("  ", "claude", None, folder), None);
+        assert_eq!(agent_task("OpenCode", "opencode", None, folder), None);
+        assert_eq!(agent_task("Claude Code", "claude", None, folder), None);
+        assert_eq!(agent_task("atlas", "claude", None, folder), None);
+        assert_eq!(
+            agent_task("thomas@mac:~/work", "claude", None, folder),
+            None
+        );
+        assert_eq!(
+            agent_task("Fix the login | atlas", "codex", None, folder).as_deref(),
+            Some("Fix the login")
+        );
+        assert_eq!(
+            agent_task("A | B", "codex", None, folder).as_deref(),
+            Some("A | B")
+        );
+    }
+
+    #[test]
+    fn the_herdr_name_and_the_command_line_of_an_agent_are_not_titles() {
+        let folder = Some(Path::new("/work/atlas"));
+        let named = Some("task-a2p");
+        assert_eq!(agent_task("task-a2p", "claude", named, folder), None);
+        assert_eq!(agent_task("Task-A2P", "claude", named, folder), None);
+        assert_eq!(
+            agent_task(
+                "claude --model \"opus[1m]\" --permission-mode auto --name task-a2p --model",
+                "claude",
+                named,
+                folder
+            ),
+            None
+        );
+        assert_eq!(
+            agent_task("codex --model gpt abc", "codex", None, folder),
+            None
+        );
+        assert_eq!(
+            agent_task("opencode -c --port 1", "opencode", None, folder),
+            None
+        );
+        // The command line is noise in any case.
+        assert_eq!(
+            agent_task("Claude --resume abc", "claude", None, folder),
+            None
+        );
+        assert_eq!(
+            agent_task("OpenCode -c --port 1", "opencode", None, folder),
+            None
+        );
+        // A title is a command line only if an option follows the command.
+        assert_eq!(
+            agent_task("Amp up the cache", "amp", None, folder).as_deref(),
+            Some("Amp up the cache")
+        );
+        assert_eq!(
+            agent_task("opencode run", "opencode", None, folder).as_deref(),
+            Some("opencode run")
+        );
+        // The kind of the agent and the known names are not titles, in any case.
+        assert_eq!(agent_task("AMP", "amp", None, folder), None);
+        assert_eq!(agent_task("CLAUDE code", "amp", None, folder), None);
+        // The same text is a title for another agent without this name.
+        assert_eq!(
+            agent_task("task-a2p", "claude", None, folder).as_deref(),
+            Some("task-a2p")
+        );
+        // A task that only starts with the same letters is a title.
+        assert_eq!(
+            agent_task("Claudette login", "claude", None, folder).as_deref(),
+            Some("Claudette login")
+        );
     }
 
     #[test]

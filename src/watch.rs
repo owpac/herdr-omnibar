@@ -82,41 +82,12 @@ pub fn auto_title(snapshot: &Snapshot, tab_id: &str) -> Option<String> {
     let [pane] = agents.as_slice() else {
         return None;
     };
-    useful_title(
+    model::agent_task(
         pane.terminal_title_stripped.as_deref()?,
         pane.agent.as_deref().unwrap_or_default(),
         snapshot.agent_name(&pane.pane_id),
         pane.cwd.as_deref(),
     )
-}
-
-/// The title of the terminal of an agent, if it tells the task. A prompt, the name of the agent
-/// the name of the folder, the herdr name of the agent (`name`) and the command line of the agent
-/// (`claude --name x`) tell nothing. Codex adds ` | <folder>` to its title: this part goes.
-pub fn useful_title(
-    title: &str,
-    agent: &str,
-    name: Option<&str>,
-    folder: Option<&Path>,
-) -> Option<String> {
-    let folder_name = folder
-        .and_then(Path::file_name)
-        .map(|name| name.to_string_lossy().into_owned());
-    let mut title = title.trim();
-    if let (Some(name), Some((head, tail))) = (&folder_name, title.rsplit_once(" | ")) {
-        if tail.trim() == name {
-            title = head.trim();
-        }
-    }
-    if title.is_empty()
-        || model::is_prompt_title(title)
-        || model::is_agent_name(title, agent)
-        || folder_name.as_deref() == Some(title)
-        || model::is_agent_noise(title, agent, name)
-    {
-        return None;
-    }
-    Some(title.to_string())
 }
 
 /// The reason to wait, if another plugin writes the titles of the tabs: herdr-bar is enabled, and
@@ -677,27 +648,6 @@ mod tests {
     }
 
     #[test]
-    fn a_title_without_the_task_is_not_useful() {
-        let folder = Some(Path::new("/work/atlas"));
-        assert_eq!(useful_title("  ", "claude", None, folder), None);
-        assert_eq!(useful_title("OpenCode", "opencode", None, folder), None);
-        assert_eq!(useful_title("Claude Code", "claude", None, folder), None);
-        assert_eq!(useful_title("atlas", "claude", None, folder), None);
-        assert_eq!(
-            useful_title("thomas@mac:~/work", "claude", None, folder),
-            None
-        );
-        assert_eq!(
-            useful_title("Fix the login | atlas", "codex", None, folder).as_deref(),
-            Some("Fix the login")
-        );
-        assert_eq!(
-            useful_title("A | B", "codex", None, folder).as_deref(),
-            Some("A | B")
-        );
-    }
-
-    #[test]
     fn a_tab_has_an_automatic_title_only_if_its_agent_gives_a_useful_one() {
         let tabs = tab("w1:t1", "1", 1);
         let useful = snapshot(
@@ -719,62 +669,6 @@ mod tests {
     }
 
     #[test]
-    fn the_herdr_name_and_the_command_line_of_an_agent_are_not_titles() {
-        let folder = Some(Path::new("/work/atlas"));
-        let named = Some("task-a2p");
-        assert_eq!(useful_title("task-a2p", "claude", named, folder), None);
-        assert_eq!(useful_title("Task-A2P", "claude", named, folder), None);
-        assert_eq!(
-            useful_title(
-                "claude --model \"opus[1m]\" --permission-mode auto --name task-a2p --model",
-                "claude",
-                named,
-                folder
-            ),
-            None
-        );
-        assert_eq!(
-            useful_title("codex --model gpt abc", "codex", None, folder),
-            None
-        );
-        assert_eq!(
-            useful_title("opencode -c --port 1", "opencode", None, folder),
-            None
-        );
-        // The command line is noise in any case.
-        assert_eq!(
-            useful_title("Claude --resume abc", "claude", None, folder),
-            None
-        );
-        assert_eq!(
-            useful_title("OpenCode -c --port 1", "opencode", None, folder),
-            None
-        );
-        // A title is a command line only if an option follows the command.
-        assert_eq!(
-            useful_title("Amp up the cache", "amp", None, folder).as_deref(),
-            Some("Amp up the cache")
-        );
-        assert_eq!(
-            useful_title("opencode run", "opencode", None, folder).as_deref(),
-            Some("opencode run")
-        );
-        // The kind of the agent and the known names are not titles, in any case.
-        assert_eq!(useful_title("AMP", "amp", None, folder), None);
-        assert_eq!(useful_title("CLAUDE code", "amp", None, folder), None);
-        // The same text is a title for another agent without this name.
-        assert_eq!(
-            useful_title("task-a2p", "claude", None, folder).as_deref(),
-            Some("task-a2p")
-        );
-        // A task that only starts with the same letters is a title.
-        assert_eq!(
-            useful_title("Claudette login", "claude", None, folder).as_deref(),
-            Some("Claudette login")
-        );
-    }
-
-    #[test]
     fn a_named_agent_keeps_the_number_of_its_tab() {
         let panes = [
             r#"{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","agent":"claude","terminal_title_stripped":"task-a2p"}"#,
@@ -790,6 +684,31 @@ mod tests {
         // Without the herdr name, the title is the task.
         snapshot.agents.clear();
         assert_eq!(decide(&snapshot, &HashMap::new()).len(), 1);
+    }
+
+    #[test]
+    fn the_list_and_the_watcher_name_a_tab_with_the_same_rule() {
+        let name = |title: &str| {
+            let snapshot = snapshot(
+                &tab("w1:t1", "1", 1),
+                &pane("w1:p1", "w1:t1", Some("codex"), title),
+            );
+            model::Model::build(&snapshot, &HashMap::new()).agents[0]
+                .name
+                .clone()
+        };
+        // The name of the agent and the name of the folder tell nothing: the tab keeps its number.
+        assert_eq!(name("Codex"), "1");
+        assert_eq!(name("atlas"), "1");
+        // The part " | <folder>" of Codex goes.
+        assert_eq!(name("Fix the login | atlas"), "Fix the login");
+        // A shell keeps its title: it is the command that runs.
+        let shell = snapshot(
+            &tab("w1:t1", "1", 1),
+            &pane("w1:p1", "w1:t1", None, "cargo watch"),
+        );
+        let model = model::Model::build(&shell, &HashMap::new());
+        assert_eq!(model.tabs[0].name, "cargo watch");
     }
 
     #[test]

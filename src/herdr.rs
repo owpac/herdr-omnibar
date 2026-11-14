@@ -143,8 +143,11 @@ fn request_at(
     let mut value: serde_json::Value = serde_json::from_str(answer.trim())
         .map_err(|error| Error::new(format!("herdr {method}: {error}")))?;
     if value.get("error").is_some_and(|error| !error.is_null()) {
-        let error = Error::of_json(&value);
-        return Err(error.unwrap_or_else(|| Error::new(format!("herdr {method} failed"))));
+        // Without a message, the error keeps its code.
+        return Err(Error::of_json(&value).unwrap_or_else(|| Error {
+            code: value["error"]["code"].as_str().map(str::to_string),
+            message: format!("herdr {method} failed"),
+        }));
     }
     Ok(value["result"].take())
 }

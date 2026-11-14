@@ -2,6 +2,16 @@
 
 The changes of each release of herdr-omnibar. The workflow release-pr writes this file.
 
+## [2026.11.7](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.7) - 2026-11-14
+
+### Bug fixes
+
+- the bugs and the risks of the overall review of #15 to #20 ([#22](https://github.com/owpac/herdr-omnibar/pull/22))
+
+### Refactoring
+
+- the cleanups of the overall review of #15 to #20 ([#23](https://github.com/owpac/herdr-omnibar/pull/23))
+
 ## [2026.11.6](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.6) - 2026-11-14
 
 ### Features

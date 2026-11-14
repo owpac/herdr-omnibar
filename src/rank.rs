@@ -449,6 +449,57 @@ mod tests {
     }
 
     #[test]
+    fn herdr_follows_the_screen_then_the_tab_number_then_the_pane_order() {
+        // The sidebar shows the group atlas at w1, its first member: w3 (main), w1, then w2.
+        // The tab numbers go against the order of the tabs, and w2:t1 has no number.
+        let snapshot: Snapshot = serde_json::from_value(serde_json::json!({
+            "workspaces": [
+                {"workspace_id": "w1", "label": "atlas.fix",
+                 "worktree": {"repo_key": "/a", "repo_name": "atlas", "is_linked_worktree": true}},
+                {"workspace_id": "w2", "label": "notes"},
+                {"workspace_id": "w3", "label": "atlas",
+                 "worktree": {"repo_key": "/a", "repo_name": "atlas", "is_linked_worktree": false}}
+            ],
+            "tabs": [
+                {"tab_id": "w2:t1", "workspace_id": "w2", "label": "a"},
+                {"tab_id": "w1:t1", "workspace_id": "w1", "label": "b", "number": 2},
+                {"tab_id": "w1:t2", "workspace_id": "w1", "label": "c", "number": 1},
+                {"tab_id": "w3:t1", "workspace_id": "w3", "label": "d", "number": 1},
+                {"tab_id": "w2:t2", "workspace_id": "w2", "label": "e", "number": 1},
+                {"tab_id": "w3:t2", "workspace_id": "w3", "label": "f", "number": 2}
+            ],
+            "panes": [
+                {"pane_id": "p1", "tab_id": "w2:t1", "workspace_id": "w2", "agent": "claude"},
+                {"pane_id": "p2", "tab_id": "w1:t1", "workspace_id": "w1", "agent": "claude"},
+                {"pane_id": "p3", "tab_id": "w1:t2", "workspace_id": "w1", "agent": "claude"},
+                {"pane_id": "p4", "tab_id": "w3:t1", "workspace_id": "w3", "agent": "claude"},
+                {"pane_id": "p5", "tab_id": "w1:t2", "workspace_id": "w1", "agent": "codex"},
+                {"pane_id": "p6", "tab_id": "w2:t2", "workspace_id": "w2"},
+                {"pane_id": "p7", "tab_id": "w3:t2", "workspace_id": "w3"}
+            ]
+        }))
+        .unwrap();
+        let mut model = Model::build(&snapshot, &HashMap::new());
+        Ranker::sort(&mut model, &owned(&["herdr"]), &Visits::new(), None, None);
+        let agents: Vec<&str> = model
+            .agents
+            .iter()
+            .map(|row| row.pane_id.as_str())
+            .collect();
+        assert_eq!(agents, ["p4", "p3", "p5", "p2", "p1"]);
+        let tabs: Vec<&str> = model.tabs.iter().map(|row| row.tab_id.as_str()).collect();
+        assert_eq!(tabs, ["w3:t2", "w2:t2"]);
+        let panes: Vec<&str> = model.panes.iter().map(|row| row.pane_id.as_str()).collect();
+        assert_eq!(panes, ["p4", "p7", "p3", "p5", "p2", "p6", "p1"]);
+        let spaces: Vec<&str> = model
+            .spaces
+            .iter()
+            .map(|space| space.workspace.workspace_id.as_str())
+            .collect();
+        assert_eq!(spaces, ["w3", "w1", "w2"]);
+    }
+
+    #[test]
     fn the_current_tab_goes_last_for_each_order() {
         for criteria in [vec!["attention"], vec!["activity"], vec!["herdr"], vec![]] {
             let result = sorted(&criteria, &Visits::new(), Some("t4"));

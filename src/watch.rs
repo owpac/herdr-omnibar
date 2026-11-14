@@ -14,7 +14,7 @@
 //! herdr-bar also writes the titles of the tabs. While herdr-bar is enabled with its own automatic
 //! titles, the watcher waits: 2 writers on the same tab fight.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -147,28 +147,20 @@ fn has_work(config: &config::Config) -> bool {
 /// the workspace ids changes (a workspace opens or closes). A move of the user (a drag in the
 /// sidebar, alt+Up, alt+Down) changes the order, not the set: it stays until the next change of
 /// the set.
-pub fn should_sort(previous: Option<&[String]>, current: &[String]) -> bool {
-    fn set(ids: &[String]) -> Vec<&String> {
-        let mut ids: Vec<&String> = ids.iter().collect();
-        ids.sort_unstable();
-        ids
-    }
-    let Some(previous) = previous else {
-        return true;
-    };
-    set(previous) != set(current)
+pub fn should_sort(previous: Option<&HashSet<String>>, current: &HashSet<String>) -> bool {
+    previous != Some(current)
 }
 
 /// Sort the workspaces of a snapshot if the set of ids changed. `spec` is the key `sidebar_order`
 /// of the config. `seen` keeps the last ids. A failed sort does not repeat at the next read: it
 /// waits for the next change of the set.
-fn auto_sort(snapshot: &Snapshot, spec: &[String], seen: &mut Option<Vec<String>>, log: &Log) {
-    let ids: Vec<String> = snapshot
+fn auto_sort(snapshot: &Snapshot, spec: &[String], seen: &mut Option<HashSet<String>>, log: &Log) {
+    let ids: HashSet<String> = snapshot
         .workspaces
         .iter()
         .map(|workspace| workspace.workspace_id.clone())
         .collect();
-    if !should_sort(seen.as_deref(), &ids) {
+    if !should_sort(seen.as_ref(), &ids) {
         return;
     }
     *seen = Some(ids);
@@ -216,7 +208,7 @@ pub fn run() -> Result<(), String> {
     let mut plugins_read: Option<Instant> = None;
     let mut waiting: Option<String> = Some("start".to_string());
     let mut focused: Option<String> = None;
-    let mut sorted_ids: Option<Vec<String>> = None;
+    let mut sorted_ids: Option<HashSet<String>> = None;
     loop {
         let config = config::current();
         if !has_work(&config) {
@@ -545,23 +537,18 @@ mod tests {
 
     #[test]
     fn the_watcher_sorts_at_its_start_and_when_the_set_of_ids_changes() {
+        let set = |ids: &[&str]| -> HashSet<String> { owned(ids).into_iter().collect() };
         // At the start: no previous ids.
-        assert!(should_sort(None, &owned(&["w1", "w2"])));
+        assert!(should_sort(None, &set(&["w1", "w2"])));
         // A workspace opens or closes.
         assert!(should_sort(
-            Some(&owned(&["w1", "w2"])),
-            &owned(&["w1", "w2", "w3"])
+            Some(&set(&["w1", "w2"])),
+            &set(&["w1", "w2", "w3"])
         ));
-        assert!(should_sort(Some(&owned(&["w1", "w2"])), &owned(&["w1"])));
+        assert!(should_sort(Some(&set(&["w1", "w2"])), &set(&["w1"])));
         // A move of the user changes the order, not the set.
-        assert!(!should_sort(
-            Some(&owned(&["w1", "w2"])),
-            &owned(&["w2", "w1"])
-        ));
-        assert!(!should_sort(
-            Some(&owned(&["w1", "w2"])),
-            &owned(&["w1", "w2"])
-        ));
+        assert!(!should_sort(Some(&set(&["w1", "w2"])), &set(&["w2", "w1"])));
+        assert!(!should_sort(Some(&set(&["w1", "w2"])), &set(&["w1", "w2"])));
     }
 
     /// A binary that the watcher can run: an execute bit, and no change for 1 minute.

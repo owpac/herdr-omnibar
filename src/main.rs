@@ -114,10 +114,23 @@ fn open(name: &str) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
+/// The model in the order of the popup: the key `list_order`, without a current tab.
+fn in_popup_order(
+    mut model: model::Model,
+    list_order: &[String],
+    recent: &recent::Recent,
+) -> model::Model {
+    rank::Ranker::new(&model, list_order, recent, None, None).sort(&mut model);
+    model
+}
+
 /// Print the workspaces, the agents and the tabs, as the popup sees them. A tool to check the
 /// model in a running herdr.
 fn list() -> Result<(), String> {
     let model = model::load().map_err(|error| error.to_string())?;
+    let config = config::current();
+    let recent = recent::load(&config::state_dir());
+    let model = in_popup_order(model, &config.list_order, &recent);
     let focused = model.focused_workspace_id.as_deref().unwrap_or("");
     for space in &model.spaces {
         let folder = space
@@ -166,4 +179,40 @@ fn run() -> Result<(), String> {
         .and_then(|name| Filter::parse(&name))
         .unwrap_or(Filter::All);
     app::run(filter, context::Context::of_popup())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{AgentRow, Model, Status};
+
+    #[test]
+    fn the_command_list_shows_the_agents_in_the_order_of_the_popup() {
+        let agent = |name: &str, status: Status| AgentRow {
+            pane_id: format!("p-{name}"),
+            tab_id: format!("t-{name}"),
+            workspace_id: "w1".into(),
+            name: name.into(),
+            kind: "claude".into(),
+            status,
+            place: "atlas".into(),
+            cwd: None,
+            seq: None,
+        };
+        let model = Model {
+            agents: vec![
+                agent("idle", Status::Idle),
+                agent("blocked", Status::Blocked),
+            ],
+            ..Model::default()
+        };
+        let order = config::Config::default().list_order;
+        let model = in_popup_order(model, &order, &recent::Recent::new());
+        let names: Vec<&str> = model
+            .agents
+            .iter()
+            .map(|agent| agent.name.as_str())
+            .collect();
+        assert_eq!(names, ["blocked", "idle"]);
+    }
 }

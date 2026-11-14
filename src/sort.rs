@@ -32,14 +32,6 @@ fn wanted(workspaces: &[Workspace], spec: &[String]) -> Vec<String> {
     order::sorted(workspaces, spec, &home)
 }
 
-/// True if the flat list of the workspaces has this order.
-fn has_order(workspaces: &[Workspace], order: &[String]) -> bool {
-    workspaces
-        .iter()
-        .map(|workspace| &workspace.workspace_id)
-        .eq(order)
-}
-
 /// The wanted order, or None if the sidebar already shows it. The flat list can have another
 /// order: the sidebar shows a group at its first member, with the main workspace first.
 fn change(workspaces: &[Workspace], spec: &[String]) -> Option<Vec<String>> {
@@ -75,7 +67,7 @@ pub fn run(print_only: bool) -> Result<(), String> {
     };
     // herdr answers also when the order does not change: read the order that herdr has now.
     let after = herdr::snapshot().map_err(|error| error.to_string())?;
-    if has_order(&after.workspaces, &wanted) {
+    if order::screen_order(&after.workspaces) == wanted {
         println!("sorted {} workspaces", wanted.len());
         Ok(())
     } else {

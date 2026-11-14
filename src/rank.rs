@@ -34,9 +34,9 @@ pub enum Criterion {
 
 /// The criteria of a `list_order` list: an unknown entry and a duplicate do nothing. `herdr` is
 /// always the last one, also if the list does not have it. An empty list gives the order herdr.
-pub fn criteria(order: &[String]) -> Vec<Criterion> {
+pub fn criteria(list_order: &[String]) -> Vec<Criterion> {
     let mut found: Vec<Criterion> = Vec::new();
-    for name in order {
+    for name in list_order {
         let criterion = match name.as_str() {
             "attention" => Criterion::Attention,
             "activity" => Criterion::Activity,
@@ -55,8 +55,8 @@ pub fn criteria(order: &[String]) -> Vec<Criterion> {
 
 /// True if `attention` is the first criterion of a `list_order` list: then the agents that need you
 /// have their own group, before the other agents.
-pub fn attention_first(order: &[String]) -> bool {
-    criteria(order).first() == Some(&Criterion::Attention)
+pub fn attention_first(list_order: &[String]) -> bool {
+    criteria(list_order).first() == Some(&Criterion::Attention)
 }
 
 /// The value of a row for each criterion.
@@ -217,19 +217,19 @@ impl Rows<'_> {
 }
 
 impl Ranker {
-    /// Sort the lists of a model with the criteria of `order`: the agents, the tabs, the panes
+    /// Sort the lists of a model with the criteria of `list_order`: the agents, the tabs, the panes
     /// and the workspaces. Return the ranks of the workspaces, for the groups of the filter
     /// Worktrees.
     pub fn sort(
         model: &mut Model,
-        order: &[String],
+        list_order: &[String],
         visits: &Visits,
         current_tab: Option<&str>,
         current_workspace: Option<&str>,
     ) -> Ranker {
-        let screen = crate::order::screen_positions(&model.flat_workspaces);
+        let screen = crate::sidebar::screen_positions(&model.flat_workspaces);
         let ranker = Ranker {
-            criteria: criteria(order),
+            criteria: criteria(list_order),
             workspaces: workspace_ranks(model, visits, current_workspace, &screen),
         };
         // The rows borrow the maps of the model while the lists of the model change.
@@ -463,7 +463,7 @@ mod tests {
     fn the_workspaces_and_the_groups_of_worktrees_follow_the_same_criteria() {
         let workspace = |id: &str, agent_status: Status| Workspace {
             agent_status,
-            ..crate::order::tests::workspace(id, id, None)
+            ..crate::sidebar::tests::workspace(id, id, None)
         };
         let snapshot = Snapshot {
             workspaces: vec![

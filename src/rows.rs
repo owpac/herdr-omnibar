@@ -181,7 +181,7 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
     if filter == Filter::Workspaces {
         let mut spaces: Vec<Space> = model.spaces.clone();
         if sources.in_sidebar_order {
-            let positions = crate::order::screen_positions(&model.flat_workspaces);
+            let positions = crate::sidebar::screen_positions(&model.flat_workspaces);
             spaces.sort_by_key(|space| {
                 positions
                     .get(&space.workspace.workspace_id)
@@ -630,7 +630,7 @@ mod tests {
     #[test]
     fn the_filter_workspaces_shows_the_order_of_the_sidebar_with_move_workspaces() {
         let mut model = Model::default();
-        use crate::order::tests::workspace;
+        use crate::sidebar::tests::workspace;
         let flat = vec![
             workspace("w1", "atlas.fix", Some(("atlas", "atlas", true))),
             workspace("w2", "pac", Some(("pac", "pac", false))),

@@ -4,8 +4,8 @@
 use crate::config;
 use crate::herdr;
 use crate::model::Workspace;
-use crate::order;
 use crate::places;
+use crate::sidebar;
 
 /// The text of an order: one line for each workspace, with its position.
 fn describe(order: &[String], workspaces: &[Workspace]) -> String {
@@ -25,14 +25,14 @@ fn describe(order: &[String], workspaces: &[Workspace]) -> String {
 /// The wanted order of the workspaces of a snapshot. `spec` is the key `sidebar_order` of the
 /// config.
 fn wanted(workspaces: &[Workspace], spec: &[String]) -> Vec<String> {
-    order::sorted(workspaces, spec, &places::home_folder())
+    sidebar::sorted(workspaces, spec, &places::home_folder())
 }
 
 /// The wanted order, or None if the sidebar already shows it. The flat list can have another
 /// order: the sidebar shows a group at its first member, with the main workspace first.
 fn change(workspaces: &[Workspace], spec: &[String]) -> Option<Vec<String>> {
     let wanted = wanted(workspaces, spec);
-    (order::screen_order(workspaces) != wanted).then_some(wanted)
+    (sidebar::screen_order(workspaces) != wanted).then_some(wanted)
 }
 
 /// Sort the workspaces of a snapshot. `spec` is the key `sidebar_order` of the config. Return the
@@ -52,7 +52,7 @@ pub fn run(print_only: bool) -> Result<(), String> {
     if print_only {
         print!(
             "now, as the sidebar shows it:\n{}new:\n{}",
-            describe(&order::screen_order(workspaces), workspaces),
+            describe(&sidebar::screen_order(workspaces), workspaces),
             describe(&wanted(workspaces, &spec), workspaces)
         );
         return Ok(());
@@ -63,7 +63,7 @@ pub fn run(print_only: bool) -> Result<(), String> {
     };
     // herdr answers also when the order does not change: read the order that herdr has now.
     let after = herdr::snapshot().map_err(|error| error.to_string())?;
-    if order::screen_order(&after.workspaces) == wanted {
+    if sidebar::screen_order(&after.workspaces) == wanted {
         println!("sorted {} workspaces", wanted.len());
         Ok(())
     } else {
@@ -74,7 +74,7 @@ pub fn run(print_only: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::order::tests::workspace;
+    use crate::sidebar::tests::workspace;
 
     fn spec() -> Vec<String> {
         vec!["git".to_string(), "other".to_string()]

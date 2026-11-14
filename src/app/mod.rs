@@ -641,14 +641,14 @@ impl App {
     pub fn use_visits(&mut self, visits: Visits, current_tab: Option<String>) {
         self.visits = visits;
         self.current_tab = current_tab;
-        self.order();
+        self.rank_rows();
         self.open = places::workspaces(&self.model);
         self.rebuild(None);
     }
 
     /// Sort the rows of the model with the key `list_order` of the config, then keep the ranks
     /// for the groups of the filter Worktrees.
-    fn order(&mut self) {
+    fn rank_rows(&mut self) {
         self.ranker = Ranker::sort(
             &mut self.model,
             &self.config.list_order,
@@ -662,7 +662,7 @@ impl App {
     pub fn update_model(&mut self, model: Model) {
         let key = self.selected_item().map(Item::key);
         self.model = model;
-        self.order();
+        self.rank_rows();
         let open = places::workspaces(&self.model);
         // A workspace of another project opened or closed: read the other projects again. The
         // order of list_order changes at each refresh: a new order of the same workspaces is not
@@ -1387,7 +1387,7 @@ pub(crate) mod tests {
     fn alt_up_and_down_move_a_workspace_only_with_the_feature_in_the_filter_workspaces() {
         let mut app = app(Filter::Workspaces);
         app.model.spaces = vec![crate::model::Space {
-            workspace: crate::order::tests::workspace("w1", "atlas", None),
+            workspace: crate::sidebar::tests::workspace("w1", "atlas", None),
             folder: None,
             checkout: None,
         }];
@@ -1476,7 +1476,7 @@ pub(crate) mod tests {
         let space = |id: &str, main: &str, agent_status: Status| crate::model::Space {
             workspace: crate::model::Workspace {
                 agent_status,
-                ..crate::order::tests::workspace(id, id, None)
+                ..crate::sidebar::tests::workspace(id, id, None)
             },
             folder: Some(main.into()),
             checkout: Some(crate::model::Checkout {

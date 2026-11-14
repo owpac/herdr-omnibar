@@ -11,9 +11,9 @@ use crate::create::{self, Choice, NAME_MISSING};
 use crate::filter::Filter;
 use crate::herdr;
 use crate::model::{AgentRow, Status};
-use crate::order;
 use crate::remove;
 use crate::rows::{self, Item, Line};
+use crate::sidebar;
 use crate::watch;
 
 use super::{App, Confirm, Create, Outcome, Rename, RenameTarget, Step};
@@ -257,7 +257,7 @@ impl App {
             return;
         };
         let name = space.label();
-        let Some(plan) = order::plan_move(
+        let Some(plan) = sidebar::plan_move(
             &self.model.flat_workspaces,
             &space.workspace.workspace_id,
             delta,

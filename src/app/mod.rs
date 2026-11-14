@@ -409,7 +409,7 @@ impl App {
 
     /// The row that a new list selects: the first row. In the step "where" with a filter text, the
     /// row "new workspace…" stays first, but the selection goes to the first place that matches
-    /// the text: typing a name and ↵ chooses the place.
+    /// the text: the user types a name, then ↵ chooses the place.
     fn first_row(&self, rows: &[usize]) -> Option<usize> {
         let typed = self.filter == Filter::New
             && self.create.step == Step::Where

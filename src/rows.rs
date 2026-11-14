@@ -309,9 +309,8 @@ pub fn worktree_lines(
 }
 
 /// The lines of the step "where": the current place, the open workspaces, the projects without a
-/// workspace, the folders. The places match by their name, not by their folder: a folder under
-/// ~/Workspace would match almost each text. A query that starts with ~, / or . lists the real
-/// folders.
+/// workspace, the folders. The places match by their name, not by their folder: almost each text
+/// matches a folder under ~/Workspace. A query that starts with ~, / or . lists the real folders.
 pub fn where_lines(
     open: &[Place],
     others: &[Place],

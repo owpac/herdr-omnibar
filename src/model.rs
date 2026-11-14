@@ -306,11 +306,19 @@ pub struct Space {
 }
 
 impl Space {
-    /// The project of the workspace: its git repository. Outside git, the name that herdr gives to
-    /// the workspace, else its folder.
+    /// The project of the workspace: its git repository. Without a checkout, the repository that
+    /// herdr gives. Outside git, the name that herdr gives to the workspace, else its folder.
     pub fn project(&self) -> String {
         if let Some(checkout) = &self.checkout {
             return checkout.project();
+        }
+        let repo_name = self
+            .workspace
+            .worktree
+            .as_ref()
+            .map(|worktree| &worktree.repo_name);
+        if let Some(name) = repo_name.filter(|name| !name.is_empty()) {
+            return name.clone();
         }
         if !self.workspace.label.is_empty() {
             return self.workspace.label.clone();
@@ -849,6 +857,18 @@ mod tests {
             checkout("/work/atlas.fix", "fix"),
         );
         assert_eq!(default.label(), "atlas ▸ fix");
+    }
+
+    #[test]
+    fn a_linked_worktree_without_a_checkout_takes_the_repository_of_herdr_as_its_project() {
+        let space = |label| Space {
+            workspace: git_workspace(label, true, "/work/atlas.fix"),
+            folder: None,
+            checkout: None,
+        };
+        assert_eq!(space("atlas.fix").project(), "atlas");
+        assert_eq!(space("atlas.fix").label(), "atlas ▸ atlas.fix");
+        assert_eq!(space("my fix").label(), "atlas ▸ my fix");
     }
 
     #[test]

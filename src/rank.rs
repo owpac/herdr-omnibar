@@ -53,6 +53,12 @@ pub fn criteria(order: &[String]) -> Vec<Criterion> {
     found
 }
 
+/// True if `attention` is the first criterion of a `list_order` list: then the agents that need you
+/// have their own group, before the other agents.
+pub fn attention_first(order: &[String]) -> bool {
+    criteria(order).first() == Some(&Criterion::Attention)
+}
+
 /// The value of a row for each criterion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rank {
@@ -343,6 +349,16 @@ mod tests {
         // An empty list gives the order herdr.
         assert_eq!(criteria(&[]), [Herdr]);
         assert_eq!(criteria(&order(&["nothing"])), [Herdr]);
+    }
+
+    #[test]
+    fn the_group_needs_you_needs_attention_as_the_first_criterion() {
+        assert!(attention_first(&order(&["attention", "activity"])));
+        // An unknown entry and a duplicate do nothing.
+        assert!(attention_first(&order(&["nothing", "attention", "visit"])));
+        assert!(!attention_first(&order(&["visit", "attention"])));
+        assert!(!attention_first(&order(&["herdr"])));
+        assert!(!attention_first(&[]));
     }
 
     #[test]

@@ -151,7 +151,8 @@ pub struct Sources<'a> {
     pub project: Option<&'a Project>,
     /// True if the filter Workspaces shows the order of the sidebar (feature move_workspaces).
     pub in_sidebar_order: bool,
-    /// True if the order has the criterion attention: the agents that need you have their group.
+    /// True if attention is the first criterion of the order: the agents that need you have their
+    /// group.
     pub attention: bool,
 }
 
@@ -165,7 +166,7 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
             model.agents.iter().cloned().map(Item::Agent).collect(),
             query,
         );
-        // Without the criterion attention, the group "Needs you" does not exist.
+        // If attention is not the first criterion, the group "Needs you" does not exist.
         let (needs, rest): (Vec<_>, Vec<_>) = agents
             .into_iter()
             .partition(|(item, _)| sources.attention && item.status() == Status::Blocked);

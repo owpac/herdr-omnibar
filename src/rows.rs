@@ -159,9 +159,23 @@ pub struct Sources<'a> {
     /// The rows of the filter Workspaces, in their order: the order of list_order, or the order
     /// of the sidebar with move_workspaces (rank::in_sidebar_order).
     pub workspaces: &'a [&'a Space],
-    /// True if attention is the first criterion of the order: the agents that need you have their
-    /// group.
+    /// True if attention is the first criterion of the order: the agents go in a group for each
+    /// status (STATUS_GROUPS).
     pub attention: bool,
+}
+
+/// The groups of the agents when attention is the first criterion, in the order of the criterion.
+/// The group "Idle" also holds the agents with an unknown status.
+const STATUS_GROUPS: [&str; 4] = ["Needs you", "Done", "Working", "Idle"];
+
+/// The index of the group of an agent in STATUS_GROUPS.
+fn status_group(status: Status) -> usize {
+    match status {
+        Status::Blocked => 0,
+        Status::Done => 1,
+        Status::Working => 2,
+        Status::Idle | Status::Unknown => 3,
+    }
 }
 
 /// The lines of the filters that go somewhere (all the filters but New).
@@ -174,12 +188,19 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
             model.agents.iter().cloned().map(Item::Agent).collect(),
             query,
         );
-        // If attention is not the first criterion, the group "Needs you" does not exist.
-        let (needs, rest): (Vec<_>, Vec<_>) = agents
-            .into_iter()
-            .partition(|(item, _)| sources.attention && item.status() == Status::Blocked);
-        group(&mut lines, "Needs you", needs);
-        group(&mut lines, "Agents", rest);
+        // If attention is the first criterion, the agents go in a group for each status. Each
+        // group keeps the order of list_order. If not, all the agents are in one group.
+        if sources.attention {
+            let mut groups: [Vec<(Item, Vec<usize>)>; 4] = Default::default();
+            for row in agents {
+                groups[status_group(row.0.status())].push(row);
+            }
+            for (title, rows) in STATUS_GROUPS.into_iter().zip(groups) {
+                group(&mut lines, title, rows);
+            }
+        } else {
+            group(&mut lines, "Agents", agents);
+        }
     }
     if matches!(filter, Filter::All | Filter::Tabs) {
         let tabs = model.tabs.iter().cloned().map(Item::Tab).collect();
@@ -672,7 +693,7 @@ mod tests {
             [
                 "# Needs you",
                 "fix the login",
-                "# Agents",
+                "# Working",
                 "omnibar design",
                 "# Tabs",
                 "logs",
@@ -688,7 +709,7 @@ mod tests {
     fn a_query_keeps_only_the_matches() {
         assert_eq!(
             titles(&lines_of(&model(), &[], &[], Filter::All, "omni")),
-            ["# Agents", "omnibar design", "# Create", "create “omni”…"]
+            ["# Working", "omnibar design", "# Create", "create “omni”…"]
         );
     }
 
@@ -904,11 +925,14 @@ mod tests {
     }
 
     #[test]
-    fn the_group_needs_you_exists_only_with_the_criterion_attention() {
+    fn the_agents_go_in_a_group_for_each_status_only_with_the_criterion_attention() {
         let model = Model {
             agents: vec![
-                agent("blocked", Status::Blocked),
                 agent("idle", Status::Idle),
+                agent("blocked", Status::Blocked),
+                agent("unknown", Status::Unknown),
+                agent("working", Status::Working),
+                agent("done", Status::Done),
             ],
             ..Model::default()
         };
@@ -924,11 +948,25 @@ mod tests {
             };
             titles(&build(&sources, Filter::Agents, ""))
         };
+        // Each group keeps the order of the list: idle comes before unknown.
         assert_eq!(
             titles_with(true),
-            ["# Needs you", "blocked", "# Agents", "idle"]
+            [
+                "# Needs you",
+                "blocked",
+                "# Done",
+                "done",
+                "# Working",
+                "working",
+                "# Idle",
+                "idle",
+                "unknown"
+            ]
         );
-        assert_eq!(titles_with(false), ["# Agents", "blocked", "idle"]);
+        assert_eq!(
+            titles_with(false),
+            ["# Agents", "idle", "blocked", "unknown", "working", "done"]
+        );
     }
 
     #[test]

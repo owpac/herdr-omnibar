@@ -28,15 +28,15 @@ impl App {
         match (self.filter, item) {
             // The row "new workspace…": the typed text is the label, and ↵ creates it at once.
             // Without a text, the row asks for a name.
-            (_, Item::NewHomeWorkspace(text)) if text.trim().is_empty() => {
-                self.message = Some(NAME_MISSING.to_string());
-                Outcome::Continue
-            }
             (_, Item::NewHomeWorkspace(text)) => {
                 let home = places::home_place();
-                match self.plan(&home, &Choice::LabelledWorkspace, &text) {
+                let plan = self.plan(&home, &Choice::LabelledWorkspace, &text);
+                match plan.filter(|_| !text.trim().is_empty()) {
                     Some(plan) => Outcome::Create(plan),
-                    None => Outcome::Continue,
+                    None => {
+                        self.message = Some(NAME_MISSING.to_string());
+                        Outcome::Continue
+                    }
                 }
             }
             (_, Item::Place(place)) => {

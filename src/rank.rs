@@ -6,7 +6,7 @@
 //! - `attention`: the agents that need you first, then the agents that are done, then the others.
 //! - `activity`: the last activity first: the highest `state_change_seq` of herdr.
 //! - `visit`: the last visit of the tab first (recent.json).
-//! - `herdr`: the order of herdr: the workspaces as the sidebar shows them, then the number of the
+//! - `herdr`: the order of herdr: the workspaces as the sidebar shows them, then the position of the
 //!   tab, then the order of the panes. It is always the last criterion, also if the list does not
 //!   have it.
 //!
@@ -430,9 +430,9 @@ mod tests {
     }
 
     #[test]
-    fn herdr_follows_the_screen_then_the_tab_number_then_the_pane_order() {
+    fn herdr_follows_the_screen_then_the_tab_position_then_the_pane_order() {
         // The sidebar shows the group atlas at w1, its first member: w3 (main), w1, then w2.
-        // The tab numbers go against the order of the tabs, and w2:t1 has no number.
+        // The tab numbers go against the order of the tabs: the order of the tabs decides.
         let snapshot: Snapshot = serde_json::from_value(serde_json::json!({
             "workspaces": [
                 {"workspace_id": "w1", "label": "atlas.fix",
@@ -467,17 +467,42 @@ mod tests {
             .iter()
             .map(|row| row.pane_id.as_str())
             .collect();
-        assert_eq!(agents, ["p4", "p3", "p5", "p2", "p1"]);
+        assert_eq!(agents, ["p4", "p2", "p3", "p5", "p1"]);
         let tabs: Vec<&str> = model.tabs.iter().map(|row| row.tab_id.as_str()).collect();
         assert_eq!(tabs, ["w3:t2", "w2:t2"]);
         let panes: Vec<&str> = model.panes.iter().map(|row| row.pane_id.as_str()).collect();
-        assert_eq!(panes, ["p4", "p7", "p3", "p5", "p2", "p6", "p1"]);
+        assert_eq!(panes, ["p4", "p7", "p2", "p3", "p5", "p1", "p6"]);
         let spaces: Vec<&str> = model
             .spaces
             .iter()
             .map(|space| space.workspace.workspace_id.as_str())
             .collect();
         assert_eq!(spaces, ["w3", "w1", "w2"]);
+    }
+
+    #[test]
+    fn herdr_follows_the_position_of_a_tab_after_a_move() {
+        // The tab w1:t9 moved before w1:t1: the order of the snapshot is the order of the screen.
+        let snapshot: Snapshot = serde_json::from_value(serde_json::json!({
+            "workspaces": [{"workspace_id": "w1", "label": "notes"}],
+            "tabs": [
+                {"tab_id": "w1:t9", "workspace_id": "w1", "label": "a", "number": 9},
+                {"tab_id": "w1:t1", "workspace_id": "w1", "label": "b", "number": 1}
+            ],
+            "panes": [
+                {"pane_id": "p1", "tab_id": "w1:t1", "workspace_id": "w1", "agent": "claude"},
+                {"pane_id": "p2", "tab_id": "w1:t9", "workspace_id": "w1", "agent": "claude"}
+            ]
+        }))
+        .unwrap();
+        let mut model = Model::build(&snapshot, &HashMap::new());
+        Ranker::sort(&mut model, &owned(&["herdr"]), &Visits::new(), None, None);
+        let agents: Vec<&str> = model
+            .agents
+            .iter()
+            .map(|row| row.pane_id.as_str())
+            .collect();
+        assert_eq!(agents, ["p2", "p1"]);
     }
 
     #[test]

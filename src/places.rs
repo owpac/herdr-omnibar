@@ -34,6 +34,9 @@ pub struct Place {
     pub project: String,
     pub folder: PathBuf,
     pub workspace_id: Option<String>,
+    /// The herdr label of the workspace of the place. `label` is the name in the list: it can hold
+    /// a `▸`.
+    pub workspace_label: Option<String>,
     /// The main checkout of the git repository of the place.
     pub main: Option<PathBuf>,
     /// The tabs of the workspace.
@@ -75,6 +78,7 @@ pub fn workspaces(model: &Model) -> Vec<Place> {
                 main: space.checkout.as_ref().map(Checkout::main),
                 folder,
                 workspace_id: Some(space.workspace.workspace_id.clone()),
+                workspace_label: Some(space.workspace.label.clone()),
                 tabs: model
                     .workspace_tabs
                     .get(&space.workspace.workspace_id)
@@ -162,6 +166,7 @@ fn place_of(kind: Kind, folder: PathBuf) -> Place {
         main: (kind == Kind::Project).then(|| folder.clone()),
         folder,
         workspace_id: None,
+        workspace_label: None,
         tabs: Vec::new(),
     }
 }

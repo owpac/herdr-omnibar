@@ -249,9 +249,16 @@ fn choice_lines(app: &App, choice: &Choice, width: usize) -> Vec<Line<'static>> 
             lines.extend(wrap(&text, width).into_iter().map(muted));
         }
         (Choice::NewWorkspace, Some(place)) => {
-            lines.push(Line::from(round(vec![pill_span(false, &place.label)], app)));
+            // The names of the plan: at a place with a workspace, the typed name is the label.
+            let (label, first_tab) = create::new_workspace_names(place, name);
+            let first_tab = if first_tab.is_empty() {
+                "(auto name)"
+            } else {
+                &first_tab
+            };
+            lines.push(Line::from(round(vec![pill_span(false, &label)], app)));
             lines.push(muted(fit(&rows::home(&place.folder), width)));
-            lines.extend(tab_lines(&[], width, Some((tab_name, &agent))));
+            lines.extend(tab_lines(&[], width, Some((first_tab, &agent))));
         }
         (Choice::NewWorktree { branch }, Some(place)) if create::is_branch_name(branch) => {
             lines.extend(project_lines(app, place, branch, &agent, width));
@@ -410,4 +417,53 @@ fn project_lines(
         ]));
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::tests::{app, place};
+    use crate::app::Step;
+    use crate::filter::Filter;
+
+    fn text(lines: &[Line]) -> Vec<String> {
+        lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_preview_of_a_new_workspace_shows_the_typed_name_as_its_label() {
+        let mut app = app(Filter::New);
+        app.create.step = Step::What;
+        app.create.place = Some(place("atlas", Some("w1"), None));
+        app.create.name = "my label".into();
+        let lines = text(&choice_lines(&app, &Choice::NewWorkspace, 60));
+        // The pill holds the label, and the automatic titles name the first tab.
+        assert!(
+            lines.iter().any(|line| line.contains("my label")),
+            "{lines:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("(auto name)")),
+            "{lines:?}"
+        );
+        // A place without a workspace keeps the name for its first tab.
+        app.create.place = Some(place("prompts", None, Some("/work/prompts")));
+        let lines = text(&choice_lines(&app, &Choice::NewWorkspace, 60));
+        assert!(
+            lines.iter().any(|line| line.contains("prompts")),
+            "{lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("(auto name)")),
+            "{lines:?}"
+        );
+    }
 }

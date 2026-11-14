@@ -567,6 +567,7 @@ mod tests {
             project: label.into(),
             folder: format!("/work/{label}").into(),
             workspace_id: workspace.map(str::to_string),
+            workspace_label: workspace.map(|_| label.to_string()),
             main: None,
             tabs: Vec::new(),
         }

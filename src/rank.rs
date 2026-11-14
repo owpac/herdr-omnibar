@@ -466,6 +466,7 @@ mod tests {
                 project: name.to_string(),
                 folder: format!("/work/{name}").into(),
                 workspace_id: Some(id.to_string()),
+                workspace_label: Some(name.to_string()),
                 main: Some(format!("/work/{name}").into()),
                 tabs: Vec::new(),
             })

@@ -82,6 +82,32 @@ pub struct AgentInfo {
 }
 
 impl Snapshot {
+    /// The position of a tab on the screen: its index among the tabs of its workspace, plus 1.
+    /// The tabs of a workspace come in the order of the screen. None for an unknown tab.
+    pub fn tab_position(&self, tab_id: &str) -> Option<usize> {
+        let workspace_id = &self
+            .tabs
+            .iter()
+            .find(|tab| tab.tab_id == tab_id)?
+            .workspace_id;
+        let mut same_workspace = self
+            .tabs
+            .iter()
+            .filter(|tab| tab.workspace_id == *workspace_id);
+        same_workspace
+            .position(|tab| tab.tab_id == tab_id)
+            .map(|index| index + 1)
+    }
+
+    /// True if the tab has the name that herdr gives: its position. A name that the user gives
+    /// and that is equal to the position looks the same.
+    pub fn has_default_label(&self, tab: &Tab) -> bool {
+        match self.tab_position(&tab.tab_id) {
+            Some(position) => tab.label == position.to_string(),
+            None => tab.label.is_empty(),
+        }
+    }
+
     /// The herdr name of the agent of a pane (`herdr agent start <name>`), if it has one.
     pub fn agent_name(&self, pane_id: &str) -> Option<&str> {
         self.agents
@@ -209,20 +235,8 @@ pub struct Tab {
     pub workspace_id: String,
     #[serde(default)]
     pub label: String,
-    /// The position of the tab in its workspace. herdr names a new tab with this number.
-    #[serde(default)]
-    pub number: Option<u32>,
-}
-
-impl Tab {
-    /// True if the tab has the name that herdr gives: its number. A name that the user gives and
-    /// that is equal to the number looks the same.
-    pub fn has_default_label(&self) -> bool {
-        match self.number {
-            Some(number) => self.label == number.to_string(),
-            None => self.label.is_empty(),
-        }
-    }
+    // herdr also sends `number`: a creation counter of the workspace that never goes back. It is
+    // not the position of the tab: use `Snapshot::tab_position`.
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -483,7 +497,7 @@ pub struct Model {
 impl Model {
     /// The model of a snapshot, with the checkouts of the folders of its workspaces.
     ///
-    /// The rows come in the order of herdr: the workspace on the screen, then the number of the
+    /// The rows come in the order of herdr: the workspace on the screen, then the position of the
     /// tab, then the order of the pane in the snapshot. The sort of rank.rs is stable: it keeps
     /// this order for the rows that its criteria do not separate.
     pub fn build(snapshot: &Snapshot, checkouts: &HashMap<PathBuf, Option<Checkout>>) -> Model {
@@ -521,7 +535,7 @@ impl Model {
         let label_of = |tab_id: &str, pane: Option<&Pane>| {
             let tab = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id);
             let label = tab.map(|tab| tab.label.clone()).unwrap_or_default();
-            let numbered = tab.is_none_or(Tab::has_default_label);
+            let numbered = tab.is_none_or(|tab| snapshot.has_default_label(tab));
             let title = pane
                 .and_then(|pane| pane.terminal_title_stripped.as_deref())
                 .map(str::trim)
@@ -648,11 +662,11 @@ impl Model {
                     status: agent_pane.map(|pane| pane.agent_status).unwrap_or_default(),
                 });
         }
-        // The order of herdr. A tab without a number and an unknown pane go last.
-        let tab_numbers: HashMap<&str, u32> = snapshot
+        // The order of herdr. An unknown tab and an unknown pane go last.
+        let tab_positions: HashMap<&str, usize> = snapshot
             .tabs
             .iter()
-            .filter_map(|tab| Some((tab.tab_id.as_str(), tab.number?)))
+            .filter_map(|tab| Some((tab.tab_id.as_str(), snapshot.tab_position(&tab.tab_id)?)))
             .collect();
         let pane_index: HashMap<&str, usize> = snapshot
             .panes
@@ -663,7 +677,7 @@ impl Model {
         let herdr = |workspace_id: &str, tab_id: &str, pane_id: &str| {
             (
                 screen_of(workspace_id),
-                tab_numbers.get(tab_id).copied().unwrap_or(u32::MAX),
+                tab_positions.get(tab_id).copied().unwrap_or(usize::MAX),
                 pane_index.get(pane_id).copied().unwrap_or(usize::MAX),
             )
         };

@@ -1,12 +1,11 @@
 //! The command `herdr-omnibar sort`: sort the workspaces of the herdr sidebar.
 //! `sort --print` prints the old and the new order, and changes nothing.
 
-use std::path::PathBuf;
-
 use crate::config;
 use crate::herdr;
 use crate::model::Workspace;
 use crate::order;
+use crate::places;
 
 /// The text of an order: one line for each workspace, with its position.
 fn describe(order: &[String], workspaces: &[Workspace]) -> String {
@@ -26,10 +25,7 @@ fn describe(order: &[String], workspaces: &[Workspace]) -> String {
 /// The wanted order of the workspaces of a snapshot. `spec` is the key `sidebar_order` of the
 /// config.
 fn wanted(workspaces: &[Workspace], spec: &[String]) -> Vec<String> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_default();
-    order::sorted(workspaces, spec, &home)
+    order::sorted(workspaces, spec, &places::home_folder())
 }
 
 /// The wanted order, or None if the sidebar already shows it. The flat list can have another

@@ -159,11 +159,16 @@ impl Workspace {
     pub fn user_label(&self) -> Option<&str> {
         let worktree = self.worktree.as_ref()?;
         let label = self.label.trim();
-        let folder = |path: &Option<PathBuf>| path.as_deref().map(file_name);
+        // The name of the folder, as `file_name` gives it, without a copy.
+        let is_folder = |path: &Option<PathBuf>| {
+            path.as_deref().is_some_and(|path| {
+                path.file_name().unwrap_or(path.as_os_str()) == std::ffi::OsStr::new(label)
+            })
+        };
         let is_default = label.is_empty()
             || label == worktree.repo_name
-            || folder(&worktree.checkout_path).is_some_and(|name| name == label)
-            || folder(&worktree.repo_root).is_some_and(|name| name == label);
+            || is_folder(&worktree.checkout_path)
+            || is_folder(&worktree.repo_root);
         (!is_default).then_some(label)
     }
 }
@@ -461,26 +466,19 @@ impl Model {
         };
         // The name of a tab. herdr names a new tab with its number: then the title of the terminal
         // is a better name, because an agent writes its task there. The title of an idle shell
-        // is its prompt (user@host:folder): the name is then "shell".
-        let label_of = |tab_id: &str, title: Option<&str>, title_pane: Option<&str>| {
+        // is its prompt (user@host:folder): the name is then "shell". `pane` gives the title.
+        let label_of = |tab_id: &str, pane: Option<&Pane>| {
             let tab = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id);
             let label = tab.map(|tab| tab.label.clone()).unwrap_or_default();
             let numbered = tab.is_none_or(Tab::has_default_label);
-            // The pane of the title, if it holds an agent: the herdr name and the command of this
-            // agent are not a task.
-            let agent_pane = title_pane.and_then(|id| {
-                snapshot
-                    .panes
-                    .iter()
-                    .find(|pane| pane.pane_id == id && pane.agent.is_some())
-            });
+            let title = pane.and_then(|pane| pane.terminal_title_stripped.as_deref());
+            // If the pane holds an agent, the herdr name and the command of this agent are not a
+            // task.
             let noise = |title: &str| {
-                agent_pane.is_some_and(|pane| {
-                    is_agent_noise(
-                        title,
-                        pane.agent.as_deref().unwrap_or_default(),
-                        snapshot.agent_name(&pane.pane_id),
-                    )
+                pane.is_some_and(|pane| {
+                    pane.agent.as_deref().is_some_and(|kind| {
+                        is_agent_noise(title, kind, snapshot.agent_name(&pane.pane_id))
+                    })
                 })
             };
             match title.map(str::trim).filter(|title| !title.is_empty()) {
@@ -505,11 +503,7 @@ impl Model {
                     pane_id: pane.pane_id.clone(),
                     tab_id: pane.tab_id.clone(),
                     workspace_id: pane.workspace_id.clone(),
-                    name: label_of(
-                        &pane.tab_id,
-                        pane.terminal_title_stripped.as_deref(),
-                        Some(&pane.pane_id),
-                    ),
+                    name: label_of(&pane.tab_id, Some(pane)),
                     kind,
                     status: pane.agent_status,
                     place: place_of(&pane.workspace_id),
@@ -545,11 +539,7 @@ impl Model {
                     tab_id: pane.tab_id.clone(),
                     workspace_id: pane.workspace_id.clone(),
                     name,
-                    tab: label_of(
-                        &pane.tab_id,
-                        pane.terminal_title_stripped.as_deref(),
-                        Some(&pane.pane_id),
-                    ),
+                    tab: label_of(&pane.tab_id, Some(pane)),
                     place: place_of(&pane.workspace_id),
                     agent: pane.agent.clone(),
                     status: pane.agent_status,
@@ -580,7 +570,7 @@ impl Model {
                 TabRow {
                     tab_id: tab.tab_id.clone(),
                     workspace_id: tab.workspace_id.clone(),
-                    name: label_of(&tab.tab_id, Some(&title), None),
+                    name: label_of(&tab.tab_id, first),
                     command,
                     place: place_of(&tab.workspace_id),
                     pane_id: first.map(|pane| pane.pane_id.clone()),
@@ -594,12 +584,11 @@ impl Model {
                 .iter()
                 .find(|pane| pane.tab_id == tab.tab_id && pane.agent.is_some());
             let first = snapshot.panes.iter().find(|pane| pane.tab_id == tab.tab_id);
-            let title = first.and_then(|pane| pane.terminal_title_stripped.as_deref());
             workspace_tabs
                 .entry(tab.workspace_id.clone())
                 .or_default()
                 .push(TabSummary {
-                    name: label_of(&tab.tab_id, title, first.map(|pane| pane.pane_id.as_str())),
+                    name: label_of(&tab.tab_id, first),
                     agent: agent_pane.and_then(|pane| pane.agent.clone()),
                     status: agent_pane.map(|pane| pane.agent_status).unwrap_or_default(),
                 });
@@ -740,7 +729,7 @@ mod tests {
     fn the_agents_that_need_the_user_come_first() {
         let mut model = Model::build(&snapshot(), &checkouts());
         let order: Vec<String> = ["attention"].iter().map(|s| s.to_string()).collect();
-        crate::rank::Ranker::new(&model, &order, &HashMap::new(), None, None).sort(&mut model);
+        crate::rank::Ranker::sort(&mut model, &order, &HashMap::new(), None, None);
         let agents: Vec<(&str, &str, &str)> = model
             .agents
             .iter()

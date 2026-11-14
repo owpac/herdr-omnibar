@@ -97,6 +97,15 @@ pub fn screen_order(workspaces: &[Workspace]) -> Vec<String> {
     sidebar(workspaces).iter().flat_map(Entry::ids).collect()
 }
 
+/// The position of each workspace on the screen, by workspace id.
+pub fn screen_positions(workspaces: &[Workspace]) -> HashMap<String, usize> {
+    screen_order(workspaces)
+        .into_iter()
+        .enumerate()
+        .map(|(position, id)| (id, position))
+        .collect()
+}
+
 /// A move of the sidebar: these workspaces, in this order, go before another workspace.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Move {

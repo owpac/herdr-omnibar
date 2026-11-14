@@ -120,7 +120,7 @@ fn in_popup_order(
     list_order: &[String],
     recent: &recent::Recent,
 ) -> model::Model {
-    rank::Ranker::new(&model, list_order, recent, None, None).sort(&mut model);
+    rank::Ranker::sort(&mut model, list_order, recent, None, None);
     model
 }
 

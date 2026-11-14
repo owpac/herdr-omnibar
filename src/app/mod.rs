@@ -80,21 +80,12 @@ pub enum RenameTarget {
 }
 
 impl RenameTarget {
-    /// The word for the target, in the messages.
+    /// The word for the target, in the messages and in the search line.
     pub fn noun(&self) -> &'static str {
         match self {
             RenameTarget::Tab(_) => "tab",
             RenameTarget::Workspace(_) => "workspace",
             RenameTarget::Pane(_) => "pane",
-        }
-    }
-
-    /// The placeholder of the search line, while the user types the new name.
-    pub fn placeholder(&self) -> &'static str {
-        match self {
-            RenameTarget::Tab(_) => "the new name of the tab",
-            RenameTarget::Workspace(_) => "the new name of the workspace",
-            RenameTarget::Pane(_) => "the new name of the pane",
         }
     }
 }
@@ -644,8 +635,8 @@ impl App {
         self.focused_pane.as_deref().filter(|_| current)
     }
 
-    /// Take the times of use of the tabs, and the tab of the popup: the rows take their order of
-    /// use (criterion visit).
+    /// Take the times of use of the tabs (empty without the criterion visit), and the tab of the
+    /// popup: the agent of this tab goes at the end of its part of the list.
     /// The selection goes to the first row.
     pub fn use_recent(&mut self, recent: Recent, current_tab: Option<String>) {
         self.recent = recent;
@@ -658,20 +649,13 @@ impl App {
     /// Sort the rows of the model with the key `list_order` of the config, then keep the ranks
     /// for the groups of the filter Worktrees.
     fn order(&mut self) {
-        self.ranker = Ranker::new(
-            &self.model,
+        self.ranker = Ranker::sort(
+            &mut self.model,
             &self.config.list_order,
             &self.recent,
             self.current_tab.as_deref(),
             self.current.as_deref(),
         );
-        self.ranker.sort(&mut self.model);
-    }
-
-    /// Take the tab of the popup: the agent of this tab goes at the end of its part of the list.
-    pub fn use_current_tab(&mut self, current_tab: Option<String>) {
-        let recent = std::mem::take(&mut self.recent);
-        self.use_recent(recent, current_tab);
     }
 
     /// Take a new model: the snapshot changed.
@@ -1475,7 +1459,7 @@ pub(crate) mod tests {
         for (agent, seq) in app.model.agents.iter_mut().zip([5, 9, 7]) {
             agent.seq = Some(seq);
         }
-        app.use_current_tab(Some("t-omnibar design".to_string()));
+        app.use_recent(Recent::new(), Some("t-omnibar design".to_string()));
         let names: Vec<&str> = app
             .model
             .agents

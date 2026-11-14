@@ -30,6 +30,7 @@ use crate::config;
 use crate::create;
 use crate::herdr::{self, Plugin};
 use crate::model::{self, Snapshot};
+use crate::rank::Criterion;
 use crate::recent;
 use crate::sort;
 
@@ -139,7 +140,7 @@ fn bar_config() -> Option<String> {
 /// of the tabs (criterion visit of the key list_order), or the sort of the workspaces (feature
 /// auto_sort).
 fn has_work(config: &config::Config) -> bool {
-    config.has("auto_titles") || config.orders_by_visit() || config.has("auto_sort")
+    config.has("auto_titles") || config.orders_by(Criterion::Visit) || config.has("auto_sort")
 }
 
 /// True if the watcher sorts the workspaces: at its start (no previous ids), or when the set of
@@ -259,7 +260,7 @@ pub fn run() -> Result<(), String> {
         match herdr::snapshot() {
             Ok(snapshot) => {
                 failures = 0;
-                if config.orders_by_visit() {
+                if config.orders_by(Criterion::Visit) {
                     recent::follow(&state_dir, &snapshot, &mut focused);
                 }
                 if config.has("auto_sort") {

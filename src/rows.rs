@@ -4,7 +4,6 @@
 //! the tabs without an agent, the workspaces, then the projects. The creation (filter New) has 2
 //! steps: "where" lists the places, "what" lists the choices for the chosen place.
 
-use std::collections::HashMap;
 use std::env;
 use std::path::Path;
 
@@ -180,12 +179,7 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
     if filter == Filter::Workspaces {
         let mut spaces: Vec<Space> = model.spaces.clone();
         if sources.in_sidebar_order {
-            let positions: HashMap<String, usize> =
-                crate::order::screen_order(&model.flat_workspaces)
-                    .into_iter()
-                    .enumerate()
-                    .map(|(position, id)| (id, position))
-                    .collect();
+            let positions = crate::order::screen_positions(&model.flat_workspaces);
             spaces.sort_by_key(|space| {
                 positions
                     .get(&space.workspace.workspace_id)
@@ -470,16 +464,17 @@ fn matches_in(items: Vec<Item>, query: &str, with_context: bool) -> Vec<(Item, V
         .into_iter()
         .filter_map(|item| {
             let name = item.name();
-            let by_name = fuzzy::find(query, &name);
-            // Without the context, the match of the name gives the score and the positions.
+            // Without the context, the match of the name gives the score and the positions. With
+            // the context, an item that does not match needs no match of its name.
             let (score, positions) = if with_context {
                 let all = fuzzy::find(query, &format!("{name} {}", item.context()))?;
-                (all.score, by_name.map(|found| found.positions))
+                let positions = fuzzy::find(query, &name).map(|found| found.positions);
+                (all.score, positions.unwrap_or_default())
             } else {
-                let found = by_name?;
-                (found.score, Some(found.positions))
+                let found = fuzzy::find(query, &name)?;
+                (found.score, found.positions)
             };
-            Some((item, positions.unwrap_or_default(), score))
+            Some((item, positions, score))
         })
         .collect();
     found.sort_by_key(|(_, _, score)| std::cmp::Reverse(*score));

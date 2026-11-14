@@ -34,6 +34,8 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::rank::Criterion;
+
 /// The size of the popup.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Size {
@@ -111,15 +113,10 @@ pub struct Config {
 }
 
 impl Config {
-    /// True if the order of the lists has the criterion `visit`: the watcher and the popup then
-    /// record the visits of the tabs.
-    pub fn orders_by_visit(&self) -> bool {
-        self.orders_by("visit")
-    }
-
-    /// True if the order of the lists has this criterion.
-    pub fn orders_by(&self, criterion: &str) -> bool {
-        self.list_order.iter().any(|entry| entry == criterion)
+    /// True if the order of the lists has this criterion. With `Criterion::Visit`, the watcher and
+    /// the popup record the visits of the tabs.
+    pub fn orders_by(&self, criterion: Criterion) -> bool {
+        crate::rank::criteria(&self.list_order).contains(&criterion)
     }
 
     /// True if the feature is on.
@@ -132,30 +129,20 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             size: Size::Default,
-            roots: crate::places::DEFAULT_ROOTS
-                .iter()
-                .map(|root| root.to_string())
-                .collect(),
+            roots: owned(&crate::places::DEFAULT_ROOTS),
             preview: Preview::Full,
             pills: Pills::Square,
-            features: DEFAULT_FEATURES
-                .iter()
-                .map(|name| name.to_string())
-                .collect(),
-            filters: DEFAULT_FILTERS
-                .iter()
-                .map(|name| name.to_string())
-                .collect(),
-            list_order: crate::rank::DEFAULT_LIST_ORDER
-                .iter()
-                .map(|criterion| criterion.to_string())
-                .collect(),
-            sidebar_order: crate::order::DEFAULT_SIDEBAR_ORDER
-                .iter()
-                .map(|entry| entry.to_string())
-                .collect(),
+            features: owned(&DEFAULT_FEATURES),
+            filters: owned(&DEFAULT_FILTERS),
+            list_order: owned(&crate::rank::DEFAULT_LIST_ORDER),
+            sidebar_order: owned(&crate::order::DEFAULT_SIDEBAR_ORDER),
         }
     }
+}
+
+/// A list of the defaults, as the strings of the config.
+fn owned(list: &[&str]) -> Vec<String> {
+    list.iter().map(|item| item.to_string()).collect()
 }
 
 /// The keys of config.toml. An unknown key stays without an effect.
@@ -295,8 +282,8 @@ mod tests {
         // The old feature is a name that does nothing.
         assert!(!parse("").has("recent_first"));
         assert!(parse("features = [\"recent_first\"]").has("recent_first"));
-        assert!(parse("").orders_by_visit());
-        assert!(!parse("list_order = [\"herdr\"]").orders_by_visit());
+        assert!(parse("").orders_by(Criterion::Visit));
+        assert!(!parse("list_order = [\"herdr\"]").orders_by(Criterion::Visit));
     }
 
     #[test]

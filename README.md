@@ -149,7 +149,7 @@ list_order = ["attention", "activity", "visit"]
 
 The current tab goes at the end of its section, with its agent, its panes and its workspace, for each order. With a typed text, the score of the match sorts first, and `list_order` sorts the rows with the same score. In the filter `worktrees`, the current project stays first. With `move_workspaces`, the filter `workspaces` keeps the order of the sidebar. The old feature `recent_first` does nothing: `list_order` replaces it, and `visit` is the same criterion.
 
-`auto_sort` is off by default, because it changes the order of the sidebar. The watcher then sorts the workspaces with `sidebar_order`, at its start and each time the set of the workspaces changes: a workspace opens or closes. A move of your own (a drag in the sidebar, `⌥↑`, `⌥↓`) stays until the next change of the set. If the order is already right, the watcher makes no call to herdr. It writes each sort in `watch.log`. The watcher needs the socket of herdr: it works when herdr starts it.
+`auto_sort` is off by default, because it changes the order of the sidebar. The watcher then sorts the workspaces with `sidebar_order`, at its start and each time the set of the workspaces changes: a workspace opens or closes. A move of your own (a drag in the sidebar, `⌥↑`, `⌥↓`) stays until the next change of the set. If the sidebar already shows this order, the watcher makes no call to herdr. It writes each sort in `watch.log`. The watcher needs the socket of herdr: it works when herdr starts it.
 
 `agent_logos` shows the logo of each agent before its name, if the font Herdr Agent Icons Max of [herdr-radar](https://github.com/hhdebb/herdr-radar) is installed, like herdr-bar. The omnibar never installs a font. On macOS:
 

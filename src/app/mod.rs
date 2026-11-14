@@ -1415,7 +1415,8 @@ pub(crate) mod tests {
         type_text(&mut app, "at");
         assert_eq!(selected_name(&app), "atlas");
         assert!(!app.moves_workspace());
-        app.query.clear();
+        // Spaces only do not filter: the order of the sidebar stays.
+        app.query = "  ".into();
         app.rebuild(None);
         assert!(app.moves_workspace());
         app.filter = Filter::Agents;

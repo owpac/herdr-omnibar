@@ -245,7 +245,7 @@ impl App {
     pub fn moves_workspace(&self) -> bool {
         self.config.has("move_workspaces")
             && self.filter == Filter::Workspaces
-            && self.query.is_empty()
+            && self.query.trim().is_empty()
             && self.rename.is_none()
             && matches!(self.selected_item(), Some(Item::Workspace(_)))
     }

@@ -209,6 +209,7 @@ pub fn new_workspace_names(place: &Place, name: &str) -> (String, String) {
         place
             .workspace_label
             .clone()
+            .filter(|label| !label.is_empty())
             .unwrap_or_else(|| place.label.clone())
     } else {
         name.to_string()
@@ -712,6 +713,12 @@ mod tests {
             }
         );
         assert_eq!(plan.name, "");
+        // An empty herdr label gives the name of the list.
+        let unlabelled = Place {
+            workspace_label: Some(String::new()),
+            ..fix.clone()
+        };
+        assert_eq!(new_workspace_names(&unlabelled, "").0, "atlas ▸ fix");
         // The preview reads the same names.
         assert_eq!(
             new_workspace_names(&fix, "my fix"),

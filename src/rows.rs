@@ -159,12 +159,14 @@ pub struct Sources<'a> {
     /// The rows of the filter Workspaces, in their order: the order of list_order, or the order
     /// of the sidebar with move_workspaces (rank::in_sidebar_order).
     pub workspaces: &'a [&'a Space],
-    /// True if attention is the first criterion of the order: the agents go in a group for each
-    /// status (STATUS_GROUPS).
+    /// True if attention is the first criterion of the order: if the query is empty, the agents go
+    /// in a group for each status (STATUS_GROUPS). With a query, all the agents are in one group,
+    /// sorted by score.
     pub attention: bool,
 }
 
-/// The groups of the agents when attention is the first criterion, in the order of the criterion.
+/// The groups of the agents when attention is the first criterion and the query is empty, in the
+/// order of the criterion.
 /// The group "Idle" also holds the agents with an unknown status.
 const STATUS_GROUPS: [&str; 4] = ["Needs you", "Done", "Working", "Idle"];
 
@@ -188,9 +190,10 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
             model.agents.iter().cloned().map(Item::Agent).collect(),
             query,
         );
-        // If attention is the first criterion, the agents go in a group for each status. Each
-        // group keeps the order of list_order. If not, all the agents are in one group.
-        if sources.attention {
+        // If attention is the first criterion and the query is empty, the agents go in a group for
+        // each status. Each group keeps the order of list_order. If not, all the agents are in one
+        // group: with a query, the score sorts them, and list_order breaks the ties.
+        if sources.attention && query.is_empty() {
             let mut groups: [Vec<(Item, Vec<usize>)>; 4] = Default::default();
             for row in agents {
                 groups[status_group(row.0.status())].push(row);
@@ -709,7 +712,25 @@ mod tests {
     fn a_query_keeps_only_the_matches() {
         assert_eq!(
             titles(&lines_of(&model(), &[], &[], Filter::All, "omni")),
-            ["# Working", "omnibar design", "# Create", "create “omni”…"]
+            ["# Agents", "omnibar design", "# Create", "create “omni”…"]
+        );
+    }
+
+    #[test]
+    fn a_query_puts_the_agents_in_one_group_sorted_by_score() {
+        let mut model = model();
+        model.agents = vec![
+            agent("Mise à jour des dépendances", Status::Done),
+            agent("nas", Status::Idle),
+        ];
+        let agents = |query| titles(&lines_of(&model, &[], &[], Filter::Agents, query));
+        assert_eq!(
+            &agents("nas")[..3],
+            ["# Agents", "nas", "Mise à jour des dépendances"]
+        );
+        assert_eq!(
+            agents(""),
+            ["# Done", "Mise à jour des dépendances", "# Idle", "nas"]
         );
     }
 

@@ -494,7 +494,7 @@ impl App {
                         .as_ref()
                         .filter(|_| self.filter == Filter::All),
                     in_sidebar_order: self.config.has("move_workspaces"),
-                    attention: self.config.orders_by("attention"),
+                    attention: crate::rank::attention_first(&self.config.list_order),
                 };
                 rows::build(&sources, self.filter, &self.query)
             }
@@ -992,7 +992,7 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::input::{delete_word, key_of_hint};
     use super::*;
     use crate::model::{AgentRow, Status};
@@ -1001,7 +1001,7 @@ mod tests {
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
 
-    fn place(label: &str, workspace: Option<&str>, main: Option<&str>) -> Place {
+    pub(crate) fn place(label: &str, workspace: Option<&str>, main: Option<&str>) -> Place {
         Place {
             kind: if workspace.is_some() {
                 Kind::Workspace
@@ -1012,12 +1012,13 @@ mod tests {
             project: label.into(),
             folder: format!("/work/{label}").into(),
             workspace_id: workspace.map(str::to_string),
+            workspace_label: workspace.map(|_| label.to_string()),
             main: main.map(PathBuf::from),
             tabs: Vec::new(),
         }
     }
 
-    fn app(filter: Filter) -> App {
+    pub(crate) fn app(filter: Filter) -> App {
         let agents = ["fix the login", "omnibar design", "release notes"]
             .iter()
             .map(|name| AgentRow {
@@ -1409,6 +1410,14 @@ mod tests {
         app.rebuild(None);
         assert!(!app.moves_workspace());
         app.config.features.push("move_workspaces".to_string());
+        assert!(app.moves_workspace());
+        // A typed text gives the order of the match, not the order of the sidebar.
+        type_text(&mut app, "at");
+        assert_eq!(selected_name(&app), "atlas");
+        assert!(!app.moves_workspace());
+        // Spaces only do not filter: the order of the sidebar stays.
+        app.query = "  ".into();
+        app.rebuild(None);
         assert!(app.moves_workspace());
         app.filter = Filter::Agents;
         assert!(!app.moves_workspace());

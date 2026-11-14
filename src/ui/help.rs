@@ -54,7 +54,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         ),
         (
             "⌥↑ ⌥↓",
-            "Move the selected workspace up or down in the sidebar (feature move_workspaces).",
+            "Move the selected workspace up or down in the sidebar (feature move_workspaces), without a typed text.",
         ),
         (
             "mouse",

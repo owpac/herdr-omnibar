@@ -109,7 +109,8 @@ pub fn is_agent_name(title: &str, kind: &str) -> bool {
 
 /// True if the title of the terminal of an agent is noise, not a task: the herdr name of the
 /// agent, or the command line of the agent (an agent name, a space, then an option:
-/// `claude --name x`). Claude Code writes its `--name` in the title for all the session.
+/// `claude --name x`). Claude Code writes its `--name` in the title for all the session. The
+/// comparisons ignore the case, as `is_agent_name` does.
 pub fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
     let title = title.trim();
     if name.is_some_and(|name| name.eq_ignore_ascii_case(title)) {
@@ -117,8 +118,9 @@ pub fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
     }
     agent_names(kind).any(|command| {
         title
-            .strip_prefix(command)
-            .is_some_and(|rest| rest.starts_with(" -"))
+            .get(..command.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(command))
+            && title[command.len()..].starts_with(" -")
     })
 }
 
@@ -306,11 +308,21 @@ pub struct Space {
 }
 
 impl Space {
-    /// The project of the workspace: its git repository. Outside git, the name that herdr gives to
+    /// The project of the workspace: its git repository. For a linked worktree without a checkout,
+    /// the repository that herdr gives: its label is the branch. Else the name that herdr gives to
     /// the workspace, else its folder.
     pub fn project(&self) -> String {
         if let Some(checkout) = &self.checkout {
             return checkout.project();
+        }
+        let linked_repo = self
+            .workspace
+            .worktree
+            .as_ref()
+            .filter(|worktree| worktree.is_linked_worktree)
+            .map(|worktree| &worktree.repo_name);
+        if let Some(name) = linked_repo.filter(|name| !name.is_empty()) {
+            return name.clone();
         }
         if !self.workspace.label.is_empty() {
             return self.workspace.label.clone();
@@ -849,6 +861,26 @@ mod tests {
             checkout("/work/atlas.fix", "fix"),
         );
         assert_eq!(default.label(), "atlas ▸ fix");
+    }
+
+    #[test]
+    fn a_linked_worktree_without_a_checkout_takes_the_repository_of_herdr_as_its_project() {
+        let space = |label| Space {
+            workspace: git_workspace(label, true, "/work/atlas.fix"),
+            folder: None,
+            checkout: None,
+        };
+        assert_eq!(space("atlas.fix").project(), "atlas");
+        assert_eq!(space("atlas.fix").label(), "atlas ▸ atlas.fix");
+        assert_eq!(space("my fix").label(), "atlas ▸ my fix");
+        // A main workspace without a checkout keeps its herdr label: 2 checkouts of one repository
+        // keep 2 names.
+        let main = Space {
+            workspace: git_workspace("atlas-2", false, "/work/atlas-2"),
+            folder: None,
+            checkout: None,
+        };
+        assert_eq!(main.project(), "atlas-2");
     }
 
     #[test]

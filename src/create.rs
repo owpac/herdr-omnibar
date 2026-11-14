@@ -176,13 +176,8 @@ pub fn plan(
             folder: place.folder.clone(),
         },
         Choice::NewWorkspace => {
-            // A place that has a workspace: the typed name is the label of the new workspace, and
-            // the automatic titles name its first tab.
-            let label = if place.labels_new_workspace() && !name.is_empty() {
-                std::mem::take(&mut name)
-            } else {
-                place.label.clone()
-            };
+            let (label, first_tab) = new_workspace_names(place, &name);
+            name = first_tab;
             Action::NewWorkspace {
                 folder: place.folder.clone(),
                 label,
@@ -196,6 +191,30 @@ pub fn plan(
         no_prompts,
         folder: place.folder.clone(),
     })
+}
+
+/// The label of a new workspace at a place, and the name of its first tab, for a typed name.
+///
+/// - At a place with a workspace, the typed name is the label, and the automatic titles name the
+///   first tab. Without a name, the label is the herdr label of the workspace of the place: the
+///   label of the place in the list can hold a `▸`.
+/// - At a place without a workspace, the label is the label of the place, and the typed name is
+///   the name of the first tab.
+pub fn new_workspace_names(place: &Place, name: &str) -> (String, String) {
+    let name = name.trim();
+    if !place.labels_new_workspace() {
+        return (place.label.clone(), name.to_string());
+    }
+    let label = if name.is_empty() {
+        place
+            .workspace_label
+            .clone()
+            .filter(|label| !label.is_empty())
+            .unwrap_or_else(|| place.label.clone())
+    } else {
+        name.to_string()
+    };
+    (label, String::new())
 }
 
 /// The message of the row "new workspace…" when no text is typed.
@@ -519,6 +538,7 @@ mod tests {
             project: label.into(),
             folder: folder.into(),
             workspace_id: Some(id.into()),
+            workspace_label: Some(label.into()),
             main: main.map(PathBuf::from),
             tabs: Vec::new(),
         }
@@ -627,6 +647,7 @@ mod tests {
             project: "notes".into(),
             folder: "/notes".into(),
             workspace_id: None,
+            workspace_label: None,
             main: None,
             tabs: Vec::new(),
         };
@@ -672,6 +693,36 @@ mod tests {
                 folder: "/home/u".into(),
                 label: "~".into()
             }
+        );
+    }
+
+    #[test]
+    fn a_new_workspace_without_a_name_takes_the_herdr_label_and_not_the_name_in_the_list() {
+        // A linked worktree: the list shows "atlas ▸ fix", herdr knows the label "atlas.fix".
+        let fix = Place {
+            label: "atlas ▸ fix".into(),
+            workspace_label: Some("atlas.fix".into()),
+            ..workspace("atlas ▸ fix", "/work/atlas.fix", "w2", Some("/work/atlas"))
+        };
+        let plan = plan(&fix, &Choice::NewWorkspace, "  ", "claude", false).unwrap();
+        assert_eq!(
+            plan.action,
+            Action::NewWorkspace {
+                folder: "/work/atlas.fix".into(),
+                label: "atlas.fix".into()
+            }
+        );
+        assert_eq!(plan.name, "");
+        // An empty herdr label gives the name of the list.
+        let unlabelled = Place {
+            workspace_label: Some(String::new()),
+            ..fix.clone()
+        };
+        assert_eq!(new_workspace_names(&unlabelled, "").0, "atlas ▸ fix");
+        // The preview reads the same names.
+        assert_eq!(
+            new_workspace_names(&fix, "my fix"),
+            ("my fix".to_string(), String::new())
         );
     }
 

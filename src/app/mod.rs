@@ -24,9 +24,9 @@ use crate::model::Model;
 use crate::places::{self, Place, Project};
 use crate::pulls::{Lookup, Pulls};
 use crate::rank::Ranker;
-use crate::recent::Recent;
 use crate::rows::{self, Item, Line};
 use crate::times::{self, Times};
+use crate::visits::Visits;
 
 mod input;
 mod run;
@@ -218,7 +218,7 @@ pub struct App {
     /// The order of the lists: the ranks of the rows (key `list_order` of the config).
     ranker: Ranker,
     /// The times of use of the tabs, and the tab of the popup (criterion visit).
-    recent: Recent,
+    visits: Visits,
     current_tab: Option<String>,
     /// The last agent of each folder (agents.json), read one time when the popup opens. Empty in
     /// the tests: they do not read the state of the machine.
@@ -288,7 +288,7 @@ impl App {
             pulls: Pulls::default(),
             logos: false,
             remembered: HashMap::new(),
-            recent: Recent::new(),
+            visits: Visits::new(),
             current_tab: None,
             ranker: Ranker::default(),
             focused_pane: None,
@@ -638,8 +638,8 @@ impl App {
     /// Take the times of use of the tabs (empty without the criterion visit), and the tab of the
     /// popup: the agent of this tab goes at the end of its part of the list.
     /// The selection goes to the first row.
-    pub fn use_recent(&mut self, recent: Recent, current_tab: Option<String>) {
-        self.recent = recent;
+    pub fn use_visits(&mut self, visits: Visits, current_tab: Option<String>) {
+        self.visits = visits;
         self.current_tab = current_tab;
         self.order();
         self.open = places::workspaces(&self.model);
@@ -652,7 +652,7 @@ impl App {
         self.ranker = Ranker::sort(
             &mut self.model,
             &self.config.list_order,
-            &self.recent,
+            &self.visits,
             self.current_tab.as_deref(),
             self.current.as_deref(),
         );
@@ -1459,7 +1459,7 @@ pub(crate) mod tests {
         for (agent, seq) in app.model.agents.iter_mut().zip([5, 9, 7]) {
             agent.seq = Some(seq);
         }
-        app.use_recent(Recent::new(), Some("t-omnibar design".to_string()));
+        app.use_visits(Visits::new(), Some("t-omnibar design".to_string()));
         let names: Vec<&str> = app
             .model
             .agents

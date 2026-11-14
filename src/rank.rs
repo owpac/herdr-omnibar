@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 use crate::model::{AgentRow, Model, PaneRow, Space, Status, TabRow};
 use crate::places::{Place, Project};
-use crate::recent::Recent;
+use crate::visits::Visits;
 
 /// The default `list_order`.
 pub const DEFAULT_LIST_ORDER: [&str; 3] = ["attention", "activity", "visit"];
@@ -111,7 +111,7 @@ pub struct Ranker {
 
 /// The data of the ranks of the rows, borrowed for the time of the sort.
 struct Rows<'a> {
-    recent: &'a Recent,
+    visits: &'a Visits,
     current_tab: Option<&'a str>,
     /// The position of each workspace on the screen.
     screen: &'a HashMap<String, usize>,
@@ -132,7 +132,7 @@ fn attention_of(status: Status) -> u8 {
 /// agents, and the last visit of its tabs.
 fn workspace_ranks(
     model: &Model,
-    recent: &Recent,
+    visits: &Visits,
     current_workspace: Option<&str>,
     screen: &HashMap<String, usize>,
 ) -> HashMap<String, Rank> {
@@ -145,10 +145,12 @@ fn workspace_ranks(
             *highest = (*highest).max(seq);
         }
     }
-    let mut visits: HashMap<&str, u64> = HashMap::new();
+    let mut workspace_visits: HashMap<&str, u64> = HashMap::new();
     for pane in &model.panes {
-        let visit = recent.get(&pane.tab_id).copied().unwrap_or(0);
-        let last = visits.entry(pane.workspace_id.as_str()).or_default();
+        let visit = visits.get(&pane.tab_id).copied().unwrap_or(0);
+        let last = workspace_visits
+            .entry(pane.workspace_id.as_str())
+            .or_default();
         *last = (*last).max(visit);
     }
     model
@@ -160,7 +162,7 @@ fn workspace_ranks(
                 current: current_workspace == Some(id.as_str()),
                 attention: attention_of(space.workspace.agent_status),
                 activity: activities.get(id.as_str()).copied(),
-                visit: visits.get(id.as_str()).copied().unwrap_or(0),
+                visit: workspace_visits.get(id.as_str()).copied().unwrap_or(0),
                 herdr: (screen.get(id).copied().unwrap_or(usize::MAX), 0, 0),
             };
             (id.clone(), rank)
@@ -174,7 +176,7 @@ impl Rows<'_> {
     fn at(&self, workspace_id: &str, tab_id: &str, pane_id: &str) -> Rank {
         Rank {
             current: self.current_tab == Some(tab_id),
-            visit: self.recent.get(tab_id).copied().unwrap_or(0),
+            visit: self.visits.get(tab_id).copied().unwrap_or(0),
             herdr: (
                 self.screen.get(workspace_id).copied().unwrap_or(usize::MAX),
                 self.tab_numbers.get(tab_id).copied().unwrap_or(u32::MAX),
@@ -221,14 +223,14 @@ impl Ranker {
     pub fn sort(
         model: &mut Model,
         order: &[String],
-        recent: &Recent,
+        visits: &Visits,
         current_tab: Option<&str>,
         current_workspace: Option<&str>,
     ) -> Ranker {
         let screen = crate::order::screen_positions(&model.flat_workspaces);
         let ranker = Ranker {
             criteria: criteria(order),
-            workspaces: workspace_ranks(model, recent, current_workspace, &screen),
+            workspaces: workspace_ranks(model, visits, current_workspace, &screen),
         };
         // The rows borrow the maps of the model while the lists of the model change.
         let Model {
@@ -241,7 +243,7 @@ impl Ranker {
             ..
         } = model;
         let rows = Rows {
-            recent,
+            visits,
             current_tab,
             screen: &screen,
             tab_numbers,
@@ -341,9 +343,9 @@ mod tests {
             .collect()
     }
 
-    fn sorted(order_list: &[&str], recent: &Recent, current: Option<&str>) -> Vec<String> {
+    fn sorted(order_list: &[&str], visits: &Visits, current: Option<&str>) -> Vec<String> {
         let mut model = model();
-        Ranker::sort(&mut model, &order(order_list), recent, current, None);
+        Ranker::sort(&mut model, &order(order_list), visits, current, None);
         names(&model).into_iter().map(str::to_string).collect()
     }
 
@@ -372,7 +374,7 @@ mod tests {
 
     #[test]
     fn attention_puts_needs_you_then_done_then_the_others() {
-        let result = sorted(&["attention"], &Recent::new(), None);
+        let result = sorted(&["attention"], &Visits::new(), None);
         // The other agents keep the order of herdr.
         assert_eq!(
             result,
@@ -388,7 +390,7 @@ mod tests {
 
     #[test]
     fn activity_puts_the_highest_seq_first_and_no_seq_last() {
-        let result = sorted(&["activity"], &Recent::new(), None);
+        let result = sorted(&["activity"], &Visits::new(), None);
         assert_eq!(
             result,
             [
@@ -403,8 +405,8 @@ mod tests {
 
     #[test]
     fn visit_puts_the_last_visit_first_and_the_next_criterion_sorts_the_equal_rows() {
-        let recent = Recent::from([("t3".to_string(), 50), ("t1".to_string(), 20)]);
-        let result = sorted(&["visit"], &recent, None);
+        let visits = Visits::from([("t3".to_string(), 50), ("t1".to_string(), 20)]);
+        let result = sorted(&["visit"], &visits, None);
         // The tabs never visited keep the order of herdr.
         assert_eq!(
             result,
@@ -418,7 +420,7 @@ mod tests {
         );
         // The first criterion sorts, the next one breaks the ties: the agents that are done or
         // blocked first, the others by visit.
-        let result = sorted(&["attention", "visit"], &recent, None);
+        let result = sorted(&["attention", "visit"], &visits, None);
         assert_eq!(
             result,
             [
@@ -433,7 +435,7 @@ mod tests {
 
     #[test]
     fn herdr_is_the_order_of_the_numbers_and_the_last_tie_breaker() {
-        let by_herdr = sorted(&["herdr"], &Recent::new(), None);
+        let by_herdr = sorted(&["herdr"], &Visits::new(), None);
         assert_eq!(
             by_herdr,
             [
@@ -445,14 +447,14 @@ mod tests {
             ]
         );
         // An empty list and a list of unknown entries give the same order.
-        assert_eq!(sorted(&[], &Recent::new(), None), by_herdr);
-        assert_eq!(sorted(&["nothing"], &Recent::new(), None), by_herdr);
+        assert_eq!(sorted(&[], &Visits::new(), None), by_herdr);
+        assert_eq!(sorted(&["nothing"], &Visits::new(), None), by_herdr);
     }
 
     #[test]
     fn the_current_tab_goes_last_for_each_order() {
         for criteria in [vec!["attention"], vec!["activity"], vec!["herdr"], vec![]] {
-            let result = sorted(&criteria, &Recent::new(), Some("t4"));
+            let result = sorted(&criteria, &Visits::new(), Some("t4"));
             assert_eq!(result.last().map(String::as_str), Some("d-blocked"));
         }
     }
@@ -475,7 +477,7 @@ mod tests {
         let ranker = Ranker::sort(
             &mut sorted,
             &order(&["attention"]),
-            &Recent::new(),
+            &Visits::new(),
             None,
             None,
         );

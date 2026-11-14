@@ -31,8 +31,8 @@ use crate::create;
 use crate::herdr::{self, Plugin};
 use crate::model::{self, Snapshot};
 use crate::rank::Criterion;
-use crate::recent;
 use crate::sort;
+use crate::visits;
 
 /// The time between 2 reads of the snapshot.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -261,7 +261,7 @@ pub fn run() -> Result<(), String> {
             Ok(snapshot) => {
                 failures = 0;
                 if config.orders_by(Criterion::Visit) {
-                    recent::follow(&state_dir, &snapshot, &mut focused);
+                    visits::follow(&state_dir, &snapshot, &mut focused);
                 }
                 if config.has("auto_sort") {
                     auto_sort(&snapshot, &config.sidebar_order, &mut sorted_ids, &log);

@@ -19,10 +19,10 @@ use crate::herdr;
 use crate::model::{self, Checkout};
 use crate::places;
 use crate::rank::Criterion;
-use crate::recent::{self, Recent};
 use crate::rows::Item;
 use crate::times::Times;
 use crate::ui;
+use crate::visits::{self, Visits};
 
 use super::{App, Outcome};
 
@@ -54,12 +54,12 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
     );
     app.focused_pane = context.focused_pane_id.clone();
     // The order of use (criterion visit): the tab of the popup gets the time now.
-    let recent = if app.config.orders_by(Criterion::Visit) {
-        recent::open(&config::state_dir(), context.tab_id.as_deref())
+    let visits = if app.config.orders_by(Criterion::Visit) {
+        visits::open(&config::state_dir(), context.tab_id.as_deref())
     } else {
-        Recent::new()
+        Visits::new()
     };
-    app.use_recent(recent, context.tab_id.clone());
+    app.use_visits(visits, context.tab_id.clone());
     if app.config.has("running_time") {
         app.times = Some(Times::start());
         app.ask_times();

@@ -48,17 +48,6 @@ impl Status {
             Status::Unknown => "",
         }
     }
-
-    /// The order of the agents: the agents that need the user first.
-    fn rank(self) -> u8 {
-        match self {
-            Status::Blocked => 0,
-            Status::Done => 1,
-            Status::Working => 2,
-            Status::Idle => 3,
-            Status::Unknown => 4,
-        }
-    }
 }
 
 /// The herdr snapshot: `herdr api snapshot`.
@@ -70,22 +59,26 @@ pub struct Snapshot {
     pub tabs: Vec<Tab>,
     #[serde(default)]
     pub panes: Vec<Pane>,
-    /// The agents that herdr detects. `name` is the herdr name of a named agent.
+    /// The agents that herdr detects. `name` is the herdr name of a named agent, and
+    /// `state_change_seq` is its last activity.
     #[serde(default)]
     pub agents: Vec<AgentInfo>,
     #[serde(default)]
     pub focused_workspace_id: Option<String>,
-    /// The focused tab, for the order of use (feature recent_first).
+    /// The focused tab, for the order of use (criterion visit).
     #[serde(default)]
     pub focused_tab_id: Option<String>,
 }
 
-/// An agent of the snapshot, by pane. Only the herdr name is read.
+/// An agent of the snapshot, by pane: its herdr name and its last activity.
 #[derive(Clone, Debug, Deserialize)]
 pub struct AgentInfo {
     pub pane_id: String,
     #[serde(default)]
     pub name: Option<String>,
+    /// A counter of herdr that grows at each change of state of an agent: the last activity.
+    #[serde(default)]
+    pub state_change_seq: Option<u64>,
 }
 
 impl Snapshot {
@@ -365,6 +358,9 @@ pub struct AgentRow {
     pub place: String,
     /// The folder of the pane of the agent.
     pub cwd: Option<PathBuf>,
+    /// The last change of state of the agent (`state_change_seq` of herdr): the highest is the
+    /// last activity.
+    pub seq: Option<u64>,
 }
 
 /// A pane of a tab (filter Panes).
@@ -381,6 +377,8 @@ pub struct PaneRow {
     /// The kind of the agent of the pane, if it has one.
     pub agent: Option<String>,
     pub status: Status,
+    /// The last change of state of the agent of the pane (`state_change_seq` of herdr).
+    pub seq: Option<u64>,
 }
 
 /// A tab without an agent.
@@ -416,6 +414,10 @@ pub struct Model {
     pub focused_workspace_id: Option<String>,
     /// The workspaces in the flat order of the snapshot: the sidebar order comes from it.
     pub flat_workspaces: Vec<Workspace>,
+    /// The number of each tab in its workspace, by tab id: the order of herdr.
+    pub tab_numbers: HashMap<String, u32>,
+    /// The position of each pane in the snapshot, by pane id: the order of herdr.
+    pub pane_index: HashMap<String, usize>,
     /// The tabs of each workspace, by workspace id, in their order.
     pub workspace_tabs: HashMap<String, Vec<TabSummary>>,
 }
@@ -475,7 +477,14 @@ impl Model {
                 _ => label,
             }
         };
-        let mut agents: Vec<AgentRow> = snapshot
+        // The last activity of the agent of each pane. The first entry of a pane wins.
+        let mut seqs: HashMap<&str, Option<u64>> = HashMap::new();
+        for info in &snapshot.agents {
+            seqs.entry(info.pane_id.as_str())
+                .or_insert(info.state_change_seq);
+        }
+        let seq_of = |pane_id: &str| seqs.get(pane_id).copied().flatten();
+        let agents: Vec<AgentRow> = snapshot
             .panes
             .iter()
             .filter_map(|pane| {
@@ -493,10 +502,11 @@ impl Model {
                     status: pane.agent_status,
                     place: place_of(&pane.workspace_id),
                     cwd: pane.cwd.clone(),
+                    seq: seq_of(&pane.pane_id),
                 })
             })
             .collect();
-        agents.sort_by_key(|agent| agent.status.rank());
+
         let panes = snapshot
             .panes
             .iter()
@@ -531,6 +541,7 @@ impl Model {
                     place: place_of(&pane.workspace_id),
                     agent: pane.agent.clone(),
                     status: pane.agent_status,
+                    seq: pane.agent.as_ref().and_then(|_| seq_of(&pane.pane_id)),
                 }
             })
             .collect();
@@ -588,6 +599,17 @@ impl Model {
             panes,
             focused_workspace_id: snapshot.focused_workspace_id.clone(),
             flat_workspaces: snapshot.workspaces.clone(),
+            tab_numbers: snapshot
+                .tabs
+                .iter()
+                .filter_map(|tab| Some((tab.tab_id.clone(), tab.number?)))
+                .collect(),
+            pane_index: snapshot
+                .panes
+                .iter()
+                .enumerate()
+                .map(|(index, pane)| (pane.pane_id.clone(), index))
+                .collect(),
             workspace_tabs,
         }
     }
@@ -704,7 +726,9 @@ mod tests {
 
     #[test]
     fn the_agents_that_need_the_user_come_first() {
-        let model = Model::build(&snapshot(), &checkouts());
+        let mut model = Model::build(&snapshot(), &checkouts());
+        let order: Vec<String> = ["attention"].iter().map(|s| s.to_string()).collect();
+        crate::rank::Ranker::new(&model, &order, &HashMap::new(), None, None).sort(&mut model);
         let agents: Vec<(&str, &str, &str)> = model
             .agents
             .iter()
@@ -725,6 +749,24 @@ mod tests {
             ]
         );
         assert_eq!(model.agents[0].status, Status::Blocked);
+    }
+
+    #[test]
+    fn the_seq_of_an_agent_comes_from_the_agents_of_the_snapshot() {
+        let mut snapshot = snapshot();
+        snapshot.agents = vec![AgentInfo {
+            pane_id: "w1:p1".into(),
+            name: None,
+            state_change_seq: Some(785),
+        }];
+        let model = Model::build(&snapshot, &checkouts());
+        let seqs: Vec<(String, Option<u64>)> = model
+            .agents
+            .iter()
+            .map(|agent| (agent.pane_id.clone(), agent.seq))
+            .collect();
+        assert!(seqs.contains(&("w1:p1".to_string(), Some(785))));
+        assert!(seqs.contains(&("w2:p1".to_string(), None)));
     }
 
     #[test]

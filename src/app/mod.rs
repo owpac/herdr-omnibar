@@ -23,7 +23,8 @@ use crate::herdr::{self, PluginAction};
 use crate::model::Model;
 use crate::places::{self, Place, Project};
 use crate::pulls::{Lookup, Pulls};
-use crate::recent::{self, Recent};
+use crate::rank::Ranker;
+use crate::recent::Recent;
 use crate::rows::{self, Item, Line};
 use crate::times::{self, Times};
 
@@ -223,7 +224,9 @@ pub struct App {
     pub logos: bool,
     /// The focused pane of the current workspace, when the popup opens: a split goes next to it.
     pub focused_pane: Option<String>,
-    /// The times of use of the tabs, and the tab of the popup (feature recent_first).
+    /// The order of the lists: the ranks of the rows (key `list_order` of the config).
+    ranker: Ranker,
+    /// The times of use of the tabs, and the tab of the popup (criterion visit).
     recent: Recent,
     current_tab: Option<String>,
     /// The last agent of each folder (agents.json), read one time when the popup opens. Empty in
@@ -296,6 +299,7 @@ impl App {
             remembered: HashMap::new(),
             recent: Recent::new(),
             current_tab: None,
+            ranker: Ranker::default(),
             focused_pane: None,
         };
         app.rebuild(None);
@@ -471,7 +475,10 @@ impl App {
             },
             (Filter::Worktrees, _) => rows::worktree_lines(
                 self.projects.current.as_ref(),
-                self.projects.others.as_deref().unwrap_or_default(),
+                &self.ranker.projects(
+                    self.projects.others.as_deref().unwrap_or_default(),
+                    &self.open,
+                ),
                 &self.open,
                 &self.query,
             ),
@@ -487,6 +494,7 @@ impl App {
                         .as_ref()
                         .filter(|_| self.filter == Filter::All),
                     in_sidebar_order: self.config.has("move_workspaces"),
+                    attention: self.config.orders_by("attention"),
                 };
                 rows::build(&sources, self.filter, &self.query)
             }
@@ -637,39 +645,54 @@ impl App {
     }
 
     /// Take the times of use of the tabs, and the tab of the popup: the rows take their order of
-    /// use (feature recent_first).
-    /// The selection goes to the first row: the tab before, like alt-tab.
+    /// use (criterion visit).
+    /// The selection goes to the first row.
     pub fn use_recent(&mut self, recent: Recent, current_tab: Option<String>) {
         self.recent = recent;
         self.current_tab = current_tab;
-        let mut model = std::mem::take(&mut self.model);
-        self.order(&mut model);
-        self.open = places::workspaces(&model);
-        self.model = model;
+        self.order();
+        self.open = places::workspaces(&self.model);
         self.rebuild(None);
     }
 
-    /// Sort the rows of a model by their use (feature recent_first).
-    fn order(&self, model: &mut Model) {
-        if self.config.has("recent_first") {
-            recent::order(model, &self.recent, self.current_tab.as_deref());
-        }
+    /// Sort the rows of the model with the key `list_order` of the config, then keep the ranks
+    /// for the groups of the filter Worktrees.
+    fn order(&mut self) {
+        self.ranker = Ranker::new(
+            &self.model,
+            &self.config.list_order,
+            &self.recent,
+            self.current_tab.as_deref(),
+            self.current.as_deref(),
+        );
+        self.ranker.sort(&mut self.model);
+    }
+
+    /// Take the tab of the popup: the agent of this tab goes at the end of its part of the list.
+    pub fn use_current_tab(&mut self, current_tab: Option<String>) {
+        let recent = std::mem::take(&mut self.recent);
+        self.use_recent(recent, current_tab);
     }
 
     /// Take a new model: the snapshot changed.
-    pub fn update_model(&mut self, mut model: Model) {
+    pub fn update_model(&mut self, model: Model) {
         let key = self.selected_item().map(Item::key);
-        self.order(&mut model);
-        let open = places::workspaces(&model);
-        // A workspace of another project opened or closed: read the other projects again.
+        self.model = model;
+        self.order();
+        let open = places::workspaces(&self.model);
+        // A workspace of another project opened or closed: read the other projects again. The
+        // order of list_order changes at each refresh: a new order of the same workspaces is not
+        // a change.
         let mains = |places: &[Place]| -> Vec<Option<PathBuf>> {
-            places.iter().map(|place| place.main.clone()).collect()
+            let mut mains: Vec<Option<PathBuf>> =
+                places.iter().map(|place| place.main.clone()).collect();
+            mains.sort();
+            mains
         };
         if mains(&open) != mains(&self.open) {
             self.projects.others = None;
         }
         self.open = open;
-        self.model = model;
         self.ask_times();
         self.previews.clear();
         self.rebuild(key);
@@ -1006,6 +1029,7 @@ mod tests {
                 status: Status::Idle,
                 place: "atlas".into(),
                 cwd: None,
+                seq: None,
             })
             .collect();
         let model = Model {
@@ -1345,6 +1369,7 @@ mod tests {
             place: "atlas".into(),
             agent: None,
             status: Status::Unknown,
+            seq: None,
         }];
         app.filters.push(Filter::Panes);
         app.set_filter(Filter::Panes);
@@ -1436,22 +1461,57 @@ mod tests {
     }
 
     #[test]
-    fn the_tab_used_last_comes_first_and_the_current_tab_last() {
+    fn the_agents_go_by_activity_and_the_agent_of_the_current_tab_goes_last() {
         let mut app = app(Filter::Agents);
-        let recent = Recent::from([
-            ("t-fix the login".to_string(), 10),
-            ("t-release notes".to_string(), 20),
-            ("t-omnibar design".to_string(), 30),
-        ]);
-        app.use_recent(recent, Some("t-omnibar design".to_string()));
-        assert_eq!(selected_name(&app), "release notes");
+        for (agent, seq) in app.model.agents.iter_mut().zip([5, 9, 7]) {
+            agent.seq = Some(seq);
+        }
+        app.use_current_tab(Some("t-omnibar design".to_string()));
         let names: Vec<&str> = app
             .model
             .agents
             .iter()
             .map(|agent| agent.name.as_str())
             .collect();
+        // release notes 7, fix the login 5, then the current tab (omnibar design, 9).
         assert_eq!(names, ["release notes", "fix the login", "omnibar design"]);
+        assert_eq!(selected_name(&app), "release notes");
+    }
+
+    #[test]
+    fn a_new_order_of_the_same_workspaces_keeps_the_other_projects() {
+        let space = |id: &str, main: &str, agent_status: Status| crate::model::Space {
+            workspace: crate::model::Workspace {
+                agent_status,
+                ..crate::order::tests::workspace(id, id, None)
+            },
+            folder: Some(main.into()),
+            checkout: Some(crate::model::Checkout {
+                root: main.into(),
+                common: PathBuf::from(main).join(".git"),
+                branch: Some("main".into()),
+            }),
+        };
+        let model = |first: Status, second: Status| Model {
+            spaces: vec![
+                space("w2", "/work/pac", first),
+                space("w3", "/work/prompts", second),
+            ],
+            ..Model::default()
+        };
+        let mut app = app(Filter::Agents);
+        app.update_model(model(Status::Blocked, Status::Idle));
+        app.projects.others = Some(Vec::new());
+        // The attention changes: the same workspaces come in another order.
+        app.update_model(model(Status::Idle, Status::Blocked));
+        assert_eq!(app.open[0].workspace_id.as_deref(), Some("w3"));
+        assert!(app.projects.others.is_some());
+        // A workspace of another project closes: the other projects are read again.
+        app.update_model(Model {
+            spaces: vec![space("w2", "/work/pac", Status::Idle)],
+            ..Model::default()
+        });
+        assert!(app.projects.others.is_none());
     }
 
     #[test]
@@ -1466,6 +1526,7 @@ mod tests {
             place: "atlas".into(),
             agent: None,
             status: Status::Unknown,
+            seq: None,
         }];
         app.filters.push(Filter::Panes);
         app.set_filter(Filter::Panes);

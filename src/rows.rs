@@ -151,6 +151,8 @@ pub struct Sources<'a> {
     pub project: Option<&'a Project>,
     /// True if the filter Workspaces shows the order of the sidebar (feature move_workspaces).
     pub in_sidebar_order: bool,
+    /// True if the order has the criterion attention: the agents that need you have their group.
+    pub attention: bool,
 }
 
 /// The lines of the filters that go somewhere (all the filters but New).
@@ -163,9 +165,10 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
             model.agents.iter().cloned().map(Item::Agent).collect(),
             query,
         );
+        // Without the criterion attention, the group "Needs you" does not exist.
         let (needs, rest): (Vec<_>, Vec<_>) = agents
             .into_iter()
-            .partition(|(item, _)| item.status() == Status::Blocked);
+            .partition(|(item, _)| sources.attention && item.status() == Status::Blocked);
         group(&mut lines, "Needs you", needs);
         group(&mut lines, "Agents", rest);
     }
@@ -281,7 +284,7 @@ fn existing(project: &Project, open: &[Place]) -> Vec<Item> {
 /// projects show their worktrees.
 pub fn worktree_lines(
     current: Option<&Project>,
-    others: &[Project],
+    others: &[&Project],
     open: &[Place],
     query: &str,
 ) -> Vec<Line> {
@@ -526,6 +529,7 @@ mod tests {
             status,
             place: "atlas".into(),
             cwd: None,
+            seq: None,
         }
     }
 
@@ -597,6 +601,7 @@ mod tests {
             open: &[],
             project: None,
             in_sidebar_order: false,
+            attention: true,
         };
         build(&sources, filter, query)
     }
@@ -651,6 +656,7 @@ mod tests {
                 open: &[],
                 project: None,
                 in_sidebar_order,
+                attention: true,
             };
             build(&sources, Filter::Workspaces, "")
         };
@@ -708,6 +714,7 @@ mod tests {
             open: &open,
             project: Some(&atlas),
             in_sidebar_order: false,
+            attention: true,
         };
         let lines = build(&sources, Filter::All, "");
         assert_eq!(
@@ -745,6 +752,7 @@ mod tests {
             open: &open,
             project: Some(&atlas),
             in_sidebar_order: false,
+            attention: true,
         };
         // In All, the workspace of a worktree of the current project is in the group of the
         // worktrees. The filter Workspaces shows it.
@@ -864,7 +872,7 @@ mod tests {
     fn the_filter_worktrees_shows_the_current_project_first_then_the_others() {
         let atlas = Project::sample("atlas", &[("main", Some("/work/atlas")), ("old", None)]);
         let pac = Project::sample("pac", &[("main", Some("/work/pac"))]);
-        let lines = worktree_lines(Some(&atlas), std::slice::from_ref(&pac), &[], "");
+        let lines = worktree_lines(Some(&atlas), &[&pac], &[], "");
         assert_eq!(
             titles(&lines),
             [
@@ -895,11 +903,39 @@ mod tests {
             ]
         );
         // A new branch name gives a new worktree in the current project only.
-        let lines = worktree_lines(Some(&atlas), &[pac], &[], "fix-login");
+        let lines = worktree_lines(Some(&atlas), &[&pac], &[], "fix-login");
         assert_eq!(
             titles(&lines),
             ["# Worktrees of atlas", "new worktree fix-login"]
         );
+    }
+
+    #[test]
+    fn the_group_needs_you_exists_only_with_the_criterion_attention() {
+        let model = Model {
+            agents: vec![
+                agent("blocked", Status::Blocked),
+                agent("idle", Status::Idle),
+            ],
+            ..Model::default()
+        };
+        let titles_with = |attention| {
+            let sources = Sources {
+                model: &model,
+                others: &[],
+                actions: &[],
+                open: &[],
+                project: None,
+                in_sidebar_order: false,
+                attention,
+            };
+            titles(&build(&sources, Filter::Agents, ""))
+        };
+        assert_eq!(
+            titles_with(true),
+            ["# Needs you", "blocked", "# Agents", "idle"]
+        );
+        assert_eq!(titles_with(false), ["# Agents", "blocked", "idle"]);
     }
 
     #[test]

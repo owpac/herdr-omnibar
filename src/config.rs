@@ -12,7 +12,7 @@
 //! # alt+Up and alt+Down move the workspace.
 //! # auto_sort (off by default): the watcher sorts the workspaces with sidebar_order, at its
 //! # start and when a workspace opens or closes.
-//! features = ["mouse", "rename_tab", "auto_titles", "agent_logos", "recent_first"]
+//! features = ["mouse", "rename_tab", "auto_titles", "agent_logos"]
 //! # The filters of the chips, in the order of Tab. Remove a name to hide its filter.
 //! filters = ["all", "agents", "tabs", "workspaces", "worktrees", "folders", "new", "actions"]
 //! # The order of the workspaces in the herdr sidebar: each entry takes the workspaces that no
@@ -20,6 +20,11 @@
 //! # entry with a "/": the git projects in this folder, at any depth (~ is the home folder). Any
 //! # other entry: the workspace with this label, with its worktrees if it is a git workspace.
 //! sidebar_order = ["git", "other"]
+//! # The order of all the lists: the first criterion sorts, the next one sorts the equal rows.
+//! # "attention": the agents that need you, then the agents that are done. "activity": the last
+//! # activity of the agents. "visit": the last visit of the tab. "herdr": the order of herdr (it
+//! # is always the last criterion).
+//! list_order = ["attention", "activity", "visit"]
 //! ```
 //!
 //! A missing file, a missing key or a wrong value gives the default.
@@ -73,13 +78,7 @@ pub enum Pills {
 }
 
 /// The features that are on by default.
-pub const DEFAULT_FEATURES: [&str; 5] = [
-    "mouse",
-    "rename_tab",
-    "auto_titles",
-    "agent_logos",
-    "recent_first",
-];
+pub const DEFAULT_FEATURES: [&str; 4] = ["mouse", "rename_tab", "auto_titles", "agent_logos"];
 
 /// The filters of the chips by default, in the order of Tab. The filter panes is off by default.
 pub const DEFAULT_FILTERS: [&str; 8] = [
@@ -107,9 +106,22 @@ pub struct Config {
     pub filters: Vec<String>,
     /// The entries of the sort of the workspaces, in order (see order::sorted).
     pub sidebar_order: Vec<String>,
+    /// The criteria of the order of the lists (see rank).
+    pub list_order: Vec<String>,
 }
 
 impl Config {
+    /// True if the order of the lists has the criterion `visit`: the watcher and the popup then
+    /// record the visits of the tabs.
+    pub fn orders_by_visit(&self) -> bool {
+        self.orders_by("visit")
+    }
+
+    /// True if the order of the lists has this criterion.
+    pub fn orders_by(&self, criterion: &str) -> bool {
+        self.list_order.iter().any(|entry| entry == criterion)
+    }
+
     /// True if the feature is on.
     pub fn has(&self, feature: &str) -> bool {
         self.features.iter().any(|name| name == feature)
@@ -134,6 +146,10 @@ impl Default for Config {
                 .iter()
                 .map(|name| name.to_string())
                 .collect(),
+            list_order: crate::rank::DEFAULT_LIST_ORDER
+                .iter()
+                .map(|criterion| criterion.to_string())
+                .collect(),
             sidebar_order: crate::order::DEFAULT_SIDEBAR_ORDER
                 .iter()
                 .map(|entry| entry.to_string())
@@ -153,6 +169,7 @@ struct File {
     features: Option<Vec<String>>,
     filters: Option<Vec<String>>,
     sidebar_order: Option<Vec<String>>,
+    list_order: Option<Vec<String>>,
 }
 
 /// The config folder of the plugin.
@@ -207,6 +224,7 @@ fn parse(text: &str) -> Config {
         features: file.features.unwrap_or(defaults.features),
         filters: file.filters.unwrap_or(defaults.filters),
         sidebar_order: file.sidebar_order.unwrap_or(defaults.sidebar_order),
+        list_order: file.list_order.unwrap_or(defaults.list_order),
     }
 }
 
@@ -263,6 +281,22 @@ mod tests {
             ["~", "~/Workspace/owpac", "git", "other"]
         );
         assert_eq!(parse("sidebar_order = 3").sidebar_order, ["git", "other"]);
+    }
+
+    #[test]
+    fn list_order_has_a_default_and_a_wrong_value_gives_the_default() {
+        assert_eq!(parse("").list_order, ["attention", "activity", "visit"]);
+        assert_eq!(parse("list_order = [\"herdr\"]").list_order, ["herdr"]);
+        assert_eq!(parse("list_order = []").list_order, Vec::<String>::new());
+        assert_eq!(
+            parse("list_order = 3").list_order,
+            ["attention", "activity", "visit"]
+        );
+        // The old feature is a name that does nothing.
+        assert!(!parse("").has("recent_first"));
+        assert!(parse("features = [\"recent_first\"]").has("recent_first"));
+        assert!(parse("").orders_by_visit());
+        assert!(!parse("list_order = [\"herdr\"]").orders_by_visit());
     }
 
     #[test]

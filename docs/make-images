@@ -172,7 +172,8 @@ cat > "$demo/actions.json" <<'EOF'
 ]
 EOF
 
-# The last use of the tabs: the tab before the current tab comes first.
+# The last use of the tabs (criterion visit of list_order): it sorts the rows that are equal for
+# attention and activity.
 now=$(date +%s)
 cat > "$demo/state/recent.json" <<EOF
 {"w3:t1": $((now - 60)), "w2:t1": $((now - 600)), "w1:t1": $((now - 1800)), "w4:t1": $((now - 7200)), "w1:t2": $now}
@@ -182,7 +183,7 @@ EOF
 cat > "$demo/config/config.toml" <<EOF
 roots = ["$demo/projects"]
 pills = "square"
-features = ["mouse", "rename_tab", "recent_first", "running_time"]
+features = ["mouse", "rename_tab", "running_time"]
 EOF
 printf '[theme]\nname = "dracula"\n' > "$demo/herdr.toml"
 

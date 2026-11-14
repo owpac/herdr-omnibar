@@ -189,8 +189,8 @@ fn action_of(app: &App, item: &Item) -> Action {
         }
         Item::Workspace(space) => Action::go("go to".to_string(), pill_span(true, &space.label())),
         Item::Action(action) => Action::bare(format!("run the action {}", action.title)),
-        Item::NewWorkspace(text) if text.is_empty() => Action::warning(NAME_MISSING.into()),
-        Item::NewWorkspace(_) => Action::create(item.name(), pill_span(false, "~")),
+        Item::NewHomeWorkspace(text) if text.is_empty() => Action::warning(NAME_MISSING.into()),
+        Item::NewHomeWorkspace(_) => Action::create(item.name(), pill_span(false, "~")),
         Item::Place(place) => Action::go(
             "create".to_string(),
             pill_span(place.kind == Kind::Workspace, &place.label),

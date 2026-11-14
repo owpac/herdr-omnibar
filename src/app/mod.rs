@@ -404,7 +404,7 @@ impl App {
     /// True if ↵ creates a workspace at once: the selected row is "new workspace “text”". Without
     /// a text, ↵ only asks for a name.
     pub fn enter_creates_workspace(&self) -> bool {
-        matches!(self.selected_item(), Some(Item::NewWorkspace(text)) if !text.is_empty())
+        matches!(self.selected_item(), Some(Item::NewHomeWorkspace(text)) if !text.is_empty())
     }
 
     /// The row that a new list selects: the first row. In the step "where" with a filter text, the
@@ -418,7 +418,7 @@ impl App {
             matches!(
                 &self.lines[*index],
                 Line::Row {
-                    item: Item::NewWorkspace(_),
+                    item: Item::NewHomeWorkspace(_),
                     ..
                 }
             )

@@ -31,7 +31,7 @@ pub enum Item {
     Create(String),
     /// A new workspace in ~ with the text as its label: ↵ creates it at once. Without a text, the
     /// row asks for a name.
-    NewWorkspace(String),
+    NewHomeWorkspace(String),
     /// A pane of a tab (filter Panes).
     Pane(PaneRow),
 }
@@ -56,8 +56,8 @@ impl Item {
             Item::Action(action) if action.title.is_empty() => action.action_id.clone(),
             Item::Action(action) => action.title.clone(),
             Item::Create(name) => format!("create “{name}”…"),
-            Item::NewWorkspace(text) if text.is_empty() => "new workspace…".to_string(),
-            Item::NewWorkspace(text) => format!("new workspace “{text}”"),
+            Item::NewHomeWorkspace(text) if text.is_empty() => "new workspace…".to_string(),
+            Item::NewHomeWorkspace(text) => format!("new workspace “{text}”"),
             Item::Pane(pane) => pane.name.clone(),
         }
     }
@@ -77,7 +77,9 @@ impl Item {
             Item::Choice(_) => String::new(),
             Item::Action(action) => action.plugin_id.clone(),
             Item::Create(_) => String::new(),
-            Item::NewWorkspace(_) => format!("a new workspace in {}", home(&places::home_folder())),
+            Item::NewHomeWorkspace(_) => {
+                format!("a new workspace in {}", home(&places::home_folder()))
+            }
             Item::Pane(pane) => format!("{} ▸ {}", pane.place, pane.tab),
         }
     }
@@ -92,7 +94,7 @@ impl Item {
             Item::Choice(choice) => format!("choice:{choice:?}"),
             Item::Action(action) => format!("action:{}:{}", action.plugin_id, action.action_id),
             Item::Create(_) => "create".to_string(),
-            Item::NewWorkspace(_) => "new-workspace".to_string(),
+            Item::NewHomeWorkspace(_) => "new-workspace".to_string(),
             Item::Pane(pane) => format!("pane:{}", pane.pane_id),
         }
     }
@@ -326,7 +328,7 @@ pub fn where_lines(
     group(
         &mut lines,
         "New",
-        vec![(Item::NewWorkspace(query.to_string()), Vec::new())],
+        vec![(Item::NewHomeWorkspace(query.to_string()), Vec::new())],
     );
     let (here, rest): (Vec<Place>, Vec<Place>) = open
         .iter()
@@ -574,11 +576,11 @@ mod tests {
             folder: places::home_folder(),
             ..place(Kind::Folder, "~", None)
         };
-        let empty = Item::NewWorkspace(String::new());
+        let empty = Item::NewHomeWorkspace(String::new());
         assert_ne!(empty.key(), Item::Place(folder).key());
         assert_eq!(empty.name(), "new workspace…");
         assert_eq!(
-            Item::NewWorkspace("ville".into()).name(),
+            Item::NewHomeWorkspace("ville".into()).name(),
             "new workspace “ville”"
         );
     }

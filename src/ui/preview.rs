@@ -44,7 +44,7 @@ pub(super) fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
             ..
         }) if !creating(app) => branch_lines(app, main, branch, worktree.as_ref(), width, height),
         Item::Create(name) => create_lines(app, name, width),
-        Item::NewWorkspace(_) => new_workspace_lines(app, width),
+        Item::NewHomeWorkspace(_) => new_workspace_lines(app, width),
         Item::Place(place) => place_lines(app, place, width),
         Item::Choice(choice) => choice_lines(app, choice, width),
     };

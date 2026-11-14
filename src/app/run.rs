@@ -159,6 +159,6 @@ fn go(item: &Item) -> Result<(), herdr::Error> {
         | Item::Choice(_)
         | Item::Action(_)
         | Item::Create(_)
-        | Item::NewWorkspace(_) => Ok(()),
+        | Item::NewHomeWorkspace(_) => Ok(()),
     }
 }

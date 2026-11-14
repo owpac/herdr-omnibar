@@ -26,7 +26,7 @@ impl App {
         };
         match (self.filter, item) {
             // The row "new workspace…": the typed text is the label, and ↵ creates it at once.
-            (_, Item::NewWorkspace(text)) => {
+            (_, Item::NewHomeWorkspace(text)) => {
                 match create::new_workspace_plan(&text, &self.home_agent(), self.create.no_prompts)
                 {
                     Some(plan) => Outcome::Create(plan),

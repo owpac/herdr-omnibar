@@ -100,13 +100,23 @@ pub const DEFAULT_ROOTS: [&str; 7] = [
     "~/repos",
 ];
 
-/// A path with ~ for the home folder, as an absolute path.
+/// A path with ~ for the home folder, as an absolute path. Without HOME, the path stays as it is.
 pub fn expand(path: &str) -> PathBuf {
-    match (path.strip_prefix('~'), env::var_os("HOME")) {
-        (Some(rest), Some(home)) => {
-            PathBuf::from(format!("{}{rest}", PathBuf::from(home).display()))
-        }
-        _ => PathBuf::from(path),
+    match env::var_os("HOME") {
+        Some(home) => expand_in(path, Path::new(&home)),
+        None => PathBuf::from(path),
+    }
+}
+
+/// A path with ~ for this home folder: `~` is the home folder, and `~/<path>` is in it. Any other
+/// path stays as it is, also `~name`.
+pub fn expand_in(path: &str, home: &Path) -> PathBuf {
+    if path == "~" {
+        return home.to_path_buf();
+    }
+    match path.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None => PathBuf::from(path),
     }
 }
 
@@ -379,6 +389,18 @@ mod tests {
             PathBuf::from(format!("{home}/Workspace"))
         );
         assert_eq!(expand("/tmp"), PathBuf::from("/tmp"));
+    }
+
+    #[test]
+    fn only_a_tilde_alone_or_before_a_slash_is_the_home_folder() {
+        let home = Path::new("/home/u");
+        assert_eq!(expand_in("~", home), PathBuf::from("/home/u"));
+        assert_eq!(expand_in("~/", home), PathBuf::from("/home/u/"));
+        assert_eq!(expand_in("~/code", home), PathBuf::from("/home/u/code"));
+        // ~name is not the home folder of the user: it stays as it is.
+        assert_eq!(expand_in("~name", home), PathBuf::from("~name"));
+        assert_eq!(expand_in("~name/code", home), PathBuf::from("~name/code"));
+        assert_eq!(expand_in("/tmp/~", home), PathBuf::from("/tmp/~"));
     }
 
     #[test]

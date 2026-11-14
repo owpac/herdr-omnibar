@@ -8,7 +8,7 @@
 //! workspace shows at its flat position.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::model::Workspace;
 
@@ -191,14 +191,6 @@ fn is_folder(entry: &str) -> bool {
     entry.contains('/')
 }
 
-/// The folder of an entry: `~` at the start is the home folder.
-fn expand(entry: &str, home: &Path) -> PathBuf {
-    match entry.strip_prefix("~/") {
-        Some(rest) => home.join(rest),
-        None => PathBuf::from(entry),
-    }
-}
-
 /// True if the entry of `sidebar_order` takes the members of a unit: a git group, or a workspace
 /// without git.
 fn takes(entry: &str, members: &[&Workspace], home: &Path) -> bool {
@@ -207,7 +199,7 @@ fn takes(entry: &str, members: &[&Workspace], home: &Path) -> bool {
         "git" => git,
         "other" => !git,
         _ if is_folder(entry) => {
-            let folder = expand(entry, home);
+            let folder = crate::places::expand_in(entry, home);
             members.iter().any(|member| {
                 member
                     .worktree

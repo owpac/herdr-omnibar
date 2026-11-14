@@ -2,6 +2,12 @@
 
 The changes of each release of herdr-omnibar. The workflow release-pr writes this file.
 
+## [2026.11.9](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.9) - 2026-11-14
+
+### Bug fixes
+
+- the tab position, not the creation counter, gives the default name and the order ([#27](https://github.com/owpac/herdr-omnibar/pull/27))
+
 ## [2026.11.8](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.8) - 2026-11-14
 
 ### Features

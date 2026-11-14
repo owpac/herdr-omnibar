@@ -77,6 +77,15 @@ description = "Search each pane of each tab, then go to one"
 contexts = ["global"]
 command = ["bin/herdr-omnibar", "open", "panes"]
 
+# Sort the workspaces of the herdr sidebar: the git projects first, then the other workspaces.
+# `herdr-omnibar sort --print` prints the old and the new order, and changes nothing.
+[[actions]]
+id = "sort"
+title = "Omnibar: sort the workspaces"
+description = "Sort the workspaces: the git projects by name, each with its worktrees, then the others"
+contexts = ["global"]
+command = ["bin/herdr-omnibar", "sort"]
+
 # A tool to check the keyboard: it shows each key that the popup receives. Use it to check that
 # your terminal sends ctrl+Enter, ctrl+Backspace and ctrl+Left to herdr.
 [[actions]]

@@ -144,6 +144,9 @@ pub struct Workspace {
 /// The git worktree data of a workspace, as herdr gives it.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Worktree {
+    /// The key of the repository: the sidebar groups the workspaces with the same key.
+    #[serde(default)]
+    pub repo_key: String,
     #[serde(default)]
     pub repo_name: String,
     #[serde(default)]

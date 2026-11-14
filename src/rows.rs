@@ -156,8 +156,9 @@ pub struct Sources<'a> {
     pub open: &'a [Place],
     /// The current project and its local branches, for the filter All.
     pub project: Option<&'a Project>,
-    /// True if the filter Workspaces shows the order of the sidebar (feature move_workspaces).
-    pub in_sidebar_order: bool,
+    /// The rows of the filter Workspaces, in their order: the order of list_order, or the order
+    /// of the sidebar with move_workspaces (rank::in_sidebar_order).
+    pub workspaces: &'a [Space],
     /// True if attention is the first criterion of the order: the agents that need you have their
     /// group.
     pub attention: bool,
@@ -185,17 +186,12 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
         group(&mut lines, "Tabs", matches(tabs, query));
     }
     if filter == Filter::Workspaces {
-        let mut spaces: Vec<Space> = model.spaces.clone();
-        if sources.in_sidebar_order {
-            let positions = crate::sidebar::screen_positions(&model.flat_workspaces);
-            spaces.sort_by_key(|space| {
-                positions
-                    .get(&space.workspace.workspace_id)
-                    .copied()
-                    .unwrap_or(usize::MAX)
-            });
-        }
-        let spaces = spaces.into_iter().map(Item::Workspace).collect();
+        let spaces = sources
+            .workspaces
+            .iter()
+            .cloned()
+            .map(Item::Workspace)
+            .collect();
         group(&mut lines, "Workspaces", matches(spaces, query));
     }
     if filter == Filter::All {
@@ -593,7 +589,7 @@ mod tests {
             actions,
             open: &[],
             project: None,
-            in_sidebar_order: false,
+            workspaces: &model.spaces,
             attention: true,
         };
         build(&sources, filter, query)
@@ -624,38 +620,47 @@ mod tests {
 
     #[test]
     fn the_filter_workspaces_shows_the_order_of_the_sidebar_with_move_workspaces() {
-        let mut model = Model::default();
         use crate::sidebar::tests::workspace;
-        let flat = vec![
-            workspace("w1", "atlas.fix", Some(("atlas", "atlas", true))),
-            workspace("w2", "pac", Some(("pac", "pac", false))),
-            workspace("w3", "atlas", Some(("atlas", "atlas", false))),
-        ];
-        model.flat_workspaces = flat.clone();
+        let snapshot = crate::model::Snapshot {
+            workspaces: vec![
+                workspace("w1", "atlas.fix", Some(("atlas", "atlas", true))),
+                workspace("w2", "pac", Some(("pac", "pac", false))),
+                workspace("w3", "atlas", Some(("atlas", "atlas", false))),
+            ],
+            ..Default::default()
+        };
+        let mut model = Model::build(&snapshot, &std::collections::HashMap::new());
         // The model is in the order of use: w2 first.
-        model.spaces = ["w2", "w1", "w3"]
+        let by_use: Vec<Space> = ["w2", "w1", "w3"]
             .iter()
-            .map(|id| Space::sample(flat.iter().find(|w| w.workspace_id == *id).unwrap().clone()))
+            .map(|id| {
+                let space = model
+                    .spaces
+                    .iter()
+                    .find(|space| space.workspace.workspace_id == *id);
+                space.unwrap().clone()
+            })
             .collect();
-        let build_with = |in_sidebar_order| {
+        model.spaces = by_use;
+        let build_with = |workspaces: &[Space]| {
             let sources = Sources {
                 model: &model,
                 others: &[],
                 actions: &[],
                 open: &[],
                 project: None,
-                in_sidebar_order,
+                workspaces,
                 attention: true,
             };
             build(&sources, Filter::Workspaces, "")
         };
         assert_eq!(
-            keys(&build_with(false)),
+            keys(&build_with(&model.spaces)),
             ["workspace:w2", "workspace:w1", "workspace:w3"]
         );
         // The group atlas shows at its first member, w1: the main workspace w3 first.
         assert_eq!(
-            keys(&build_with(true)),
+            keys(&build_with(&crate::rank::in_sidebar_order(&model.spaces))),
             ["workspace:w3", "workspace:w1", "workspace:w2"]
         );
     }
@@ -702,7 +707,7 @@ mod tests {
             actions: &[],
             open: &open,
             project: Some(&atlas),
-            in_sidebar_order: false,
+            workspaces: &model.spaces,
             attention: true,
         };
         let lines = build(&sources, Filter::All, "");
@@ -740,7 +745,7 @@ mod tests {
             actions: &[],
             open: &open,
             project: Some(&atlas),
-            in_sidebar_order: false,
+            workspaces: &model.spaces,
             attention: true,
         };
         // In All, the workspace of a worktree of the current project is in the group of the
@@ -915,7 +920,7 @@ mod tests {
                 actions: &[],
                 open: &[],
                 project: None,
-                in_sidebar_order: false,
+                workspaces: &model.spaces,
                 attention,
             };
             titles(&build(&sources, Filter::Agents, ""))

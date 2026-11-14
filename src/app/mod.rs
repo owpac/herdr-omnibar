@@ -8,6 +8,7 @@
 //! filter. The step "what" chooses what to create there: the text is the name of the tab or of the
 //! branch. The text is never both.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -137,6 +138,9 @@ struct Projects {
     /// The other projects with an open workspace, with their worktrees only: the filter
     /// Worktrees. None before the read.
     others: Option<Vec<Project>>,
+    /// The order of `others` for list_order, as indices. App::rank_projects computes it after a
+    /// new model and after a read: a key press does not sort the projects again.
+    others_order: Vec<usize>,
 }
 
 /// The question of the action line, before a close or a removal.
@@ -452,16 +456,26 @@ impl App {
                 ),
                 None => Vec::new(),
             },
-            (Filter::Worktrees, _) => rows::worktree_lines(
-                self.projects.current.as_ref(),
-                &self.ranker.projects(
-                    self.projects.others.as_deref().unwrap_or_default(),
+            (Filter::Worktrees, _) => {
+                let others = self.projects.others.as_deref().unwrap_or_default();
+                let ordered: Vec<&Project> = (self.projects.others_order.iter())
+                    .filter_map(|&index| others.get(index))
+                    .collect();
+                rows::worktree_lines(
+                    self.projects.current.as_ref(),
+                    &ordered,
                     &self.open,
-                ),
-                &self.open,
-                &self.query,
-            ),
+                    &self.query,
+                )
+            }
             _ => {
+                // With move_workspaces, the filter Workspaces shows the order of the sidebar.
+                let workspaces =
+                    if self.filter == Filter::Workspaces && self.config.has("move_workspaces") {
+                        Cow::Owned(crate::rank::in_sidebar_order(&self.model.spaces))
+                    } else {
+                        Cow::Borrowed(self.model.spaces.as_slice())
+                    };
                 let sources = rows::Sources {
                     model: &self.model,
                     others: &self.others,
@@ -472,7 +486,7 @@ impl App {
                         .current
                         .as_ref()
                         .filter(|_| self.filter == Filter::All),
-                    in_sidebar_order: self.config.has("move_workspaces"),
+                    workspaces: &workspaces,
                     attention: crate::rank::attention_first(&self.config.list_order),
                 };
                 rows::build(&sources, self.filter, &self.query)
@@ -553,7 +567,19 @@ impl App {
         for project in &others {
             self.ask_git_states(project);
         }
+        self.set_other_projects(others);
+    }
+
+    /// Keep the other projects of the filter Worktrees, then sort them.
+    fn set_other_projects(&mut self, others: Vec<Project>) {
         self.projects.others = Some(others);
+        self.rank_projects();
+    }
+
+    /// Sort the other projects of the filter Worktrees with the ranks of the open workspaces.
+    fn rank_projects(&mut self) {
+        let others = self.projects.others.as_deref().unwrap_or_default();
+        self.projects.others_order = self.ranker.project_order(others, &self.open);
     }
 
     /// Ask for the git state of the worktrees of a project, and for its pull requests.
@@ -631,6 +657,7 @@ impl App {
         self.current_tab = current_tab;
         self.rank_rows();
         self.open = places::workspaces(&self.model);
+        self.rank_projects();
         self.rebuild(None);
     }
 
@@ -665,6 +692,7 @@ impl App {
             self.projects.others = None;
         }
         self.open = open;
+        self.rank_projects();
         self.ask_times();
         self.previews.clear();
         self.rebuild(key);
@@ -1008,6 +1036,7 @@ pub(crate) mod tests {
             current_read: true,
             current: Some(Project::sample("atlas", branches)),
             others: Some(Vec::new()),
+            others_order: Vec::new(),
         };
     }
 
@@ -1514,7 +1543,7 @@ pub(crate) mod tests {
         app.open[0].main = Some("/work/atlas".into());
         app.open[1].main = Some("/work/pac".into());
         set_branches(&mut app, &[("main", Some("/work/atlas"))]);
-        app.projects.others = Some(vec![Project::sample(
+        app.set_other_projects(vec![Project::sample(
             "pac",
             &[("main", Some("/work/pac")), ("fix", Some("/work/pac.fix"))],
         )]);

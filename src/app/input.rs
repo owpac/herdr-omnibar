@@ -261,7 +261,7 @@ impl App {
         };
         let name = space.label();
         let Some(plan) = sidebar::plan_move(
-            &self.model.flat_workspaces,
+            &self.model.flat_workspaces(),
             &space.workspace.workspace_id,
             delta,
         ) else {

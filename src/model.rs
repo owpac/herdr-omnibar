@@ -334,12 +334,17 @@ pub fn checkouts_of(folders: &[PathBuf]) -> HashMap<PathBuf, Option<Checkout>> {
     })
 }
 
-/// A workspace with its folder and its checkout.
+/// A workspace with its folder, its checkout, and its 2 positions in herdr.
 #[derive(Clone, Debug)]
 pub struct Space {
     pub workspace: Workspace,
     pub folder: Option<PathBuf>,
     pub checkout: Option<Checkout>,
+    /// The index of the workspace in the flat list of the snapshot: its number minus 1. A move of
+    /// the sidebar works on this list.
+    pub flat: usize,
+    /// The position of the workspace on the screen: the sidebar groups the worktrees.
+    pub screen: usize,
 }
 
 impl Space {
@@ -350,6 +355,8 @@ impl Space {
             workspace,
             folder: None,
             checkout: None,
+            flat: 0,
+            screen: 0,
         }
     }
 
@@ -469,23 +476,25 @@ pub struct Model {
     /// Each pane of each tab (filter Panes).
     pub panes: Vec<PaneRow>,
     pub focused_workspace_id: Option<String>,
-    /// The workspaces in the flat order of the snapshot: the sidebar order comes from it.
-    pub flat_workspaces: Vec<Workspace>,
-    /// The number of each tab in its workspace, by tab id: the order of herdr.
-    pub tab_numbers: HashMap<String, u32>,
-    /// The position of each pane in the snapshot, by pane id: the order of herdr.
-    pub pane_index: HashMap<String, usize>,
     /// The tabs of each workspace, by workspace id, in their order.
     pub workspace_tabs: HashMap<String, Vec<TabSummary>>,
 }
 
 impl Model {
     /// The model of a snapshot, with the checkouts of the folders of its workspaces.
+    ///
+    /// The rows come in the order of herdr: the workspace on the screen, then the number of the
+    /// tab, then the order of the pane in the snapshot. The sort of rank.rs is stable: it keeps
+    /// this order for the rows that its criteria do not separate.
     pub fn build(snapshot: &Snapshot, checkouts: &HashMap<PathBuf, Option<Checkout>>) -> Model {
+        let screen = crate::sidebar::screen_positions(&snapshot.workspaces);
+        let screen_of =
+            |workspace_id: &str| screen.get(workspace_id).copied().unwrap_or(usize::MAX);
         let spaces: Vec<Space> = snapshot
             .workspaces
             .iter()
-            .map(|workspace| {
+            .enumerate()
+            .map(|(flat, workspace)| {
                 let folder = folder_of(snapshot, &workspace.workspace_id);
                 let checkout = folder
                     .as_ref()
@@ -494,6 +503,8 @@ impl Model {
                     workspace: workspace.clone(),
                     folder,
                     checkout,
+                    flat,
+                    screen: screen_of(&workspace.workspace_id),
                 }
             })
             .collect();
@@ -538,7 +549,7 @@ impl Model {
                 .or_insert(info.state_change_seq);
         }
         let seq_of = |pane_id: &str| seqs.get(pane_id).copied().flatten();
-        let agents: Vec<AgentRow> = snapshot
+        let mut agents: Vec<AgentRow> = snapshot
             .panes
             .iter()
             .filter_map(|pane| {
@@ -557,7 +568,7 @@ impl Model {
             })
             .collect();
 
-        let panes = snapshot
+        let mut panes: Vec<PaneRow> = snapshot
             .panes
             .iter()
             .map(|pane| {
@@ -591,7 +602,7 @@ impl Model {
                 }
             })
             .collect();
-        let tabs = snapshot
+        let mut tabs: Vec<TabRow> = snapshot
             .tabs
             .iter()
             .filter(|tab| {
@@ -637,26 +648,49 @@ impl Model {
                     status: agent_pane.map(|pane| pane.agent_status).unwrap_or_default(),
                 });
         }
+        // The order of herdr. A tab without a number and an unknown pane go last.
+        let tab_numbers: HashMap<&str, u32> = snapshot
+            .tabs
+            .iter()
+            .filter_map(|tab| Some((tab.tab_id.as_str(), tab.number?)))
+            .collect();
+        let pane_index: HashMap<&str, usize> = snapshot
+            .panes
+            .iter()
+            .enumerate()
+            .map(|(index, pane)| (pane.pane_id.as_str(), index))
+            .collect();
+        let herdr = |workspace_id: &str, tab_id: &str, pane_id: &str| {
+            (
+                screen_of(workspace_id),
+                tab_numbers.get(tab_id).copied().unwrap_or(u32::MAX),
+                pane_index.get(pane_id).copied().unwrap_or(usize::MAX),
+            )
+        };
+        agents.sort_by_key(|row| herdr(&row.workspace_id, &row.tab_id, &row.pane_id));
+        panes.sort_by_key(|row| herdr(&row.workspace_id, &row.tab_id, &row.pane_id));
+        tabs.sort_by_key(|row| {
+            let pane_id = row.pane_id.as_deref().unwrap_or_default();
+            herdr(&row.workspace_id, &row.tab_id, pane_id)
+        });
         Model {
             spaces,
             agents,
             tabs,
             panes,
             focused_workspace_id: snapshot.focused_workspace_id.clone(),
-            flat_workspaces: snapshot.workspaces.clone(),
-            tab_numbers: snapshot
-                .tabs
-                .iter()
-                .filter_map(|tab| Some((tab.tab_id.clone(), tab.number?)))
-                .collect(),
-            pane_index: snapshot
-                .panes
-                .iter()
-                .enumerate()
-                .map(|(index, pane)| (pane.pane_id.clone(), index))
-                .collect(),
             workspace_tabs,
         }
+    }
+
+    /// The workspaces in the flat order of the snapshot, for a move of the sidebar.
+    pub fn flat_workspaces(&self) -> Vec<Workspace> {
+        let mut spaces: Vec<&Space> = self.spaces.iter().collect();
+        spaces.sort_by_key(|space| space.flat);
+        spaces
+            .into_iter()
+            .map(|space| space.workspace.clone())
+            .collect()
     }
 }
 

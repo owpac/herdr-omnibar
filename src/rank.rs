@@ -70,8 +70,9 @@ pub struct Rank {
     activity: Option<u64>,
     /// The last visit of the tab, or of the tabs of the row. 0: never.
     visit: u64,
-    /// The workspace on the screen, the number of the tab, the order of the pane.
-    herdr: (usize, u32, usize),
+    /// The position of a workspace on the screen. The rows of the other lists have the same
+    /// value: Model::build gives them in the order of herdr, and the sort is stable.
+    herdr: usize,
 }
 
 /// The rank of a row without a value: no agent, no visit, after the workspaces of the screen.
@@ -80,7 +81,7 @@ const NO_RANK: Rank = Rank {
     attention: 3,
     activity: None,
     visit: 0,
-    herdr: (usize::MAX, 0, 0),
+    herdr: usize::MAX,
 };
 
 impl Rank {
@@ -113,10 +114,6 @@ pub struct Ranker {
 struct Rows<'a> {
     visits: &'a Visits,
     current_tab: Option<&'a str>,
-    /// The position of each workspace on the screen.
-    screen: &'a HashMap<String, usize>,
-    tab_numbers: &'a HashMap<String, u32>,
-    pane_index: &'a HashMap<String, usize>,
 }
 
 fn attention_of(status: Status) -> u8 {
@@ -134,7 +131,6 @@ fn workspace_ranks(
     model: &Model,
     visits: &Visits,
     current_workspace: Option<&str>,
-    screen: &HashMap<String, usize>,
 ) -> HashMap<String, Rank> {
     // The highest activity of the agents and the last visit of the tabs of each workspace, in
     // one pass over the agents and one pass over the panes.
@@ -163,7 +159,7 @@ fn workspace_ranks(
                 attention: attention_of(space.workspace.agent_status),
                 activity: activities.get(id.as_str()).copied(),
                 visit: workspace_visits.get(id.as_str()).copied().unwrap_or(0),
-                herdr: (screen.get(id).copied().unwrap_or(usize::MAX), 0, 0),
+                herdr: space.screen,
             };
             (id.clone(), rank)
         })
@@ -171,17 +167,14 @@ fn workspace_ranks(
 }
 
 impl Rows<'_> {
-    /// The rank of a row of a tab: the current tab, the visit of the tab and the order of herdr.
-    /// The row has no agent: the rows of an agent add their attention and their activity.
-    fn at(&self, workspace_id: &str, tab_id: &str, pane_id: &str) -> Rank {
+    /// The rank of a row of a tab: the current tab and the visit of the tab. The order of herdr
+    /// is the order of the list. The row has no agent: the rows of an agent add their attention
+    /// and their activity.
+    fn at(&self, tab_id: &str) -> Rank {
         Rank {
             current: self.current_tab == Some(tab_id),
             visit: self.visits.get(tab_id).copied().unwrap_or(0),
-            herdr: (
-                self.screen.get(workspace_id).copied().unwrap_or(usize::MAX),
-                self.tab_numbers.get(tab_id).copied().unwrap_or(u32::MAX),
-                self.pane_index.get(pane_id).copied().unwrap_or(usize::MAX),
-            ),
+            herdr: 0,
             ..NO_RANK
         }
     }
@@ -190,7 +183,7 @@ impl Rows<'_> {
         Rank {
             attention: attention_of(agent.status),
             activity: agent.seq,
-            ..self.at(&agent.workspace_id, &agent.tab_id, &agent.pane_id)
+            ..self.at(&agent.tab_id)
         }
     }
 
@@ -202,17 +195,13 @@ impl Rows<'_> {
                 None => NO_RANK.attention,
             },
             activity: pane.seq,
-            ..self.at(&pane.workspace_id, &pane.tab_id, &pane.pane_id)
+            ..self.at(&pane.tab_id)
         }
     }
 
     /// A tab row has no agent: the visit and the order of herdr sort it.
     fn tab(&self, tab: &TabRow) -> Rank {
-        self.at(
-            &tab.workspace_id,
-            &tab.tab_id,
-            tab.pane_id.as_deref().unwrap_or_default(),
-        )
+        self.at(&tab.tab_id)
     }
 }
 
@@ -220,6 +209,9 @@ impl Ranker {
     /// Sort the lists of a model with the criteria of `list_order`: the agents, the tabs, the panes
     /// and the workspaces. Return the ranks of the workspaces, for the groups of the filter
     /// Worktrees.
+    ///
+    /// Sort each model one time, as Model::build gives it: the criterion herdr keeps the order of
+    /// the rows in the list.
     pub fn sort(
         model: &mut Model,
         list_order: &[String],
@@ -227,32 +219,18 @@ impl Ranker {
         current_tab: Option<&str>,
         current_workspace: Option<&str>,
     ) -> Ranker {
-        let screen = crate::sidebar::screen_positions(&model.flat_workspaces);
         let ranker = Ranker {
             criteria: criteria(list_order),
-            workspaces: workspace_ranks(model, visits, current_workspace, &screen),
+            workspaces: workspace_ranks(model, visits, current_workspace),
         };
-        // The rows borrow the maps of the model while the lists of the model change.
-        let Model {
-            agents,
-            tabs,
-            panes,
-            spaces,
-            tab_numbers,
-            pane_index,
-            ..
-        } = model;
         let rows = Rows {
             visits,
             current_tab,
-            screen: &screen,
-            tab_numbers,
-            pane_index,
         };
-        ranker.sort_rows(agents, |agent| rows.agent(agent));
-        ranker.sort_rows(tabs, |tab| rows.tab(tab));
-        ranker.sort_rows(panes, |pane| rows.pane(pane));
-        ranker.sort_rows(spaces, |space| ranker.space(space));
+        ranker.sort_rows(&mut model.agents, |agent| rows.agent(agent));
+        ranker.sort_rows(&mut model.tabs, |tab| rows.tab(tab));
+        ranker.sort_rows(&mut model.panes, |pane| rows.pane(pane));
+        ranker.sort_rows(&mut model.spaces, |space| ranker.space(space));
         ranker
     }
 
@@ -283,13 +261,21 @@ impl Ranker {
         rows.extend(ranked.into_iter().map(|(_, row)| row));
     }
 
-    /// The other projects of the filter Worktrees, in this order. The current project is not
-    /// here: it stays first.
-    pub fn projects<'a>(&self, projects: &'a [Project], open: &[Place]) -> Vec<&'a Project> {
-        let mut ordered: Vec<&Project> = projects.iter().collect();
-        self.sort_rows(&mut ordered, |project| self.project(project, open));
-        ordered
+    /// The order of the other projects of the filter Worktrees, as indices in `projects`. The
+    /// current project is not here: it stays first.
+    pub fn project_order(&self, projects: &[Project], open: &[Place]) -> Vec<usize> {
+        let mut order: Vec<usize> = (0..projects.len()).collect();
+        self.sort_rows(&mut order, |&index| self.project(&projects[index], open));
+        order
     }
+}
+
+/// The workspaces in the order of the sidebar (feature move_workspaces): the criterion herdr
+/// alone. The current workspace keeps its place.
+pub fn in_sidebar_order(spaces: &[Space]) -> Vec<Space> {
+    let mut spaces = spaces.to_vec();
+    spaces.sort_by_key(|space| space.screen);
+    spaces
 }
 
 #[cfg(test)]
@@ -312,7 +298,7 @@ mod tests {
         }
     }
 
-    /// A model with 5 agents: the pane and the tab numbers follow the order of the names.
+    /// A model with 5 agents, in the order of herdr: the order of the names.
     fn model() -> Model {
         let agents = vec![
             row("a-idle-old", Status::Idle, Some(10), "t1", "p1"),
@@ -321,15 +307,10 @@ mod tests {
             row("d-blocked", Status::Blocked, Some(5), "t4", "p4"),
             row("e-no-seq", Status::Idle, None, "t5", "p5"),
         ];
-        let mut model = Model {
+        Model {
             agents,
             ..Model::default()
-        };
-        for (index, tab) in ["t1", "t2", "t3", "t4", "t5"].iter().enumerate() {
-            model.tab_numbers.insert(tab.to_string(), index as u32 + 1);
-            model.pane_index.insert(format!("p{}", index + 1), index);
         }
-        model
     }
 
     fn names(model: &Model) -> Vec<&str> {
@@ -546,9 +527,9 @@ mod tests {
             .collect();
         let projects = [project("a"), project("b"), project("c"), project("d")];
         let ordered: Vec<&str> = ranker
-            .projects(&projects, &places)
-            .iter()
-            .map(|project| project.name.as_str())
+            .project_order(&projects, &places)
+            .into_iter()
+            .map(|index| projects[index].name.as_str())
             .collect();
         assert_eq!(ordered, ["b", "c", "a", "d"]);
     }

@@ -100,9 +100,10 @@ pub const DEFAULT_ROOTS: [&str; 7] = [
     "~/repos",
 ];
 
-/// A path with ~ for the home folder, as an absolute path. Without HOME, the path stays as it is.
+/// A path with ~ for the home folder, as an absolute path. Without HOME, or with an empty HOME, the
+/// path stays as it is.
 pub fn expand(path: &str) -> PathBuf {
-    match env::var_os("HOME") {
+    match env::var_os("HOME").filter(|home| !home.is_empty()) {
         Some(home) => expand_in(path, Path::new(&home)),
         None => PathBuf::from(path),
     }

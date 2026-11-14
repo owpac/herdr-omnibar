@@ -106,7 +106,7 @@ pub struct Config {
     pub features: Vec<String>,
     /// The names of the filters of the chips, in the order of Tab.
     pub filters: Vec<String>,
-    /// The entries of the sort of the workspaces, in order (see sidebar::sorted).
+    /// The entries of the sort of the workspaces, in order (see sort::sorted).
     pub sidebar_order: Vec<String>,
     /// The criteria of the order of the lists (see rank).
     pub list_order: Vec<String>,
@@ -135,7 +135,7 @@ impl Default for Config {
             features: owned(&DEFAULT_FEATURES),
             filters: owned(&DEFAULT_FILTERS),
             list_order: owned(&crate::rank::DEFAULT_LIST_ORDER),
-            sidebar_order: owned(&crate::sidebar::DEFAULT_SIDEBAR_ORDER),
+            sidebar_order: owned(&crate::sort::DEFAULT_SIDEBAR_ORDER),
         }
     }
 }

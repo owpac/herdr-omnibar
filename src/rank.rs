@@ -272,8 +272,8 @@ impl Ranker {
 
 /// The workspaces in the order of the sidebar (feature move_workspaces): the criterion herdr
 /// alone. The current workspace keeps its place.
-pub fn in_sidebar_order(spaces: &[Space]) -> Vec<Space> {
-    let mut spaces = spaces.to_vec();
+pub fn in_sidebar_order(spaces: &[Space]) -> Vec<&Space> {
+    let mut spaces: Vec<&Space> = spaces.iter().collect();
     spaces.sort_by_key(|space| space.screen);
     spaces
 }

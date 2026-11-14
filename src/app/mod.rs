@@ -8,7 +8,6 @@
 //! filter. The step "what" chooses what to create there: the text is the name of the tab or of the
 //! branch. The text is never both.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -21,7 +20,7 @@ use crate::config::{Config, Preview};
 use crate::create::{self, Choice, Plan};
 use crate::filter::Filter;
 use crate::herdr::{self, PluginAction};
-use crate::model::Model;
+use crate::model::{Model, Space};
 use crate::places::{self, Place, Project};
 use crate::pulls::{Lookup, Pulls};
 use crate::rank::Ranker;
@@ -405,10 +404,10 @@ impl App {
             .find(|place| place.workspace_id.as_deref() == Some(workspace_id))
     }
 
-    /// True if ↵ creates a workspace at once: the selected row is "new workspace “text”". Without
-    /// a text, ↵ only asks for a name.
+    /// True if ↵ creates a workspace at once: the selected row is "new workspace “text”" (the row
+    /// of Item::is_fallback). Without a text, ↵ only asks for a name.
     pub fn enter_creates_workspace(&self) -> bool {
-        matches!(self.selected_item(), Some(Item::NewHomeWorkspace(text)) if !text.is_empty())
+        self.selected_item().is_some_and(Item::is_fallback)
     }
 
     /// The row that a new list selects: the first row that is not a fallback (Item::is_fallback),
@@ -470,11 +469,11 @@ impl App {
             }
             _ => {
                 // With move_workspaces, the filter Workspaces shows the order of the sidebar.
-                let workspaces =
+                let workspaces: Vec<&Space> =
                     if self.filter == Filter::Workspaces && self.config.has("move_workspaces") {
-                        Cow::Owned(crate::rank::in_sidebar_order(&self.model.spaces))
+                        crate::rank::in_sidebar_order(&self.model.spaces)
                     } else {
-                        Cow::Borrowed(self.model.spaces.as_slice())
+                        self.model.spaces.iter().collect()
                     };
                 let sources = rows::Sources {
                     model: &self.model,

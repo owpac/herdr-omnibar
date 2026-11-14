@@ -158,7 +158,7 @@ pub struct Sources<'a> {
     pub project: Option<&'a Project>,
     /// The rows of the filter Workspaces, in their order: the order of list_order, or the order
     /// of the sidebar with move_workspaces (rank::in_sidebar_order).
-    pub workspaces: &'a [Space],
+    pub workspaces: &'a [&'a Space],
     /// True if attention is the first criterion of the order: the agents that need you have their
     /// group.
     pub attention: bool,
@@ -189,8 +189,7 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
         let spaces = sources
             .workspaces
             .iter()
-            .cloned()
-            .map(Item::Workspace)
+            .map(|space| Item::Workspace((*space).clone()))
             .collect();
         group(&mut lines, "Workspaces", matches(spaces, query));
     }
@@ -589,7 +588,7 @@ mod tests {
             actions,
             open: &[],
             project: None,
-            workspaces: &model.spaces,
+            workspaces: &model.spaces.iter().collect::<Vec<_>>(),
             attention: true,
         };
         build(&sources, filter, query)
@@ -642,7 +641,7 @@ mod tests {
             })
             .collect();
         model.spaces = by_use;
-        let build_with = |workspaces: &[Space]| {
+        let build_with = |workspaces: &[&Space]| {
             let sources = Sources {
                 model: &model,
                 others: &[],
@@ -655,7 +654,7 @@ mod tests {
             build(&sources, Filter::Workspaces, "")
         };
         assert_eq!(
-            keys(&build_with(&model.spaces)),
+            keys(&build_with(&model.spaces.iter().collect::<Vec<_>>())),
             ["workspace:w2", "workspace:w1", "workspace:w3"]
         );
         // The group atlas shows at its first member, w1: the main workspace w3 first.
@@ -707,7 +706,7 @@ mod tests {
             actions: &[],
             open: &open,
             project: Some(&atlas),
-            workspaces: &model.spaces,
+            workspaces: &model.spaces.iter().collect::<Vec<_>>(),
             attention: true,
         };
         let lines = build(&sources, Filter::All, "");
@@ -745,7 +744,7 @@ mod tests {
             actions: &[],
             open: &open,
             project: Some(&atlas),
-            workspaces: &model.spaces,
+            workspaces: &model.spaces.iter().collect::<Vec<_>>(),
             attention: true,
         };
         // In All, the workspace of a worktree of the current project is in the group of the
@@ -920,7 +919,7 @@ mod tests {
                 actions: &[],
                 open: &[],
                 project: None,
-                workspaces: &model.spaces,
+                workspaces: &model.spaces.iter().collect::<Vec<_>>(),
                 attention,
             };
             titles(&build(&sources, Filter::Agents, ""))

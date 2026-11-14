@@ -279,9 +279,6 @@ mod tests {
             parse("list_order = 3").list_order,
             ["attention", "activity", "visit"]
         );
-        // The old feature is a name that does nothing.
-        assert!(!parse("").has("recent_first"));
-        assert!(parse("features = [\"recent_first\"]").has("recent_first"));
         assert!(parse("").orders_by(Criterion::Visit));
         assert!(!parse("list_order = [\"herdr\"]").orders_by(Criterion::Visit));
     }

@@ -308,18 +308,20 @@ pub struct Space {
 }
 
 impl Space {
-    /// The project of the workspace: its git repository. Without a checkout, the repository that
-    /// herdr gives. Outside git, the name that herdr gives to the workspace, else its folder.
+    /// The project of the workspace: its git repository. For a linked worktree without a checkout,
+    /// the repository that herdr gives: its label is the branch. Else the name that herdr gives to
+    /// the workspace, else its folder.
     pub fn project(&self) -> String {
         if let Some(checkout) = &self.checkout {
             return checkout.project();
         }
-        let repo_name = self
+        let linked_repo = self
             .workspace
             .worktree
             .as_ref()
+            .filter(|worktree| worktree.is_linked_worktree)
             .map(|worktree| &worktree.repo_name);
-        if let Some(name) = repo_name.filter(|name| !name.is_empty()) {
+        if let Some(name) = linked_repo.filter(|name| !name.is_empty()) {
             return name.clone();
         }
         if !self.workspace.label.is_empty() {
@@ -871,6 +873,14 @@ mod tests {
         assert_eq!(space("atlas.fix").project(), "atlas");
         assert_eq!(space("atlas.fix").label(), "atlas ▸ atlas.fix");
         assert_eq!(space("my fix").label(), "atlas ▸ my fix");
+        // A main workspace without a checkout keeps its herdr label: 2 checkouts of one repository
+        // keep 2 names.
+        let main = Space {
+            workspace: git_workspace("atlas-2", false, "/work/atlas-2"),
+            folder: None,
+            checkout: None,
+        };
+        assert_eq!(main.project(), "atlas-2");
     }
 
     #[test]

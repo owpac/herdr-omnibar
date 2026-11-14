@@ -2,6 +2,12 @@
 
 The changes of each release of herdr-omnibar. The workflow release-pr writes this file.
 
+## [2026.11.8](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.8) - 2026-11-14
+
+### Features
+
+- the agents go in 4 groups by status: Needs you, Done, Working, Idle ([#25](https://github.com/owpac/herdr-omnibar/pull/25))
+
 ## [2026.11.7](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.7) - 2026-11-14
 
 ### Bug fixes

@@ -2,6 +2,20 @@
 
 The changes of each release of herdr-omnibar. The workflow release-pr writes this file.
 
+## [2026.11.6](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.6) - 2026-11-14
+
+### Features
+
+- ctrl+R renames the tab, the workspace or the pane of each row, and ctrl+T names a tab by itself ([#16](https://github.com/owpac/herdr-omnibar/pull/16))
+- the filter New creates a workspace in ~ with one enter ([#17](https://github.com/owpac/herdr-omnibar/pull/17))
+- the action "Omnibar: sort the workspaces" with the key sidebar_order and the feature auto_sort ([#18](https://github.com/owpac/herdr-omnibar/pull/18))
+- the feature move_workspaces moves a workspace with alt+Up and alt+Down ([#19](https://github.com/owpac/herdr-omnibar/pull/19))
+- the key list_order sorts all the lists ([#20](https://github.com/owpac/herdr-omnibar/pull/20))
+
+### Bug fixes
+
+- the columns of the list stay at their place ([#15](https://github.com/owpac/herdr-omnibar/pull/15))
+
 ## [2026.11.5](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.5) - 2026-11-13
 
 ### Bug fixes

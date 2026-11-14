@@ -49,12 +49,6 @@ pub fn home_folder() -> PathBuf {
 }
 
 impl Place {
-    /// True if the typed name labels the new workspace of this place, and not its first tab: the
-    /// place already has a workspace.
-    pub fn labels_new_workspace(&self) -> bool {
-        self.workspace_id.is_some()
-    }
-
     /// A place in /work/<label> for the tests: a workspace if `workspace` is given, else a project.
     #[cfg(test)]
     pub fn sample(label: &str, workspace: Option<&str>, main: Option<&str>) -> Place {

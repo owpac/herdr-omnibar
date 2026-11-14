@@ -379,7 +379,8 @@ fn name_style(item: &Item) -> Style {
             Choice::NewWorktree { .. }
             | Choice::NewTab
             | Choice::NewSplit { .. }
-            | Choice::NewWorkspace,
+            | Choice::NewWorkspace
+            | Choice::LabelledWorkspace,
         )
         | Item::Create(_)
         | Item::NewHomeWorkspace(_) => Style::new().fg(green_color()),
@@ -395,7 +396,7 @@ fn display_name(item: &Item, app: &App) -> String {
         Item::Choice(Choice::NewSplit { .. }) if !name.is_empty() => {
             format!("new split “{name}”")
         }
-        Item::Choice(Choice::NewWorkspace) if !name.is_empty() => {
+        Item::Choice(Choice::NewWorkspace | Choice::LabelledWorkspace) if !name.is_empty() => {
             format!("new workspace “{name}”")
         }
         _ => item.name(),
@@ -456,13 +457,7 @@ fn context_of(item: &Item, app: &App) -> String {
             Choice::Existing { .. } => "create its worktree".into(),
             Choice::NewTab => format!("{}in {}", auto_name(app), target_label(app)),
             Choice::NewSplit { .. } => "next to the current pane".into(),
-            Choice::NewWorkspace
-                if app
-                    .create
-                    .place
-                    .as_ref()
-                    .is_some_and(Place::labels_new_workspace) =>
-            {
+            Choice::LabelledWorkspace => {
                 // The typed name is the label of the workspace: herdr names its first tab.
                 format!("a new workspace in {}", target_label(app))
             }

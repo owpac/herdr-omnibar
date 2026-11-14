@@ -253,9 +253,10 @@ fn choice_lines(app: &App, choice: &Choice, width: usize) -> Vec<Line<'static>> 
             );
             lines.extend(wrap(&text, width).into_iter().map(muted));
         }
-        (Choice::NewWorkspace, Some(place)) => {
-            // The names of the plan: at a place with a workspace, the typed name is the label.
-            let (label, first_tab) = create::new_workspace_names(place, name);
+        (Choice::NewWorkspace | Choice::LabelledWorkspace, Some(place)) => {
+            // The names of the plan: with a label, the typed name is the label.
+            let labelled = *choice == Choice::LabelledWorkspace;
+            let (label, first_tab) = create::new_workspace_names(place, name, labelled);
             let first_tab = if first_tab.is_empty() {
                 "(auto name)"
             } else {
@@ -449,7 +450,7 @@ mod tests {
         app.create.step = Step::What;
         app.create.place = Some(Place::sample("atlas", Some("w1"), None));
         app.create.name = "my label".into();
-        let lines = text(&choice_lines(&app, &Choice::NewWorkspace, 60));
+        let lines = text(&choice_lines(&app, &Choice::LabelledWorkspace, 60));
         // The pill holds the label, and the automatic titles name the first tab.
         assert!(
             lines.iter().any(|line| line.contains("my label")),

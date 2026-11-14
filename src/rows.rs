@@ -50,7 +50,7 @@ impl Item {
                 Choice::Existing { branch, .. } => branch.clone(),
                 Choice::NewTab => "new tab".into(),
                 Choice::NewSplit { .. } => "new split".into(),
-                Choice::NewWorkspace => "new workspace".into(),
+                Choice::NewWorkspace | Choice::LabelledWorkspace => "new workspace".into(),
                 Choice::AnotherPlace => "another place…".into(),
             },
             Item::Action(action) if action.title.is_empty() => action.action_id.clone(),

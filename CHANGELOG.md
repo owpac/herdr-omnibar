@@ -2,6 +2,12 @@
 
 The changes of each release of herdr-omnibar. The workflow release-pr writes this file.
 
+## [2026.11.10](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.10) - 2026-11-14
+
+### Bug fixes
+
+- with a query, all the agents go in one group sorted by score ([#29](https://github.com/owpac/herdr-omnibar/pull/29))
+
 ## [2026.11.9](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.9) - 2026-11-14
 
 ### Bug fixes

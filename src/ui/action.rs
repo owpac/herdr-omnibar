@@ -189,10 +189,8 @@ fn action_of(app: &App, item: &Item) -> Action {
         }
         Item::Workspace(space) => Action::go("go to".to_string(), pill_span(true, &space.label())),
         Item::Action(action) => Action::bare(format!("run the action {}", action.title)),
-        Item::NewWorkspace(text) if text.is_empty() => Action::warning(NAME_MISSING.into()),
-        Item::NewWorkspace(text) => {
-            Action::create(format!("new workspace “{text}”"), pill_span(false, "~"))
-        }
+        Item::NewHomeWorkspace(text) if text.is_empty() => Action::warning(NAME_MISSING.into()),
+        Item::NewHomeWorkspace(_) => Action::create(item.name(), pill_span(false, "~")),
         Item::Place(place) => Action::go(
             "create".to_string(),
             pill_span(place.kind == Kind::Workspace, &place.label),
@@ -252,7 +250,7 @@ fn choice_action(app: &App, choice: &Choice) -> Action {
         ),
         Choice::NewTab => Action::create(tab, pill_span(true, place_label)),
         Choice::NewSplit { .. } => Action::create(new("split"), pill_span(true, place_label)),
-        Choice::NewWorkspace if place.is_some_and(Place::labels_new_workspace) => {
+        Choice::LabelledWorkspace => {
             Action::create(new("workspace"), pill_span(false, place_label))
         }
         Choice::NewWorkspace => Action::create(tab, pill_span(false, place_label)),

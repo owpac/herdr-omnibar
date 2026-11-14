@@ -49,10 +49,23 @@ pub fn home_folder() -> PathBuf {
 }
 
 impl Place {
-    /// True if the typed name labels the new workspace of this place, and not its first tab: the
-    /// place already has a workspace.
-    pub fn labels_new_workspace(&self) -> bool {
-        self.workspace_id.is_some()
+    /// A place in /work/<label> for the tests: a workspace if `workspace` is given, else a project.
+    #[cfg(test)]
+    pub fn sample(label: &str, workspace: Option<&str>, main: Option<&str>) -> Place {
+        Place {
+            kind: if workspace.is_some() {
+                Kind::Workspace
+            } else {
+                Kind::Project
+            },
+            label: label.into(),
+            project: label.into(),
+            folder: format!("/work/{label}").into(),
+            workspace_id: workspace.map(str::to_string),
+            workspace_label: workspace.map(|_| label.to_string()),
+            main: main.map(PathBuf::from),
+            tabs: Vec::new(),
+        }
     }
 
     /// A key that stays the same between 2 refreshes.
@@ -180,6 +193,11 @@ fn place_of(kind: Kind, folder: PathBuf) -> Place {
         workspace_label: None,
         tabs: Vec::new(),
     }
+}
+
+/// The place of the home folder: the place of the row "new workspace…".
+pub fn home_place() -> Place {
+    place_of(Kind::Folder, home_folder())
 }
 
 /// A place for a folder that the user typed.

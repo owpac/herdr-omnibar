@@ -20,13 +20,13 @@ use crate::config::{Config, Preview};
 use crate::create::{self, Choice, Plan};
 use crate::filter::Filter;
 use crate::herdr::{self, PluginAction};
-use crate::model::Model;
+use crate::model::{Model, Space};
 use crate::places::{self, Place, Project};
 use crate::pulls::{Lookup, Pulls};
 use crate::rank::Ranker;
-use crate::recent::Recent;
 use crate::rows::{self, Item, Line};
 use crate::times::{self, Times};
+use crate::visits::Visits;
 
 mod input;
 mod run;
@@ -80,21 +80,12 @@ pub enum RenameTarget {
 }
 
 impl RenameTarget {
-    /// The word for the target, in the messages.
+    /// The word for the target, in the messages and in the search line.
     pub fn noun(&self) -> &'static str {
         match self {
             RenameTarget::Tab(_) => "tab",
             RenameTarget::Workspace(_) => "workspace",
             RenameTarget::Pane(_) => "pane",
-        }
-    }
-
-    /// The placeholder of the search line, while the user types the new name.
-    pub fn placeholder(&self) -> &'static str {
-        match self {
-            RenameTarget::Tab(_) => "the new name of the tab",
-            RenameTarget::Workspace(_) => "the new name of the workspace",
-            RenameTarget::Pane(_) => "the new name of the pane",
         }
     }
 }
@@ -146,6 +137,9 @@ struct Projects {
     /// The other projects with an open workspace, with their worktrees only: the filter
     /// Worktrees. None before the read.
     others: Option<Vec<Project>>,
+    /// The order of `others` for list_order, as indices. App::rank_projects computes it after a
+    /// new model and after a read: a key press does not sort the projects again.
+    others_order: Vec<usize>,
 }
 
 /// The question of the action line, before a close or a removal.
@@ -227,7 +221,7 @@ pub struct App {
     /// The order of the lists: the ranks of the rows (key `list_order` of the config).
     ranker: Ranker,
     /// The times of use of the tabs, and the tab of the popup (criterion visit).
-    recent: Recent,
+    visits: Visits,
     current_tab: Option<String>,
     /// The last agent of each folder (agents.json), read one time when the popup opens. Empty in
     /// the tests: they do not read the state of the machine.
@@ -297,7 +291,7 @@ impl App {
             pulls: Pulls::default(),
             logos: false,
             remembered: HashMap::new(),
-            recent: Recent::new(),
+            visits: Visits::new(),
             current_tab: None,
             ranker: Ranker::default(),
             focused_pane: None,
@@ -410,31 +404,19 @@ impl App {
             .find(|place| place.workspace_id.as_deref() == Some(workspace_id))
     }
 
-    /// True if ↵ creates a workspace at once: the selected row is "new workspace “text”". Without
-    /// a text, ↵ only asks for a name.
+    /// True if ↵ creates a workspace at once: the selected row is "new workspace “text”" (the row
+    /// of Item::is_fallback). Without a text, ↵ only asks for a name.
     pub fn enter_creates_workspace(&self) -> bool {
-        matches!(self.selected_item(), Some(Item::NewWorkspace(text)) if !text.is_empty())
+        self.selected_item().is_some_and(Item::is_fallback)
     }
 
-    /// The row that a new list selects: the first row. In the step "where" with a filter text, the
-    /// row "new workspace…" stays first, but the selection goes to the first place that matches
-    /// the text: typing a name and ↵ chooses the place.
+    /// The row that a new list selects: the first row that is not a fallback (Item::is_fallback),
+    /// else the first row.
     fn first_row(&self, rows: &[usize]) -> Option<usize> {
-        let typed = self.filter == Filter::New
-            && self.create.step == Step::Where
-            && !self.create.filter.trim().is_empty();
-        let is_new_workspace = |index: &usize| {
-            matches!(
-                &self.lines[*index],
-                Line::Row {
-                    item: Item::NewWorkspace(_),
-                    ..
-                }
-            )
-        };
+        let is_fallback = |index: &usize| matches!(&self.lines[*index], Line::Row { item, .. } if item.is_fallback());
         rows.iter()
             .copied()
-            .find(|index| !typed || !is_new_workspace(index))
+            .find(|index| !is_fallback(index))
             .or_else(|| rows.first().copied())
     }
 
@@ -473,16 +455,26 @@ impl App {
                 ),
                 None => Vec::new(),
             },
-            (Filter::Worktrees, _) => rows::worktree_lines(
-                self.projects.current.as_ref(),
-                &self.ranker.projects(
-                    self.projects.others.as_deref().unwrap_or_default(),
+            (Filter::Worktrees, _) => {
+                let others = self.projects.others.as_deref().unwrap_or_default();
+                let ordered: Vec<&Project> = (self.projects.others_order.iter())
+                    .filter_map(|&index| others.get(index))
+                    .collect();
+                rows::worktree_lines(
+                    self.projects.current.as_ref(),
+                    &ordered,
                     &self.open,
-                ),
-                &self.open,
-                &self.query,
-            ),
+                    &self.query,
+                )
+            }
             _ => {
+                // With move_workspaces, the filter Workspaces shows the order of the sidebar.
+                let workspaces: Vec<&Space> =
+                    if self.filter == Filter::Workspaces && self.config.has("move_workspaces") {
+                        crate::rank::in_sidebar_order(&self.model.spaces)
+                    } else {
+                        self.model.spaces.iter().collect()
+                    };
                 let sources = rows::Sources {
                     model: &self.model,
                     others: &self.others,
@@ -493,7 +485,7 @@ impl App {
                         .current
                         .as_ref()
                         .filter(|_| self.filter == Filter::All),
-                    in_sidebar_order: self.config.has("move_workspaces"),
+                    workspaces: &workspaces,
                     attention: crate::rank::attention_first(&self.config.list_order),
                 };
                 rows::build(&sources, self.filter, &self.query)
@@ -574,7 +566,19 @@ impl App {
         for project in &others {
             self.ask_git_states(project);
         }
+        self.set_other_projects(others);
+    }
+
+    /// Keep the other projects of the filter Worktrees, then sort them.
+    fn set_other_projects(&mut self, others: Vec<Project>) {
         self.projects.others = Some(others);
+        self.rank_projects();
+    }
+
+    /// Sort the other projects of the filter Worktrees with the ranks of the open workspaces.
+    fn rank_projects(&mut self) {
+        let others = self.projects.others.as_deref().unwrap_or_default();
+        self.projects.others_order = self.ranker.project_order(others, &self.open);
     }
 
     /// Ask for the git state of the worktrees of a project, and for its pull requests.
@@ -644,41 +648,35 @@ impl App {
         self.focused_pane.as_deref().filter(|_| current)
     }
 
-    /// Take the times of use of the tabs, and the tab of the popup: the rows take their order of
-    /// use (criterion visit).
+    /// Take the times of use of the tabs (empty without the criterion visit), and the tab of the
+    /// popup: the agent of this tab goes at the end of its part of the list.
     /// The selection goes to the first row.
-    pub fn use_recent(&mut self, recent: Recent, current_tab: Option<String>) {
-        self.recent = recent;
+    pub fn use_visits(&mut self, visits: Visits, current_tab: Option<String>) {
+        self.visits = visits;
         self.current_tab = current_tab;
-        self.order();
+        self.rank_rows();
         self.open = places::workspaces(&self.model);
+        self.rank_projects();
         self.rebuild(None);
     }
 
     /// Sort the rows of the model with the key `list_order` of the config, then keep the ranks
     /// for the groups of the filter Worktrees.
-    fn order(&mut self) {
-        self.ranker = Ranker::new(
-            &self.model,
+    fn rank_rows(&mut self) {
+        self.ranker = Ranker::sort(
+            &mut self.model,
             &self.config.list_order,
-            &self.recent,
+            &self.visits,
             self.current_tab.as_deref(),
             self.current.as_deref(),
         );
-        self.ranker.sort(&mut self.model);
-    }
-
-    /// Take the tab of the popup: the agent of this tab goes at the end of its part of the list.
-    pub fn use_current_tab(&mut self, current_tab: Option<String>) {
-        let recent = std::mem::take(&mut self.recent);
-        self.use_recent(recent, current_tab);
     }
 
     /// Take a new model: the snapshot changed.
     pub fn update_model(&mut self, model: Model) {
         let key = self.selected_item().map(Item::key);
         self.model = model;
-        self.order();
+        self.rank_rows();
         let open = places::workspaces(&self.model);
         // A workspace of another project opened or closed: read the other projects again. The
         // order of list_order changes at each refresh: a new order of the same workspaces is not
@@ -693,6 +691,7 @@ impl App {
             self.projects.others = None;
         }
         self.open = open;
+        self.rank_projects();
         self.ask_times();
         self.previews.clear();
         self.rebuild(key);
@@ -756,7 +755,7 @@ impl App {
         }
         // A row "new workspace “text”" creates in ~: its agent is the agent of ~.
         if self.enter_creates_workspace() {
-            return self.home_agent();
+            return self.agent_for(Some(&places::home_place()));
         }
         let place = match self.selected_item() {
             Some(Item::Choice(choice)) => self.place_of_choice(choice),
@@ -770,11 +769,6 @@ impl App {
     fn agent_for(&self, place: Option<&Place>) -> String {
         let from_tabs = place.and_then(|place| place.tabs.iter().find_map(|tab| tab.agent.clone()));
         self.agent_in(place.map(|place| place.folder.as_path()), from_tabs)
-    }
-
-    /// The agent of the row "new workspace": the last agent of ~, else the first agent on the PATH.
-    pub(crate) fn home_agent(&self) -> String {
-        self.agent_in(Some(&places::home_folder()), None)
     }
 
     /// The last agent of a folder, else the agent of the tabs, else the first agent on the PATH.
@@ -996,27 +990,9 @@ pub(crate) mod tests {
     use super::input::{delete_word, key_of_hint};
     use super::*;
     use crate::model::{AgentRow, Status};
-    use crate::places::Kind;
     use ratatui::crossterm::event::{
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
-
-    pub(crate) fn place(label: &str, workspace: Option<&str>, main: Option<&str>) -> Place {
-        Place {
-            kind: if workspace.is_some() {
-                Kind::Workspace
-            } else {
-                Kind::Project
-            },
-            label: label.into(),
-            project: label.into(),
-            folder: format!("/work/{label}").into(),
-            workspace_id: workspace.map(str::to_string),
-            workspace_label: workspace.map(|_| label.to_string()),
-            main: main.map(PathBuf::from),
-            tabs: Vec::new(),
-        }
-    }
 
     pub(crate) fn app(filter: Filter) -> App {
         let agents = ["fix the login", "omnibar design", "release notes"]
@@ -1040,14 +1016,14 @@ pub(crate) mod tests {
         let mut app = App::new(
             model,
             filter,
-            vec![place("prompts", None, Some("/work/prompts"))],
+            vec![Place::sample("prompts", None, Some("/work/prompts"))],
             Some("w1".into()),
             vec!["claude".into(), "codex".into(), "shell".into()],
             Config::default(),
         );
         app.open = vec![
-            place("atlas", Some("w1"), None),
-            place("pac", Some("w2"), None),
+            Place::sample("atlas", Some("w1"), None),
+            Place::sample("pac", Some("w2"), None),
         ];
         app.rebuild(None);
         app
@@ -1059,6 +1035,7 @@ pub(crate) mod tests {
             current_read: true,
             current: Some(Project::sample("atlas", branches)),
             others: Some(Vec::new()),
+            others_order: Vec::new(),
         };
     }
 
@@ -1350,11 +1327,9 @@ pub(crate) mod tests {
     #[test]
     fn ctrl_r_renames_a_workspace_with_its_herdr_label_and_a_pane_with_its_name() {
         let mut app = app(Filter::Workspaces);
-        app.model.spaces = vec![crate::model::Space {
-            workspace: serde_json::from_str(r#"{"workspace_id": "w1", "label": "atlas"}"#).unwrap(),
-            folder: None,
-            checkout: None,
-        }];
+        app.model.spaces = vec![crate::model::Space::sample(
+            crate::sidebar::tests::workspace("w1", "atlas", None),
+        )];
         app.rebuild(None);
         app.on_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
         let rename = app.rename.clone().expect("a rename");
@@ -1402,11 +1377,9 @@ pub(crate) mod tests {
     #[test]
     fn alt_up_and_down_move_a_workspace_only_with_the_feature_in_the_filter_workspaces() {
         let mut app = app(Filter::Workspaces);
-        app.model.spaces = vec![crate::model::Space {
-            workspace: crate::order::tests::workspace("w1", "atlas", None),
-            folder: None,
-            checkout: None,
-        }];
+        app.model.spaces = vec![crate::model::Space::sample(
+            crate::sidebar::tests::workspace("w1", "atlas", None),
+        )];
         app.rebuild(None);
         assert!(!app.moves_workspace());
         app.config.features.push("move_workspaces".to_string());
@@ -1475,7 +1448,7 @@ pub(crate) mod tests {
         for (agent, seq) in app.model.agents.iter_mut().zip([5, 9, 7]) {
             agent.seq = Some(seq);
         }
-        app.use_current_tab(Some("t-omnibar design".to_string()));
+        app.use_visits(Visits::new(), Some("t-omnibar design".to_string()));
         let names: Vec<&str> = app
             .model
             .agents
@@ -1490,16 +1463,16 @@ pub(crate) mod tests {
     #[test]
     fn a_new_order_of_the_same_workspaces_keeps_the_other_projects() {
         let space = |id: &str, main: &str, agent_status: Status| crate::model::Space {
-            workspace: crate::model::Workspace {
-                agent_status,
-                ..crate::order::tests::workspace(id, id, None)
-            },
             folder: Some(main.into()),
             checkout: Some(crate::model::Checkout {
                 root: main.into(),
                 common: PathBuf::from(main).join(".git"),
                 branch: Some("main".into()),
             }),
+            ..crate::model::Space::sample(crate::model::Workspace {
+                agent_status,
+                ..crate::sidebar::tests::workspace(id, id, None)
+            })
         };
         let model = |first: Status, second: Status| Model {
             spaces: vec![
@@ -1569,7 +1542,7 @@ pub(crate) mod tests {
         app.open[0].main = Some("/work/atlas".into());
         app.open[1].main = Some("/work/pac".into());
         set_branches(&mut app, &[("main", Some("/work/atlas"))]);
-        app.projects.others = Some(vec![Project::sample(
+        app.set_other_projects(vec![Project::sample(
             "pac",
             &[("main", Some("/work/pac")), ("fix", Some("/work/pac.fix"))],
         )]);

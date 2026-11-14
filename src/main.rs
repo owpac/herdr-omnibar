@@ -18,17 +18,17 @@ mod herdr;
 mod icons;
 mod keys;
 mod model;
-mod order;
 mod places;
 mod pulls;
 mod rank;
-mod recent;
 mod remove;
 mod rows;
+mod sidebar;
 mod sort;
 mod theme;
 mod times;
 mod ui;
+mod visits;
 mod watch;
 
 use std::env;
@@ -118,9 +118,9 @@ fn open(name: &str) -> Result<(), String> {
 fn in_popup_order(
     mut model: model::Model,
     list_order: &[String],
-    recent: &recent::Recent,
+    visits: &visits::Visits,
 ) -> model::Model {
-    rank::Ranker::new(&model, list_order, recent, None, None).sort(&mut model);
+    rank::Ranker::sort(&mut model, list_order, visits, None, None);
     model
 }
 
@@ -129,8 +129,8 @@ fn in_popup_order(
 fn list() -> Result<(), String> {
     let model = model::load().map_err(|error| error.to_string())?;
     let config = config::current();
-    let recent = recent::load(&config::state_dir());
-    let model = in_popup_order(model, &config.list_order, &recent);
+    let visits = visits::load(&config::state_dir());
+    let model = in_popup_order(model, &config.list_order, &visits);
     let focused = model.focused_workspace_id.as_deref().unwrap_or("");
     for space in &model.spaces {
         let folder = space
@@ -207,7 +207,7 @@ mod tests {
             ..Model::default()
         };
         let order = config::Config::default().list_order;
-        let model = in_popup_order(model, &order, &recent::Recent::new());
+        let model = in_popup_order(model, &order, &visits::Visits::new());
         let names: Vec<&str> = model
             .agents
             .iter()

@@ -7,7 +7,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, RenameTarget, Step};
+use crate::app::{App, Step};
 use crate::filter::Filter;
 use crate::rows::{self};
 
@@ -36,10 +36,10 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
     .areas(area);
     // The creation shows its step before the prompt: "new › where", or "new › <place>".
     let mut spans = Vec::new();
-    let (prompt, placeholder) = match (creating(app), app.create.step) {
-        _ if app.rename.is_some() => {
-            let target = app.rename.as_ref().map(|rename| &rename.target);
-            let noun = target.map_or("tab", RenameTarget::noun);
+    let (prompt, placeholder): (&str, String) = match (&app.rename, creating(app), app.create.step)
+    {
+        (Some(rename), _, _) => {
+            let noun = rename.target.noun();
             spans.extend([
                 Span::styled(
                     format!(" rename › {noun} "),
@@ -47,19 +47,16 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
                 ),
                 gap(),
             ]);
-            (
-                "name ❯ ",
-                target.map_or("the new name of the tab", RenameTarget::placeholder),
-            )
+            ("name ❯ ", format!("the new name of the {noun}"))
         }
-        (true, Step::Where) => {
+        (None, true, Step::Where) => {
             spans.extend([crumb(None), gap()]);
             (
                 "where ❯ ",
-                "a place, or the name of a new workspace · ~ for a path",
+                "a place, or the name of a new workspace · ~ for a path".into(),
             )
         }
-        (true, Step::What) => {
+        (None, true, Step::What) => {
             let place = app
                 .create
                 .place
@@ -67,7 +64,7 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
                 .map(|place| place.label.clone())
                 .unwrap_or_default();
             spans.extend([crumb(Some(&place)), gap()]);
-            ("name ❯ ", "tab or branch name")
+            ("name ❯ ", "tab or branch name".into())
         }
         // Each filter tells what its text finds.
         _ => (
@@ -81,7 +78,8 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
                 Filter::Actions => "action or plugin",
                 Filter::Panes => "pane, tab or workspace",
                 _ => "search",
-            },
+            }
+            .into(),
         ),
     };
     spans.push(Span::styled(
@@ -92,7 +90,7 @@ pub(super) fn draw_search(frame: &mut Frame, area: Rect, app: &App) -> Vec<(Rect
     let text = app.text();
     if text.is_empty() {
         spans.push(Span::styled(
-            fit(placeholder, (field.width as usize).saturating_sub(before)),
+            fit(&placeholder, (field.width as usize).saturating_sub(before)),
             Style::new().fg(dim_color()),
         ));
     } else {

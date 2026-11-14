@@ -4,7 +4,6 @@
 //! the tabs without an agent, the workspaces, then the projects. The creation (filter New) has 2
 //! steps: "where" lists the places, "what" lists the choices for the chosen place.
 
-use std::collections::HashMap;
 use std::env;
 use std::path::Path;
 
@@ -32,7 +31,7 @@ pub enum Item {
     Create(String),
     /// A new workspace in ~ with the text as its label: ↵ creates it at once. Without a text, the
     /// row asks for a name.
-    NewWorkspace(String),
+    NewHomeWorkspace(String),
     /// A pane of a tab (filter Panes).
     Pane(PaneRow),
 }
@@ -51,14 +50,14 @@ impl Item {
                 Choice::Existing { branch, .. } => branch.clone(),
                 Choice::NewTab => "new tab".into(),
                 Choice::NewSplit { .. } => "new split".into(),
-                Choice::NewWorkspace => "new workspace".into(),
+                Choice::NewWorkspace | Choice::LabelledWorkspace => "new workspace".into(),
                 Choice::AnotherPlace => "another place…".into(),
             },
             Item::Action(action) if action.title.is_empty() => action.action_id.clone(),
             Item::Action(action) => action.title.clone(),
             Item::Create(name) => format!("create “{name}”…"),
-            Item::NewWorkspace(text) if text.is_empty() => "new workspace…".to_string(),
-            Item::NewWorkspace(text) => format!("new workspace “{text}”"),
+            Item::NewHomeWorkspace(text) if text.is_empty() => "new workspace…".to_string(),
+            Item::NewHomeWorkspace(text) => format!("new workspace “{text}”"),
             Item::Pane(pane) => pane.name.clone(),
         }
     }
@@ -78,9 +77,17 @@ impl Item {
             Item::Choice(_) => String::new(),
             Item::Action(action) => action.plugin_id.clone(),
             Item::Create(_) => String::new(),
-            Item::NewWorkspace(_) => format!("a new workspace in {}", home(&places::home_folder())),
+            Item::NewHomeWorkspace(_) => {
+                format!("a new workspace in {}", home(&places::home_folder()))
+            }
             Item::Pane(pane) => format!("{} ▸ {}", pane.place, pane.tab),
         }
+    }
+
+    /// True if a new list selects this row only when it has no other row. The row "new workspace
+    /// “text”" stays first, but a typed name selects the first place that matches.
+    pub fn is_fallback(&self) -> bool {
+        matches!(self, Item::NewHomeWorkspace(text) if !text.is_empty())
     }
 
     /// A key that stays the same between 2 refreshes: the selection follows it.
@@ -93,7 +100,7 @@ impl Item {
             Item::Choice(choice) => format!("choice:{choice:?}"),
             Item::Action(action) => format!("action:{}:{}", action.plugin_id, action.action_id),
             Item::Create(_) => "create".to_string(),
-            Item::NewWorkspace(_) => "new-workspace".to_string(),
+            Item::NewHomeWorkspace(_) => "new-workspace".to_string(),
             Item::Pane(pane) => format!("pane:{}", pane.pane_id),
         }
     }
@@ -149,8 +156,9 @@ pub struct Sources<'a> {
     pub open: &'a [Place],
     /// The current project and its local branches, for the filter All.
     pub project: Option<&'a Project>,
-    /// True if the filter Workspaces shows the order of the sidebar (feature move_workspaces).
-    pub in_sidebar_order: bool,
+    /// The rows of the filter Workspaces, in their order: the order of list_order, or the order
+    /// of the sidebar with move_workspaces (rank::in_sidebar_order).
+    pub workspaces: &'a [&'a Space],
     /// True if attention is the first criterion of the order: the agents that need you have their
     /// group.
     pub attention: bool,
@@ -178,22 +186,11 @@ pub fn build(sources: &Sources, filter: Filter, query: &str) -> Vec<Line> {
         group(&mut lines, "Tabs", matches(tabs, query));
     }
     if filter == Filter::Workspaces {
-        let mut spaces: Vec<Space> = model.spaces.clone();
-        if sources.in_sidebar_order {
-            let positions: HashMap<String, usize> =
-                crate::order::screen_order(&model.flat_workspaces)
-                    .into_iter()
-                    .enumerate()
-                    .map(|(position, id)| (id, position))
-                    .collect();
-            spaces.sort_by_key(|space| {
-                positions
-                    .get(&space.workspace.workspace_id)
-                    .copied()
-                    .unwrap_or(usize::MAX)
-            });
-        }
-        let spaces = spaces.into_iter().map(Item::Workspace).collect();
+        let spaces = sources
+            .workspaces
+            .iter()
+            .map(|space| Item::Workspace((*space).clone()))
+            .collect();
         group(&mut lines, "Workspaces", matches(spaces, query));
     }
     if filter == Filter::All {
@@ -315,9 +312,8 @@ pub fn worktree_lines(
 }
 
 /// The lines of the step "where": the current place, the open workspaces, the projects without a
-/// workspace, the folders. The places match by their name, not by their folder: a folder under
-/// ~/Workspace would match almost each text. A query that starts with ~, / or . lists the real
-/// folders.
+/// workspace, the folders. The places match by their name, not by their folder: almost each text
+/// matches a folder under ~/Workspace. A query that starts with ~, / or . lists the real folders.
 pub fn where_lines(
     open: &[Place],
     others: &[Place],
@@ -333,7 +329,7 @@ pub fn where_lines(
     group(
         &mut lines,
         "New",
-        vec![(Item::NewWorkspace(query.to_string()), Vec::new())],
+        vec![(Item::NewHomeWorkspace(query.to_string()), Vec::new())],
     );
     let (here, rest): (Vec<Place>, Vec<Place>) = open
         .iter()
@@ -470,16 +466,17 @@ fn matches_in(items: Vec<Item>, query: &str, with_context: bool) -> Vec<(Item, V
         .into_iter()
         .filter_map(|item| {
             let name = item.name();
-            let by_name = fuzzy::find(query, &name);
-            // Without the context, the match of the name gives the score and the positions.
+            // Without the context, the match of the name gives the score and the positions. With
+            // the context, an item that does not match needs no match of its name.
             let (score, positions) = if with_context {
                 let all = fuzzy::find(query, &format!("{name} {}", item.context()))?;
-                (all.score, by_name.map(|found| found.positions))
+                let positions = fuzzy::find(query, &name).map(|found| found.positions);
+                (all.score, positions.unwrap_or_default())
             } else {
-                let found = by_name?;
-                (found.score, Some(found.positions))
+                let found = fuzzy::find(query, &name)?;
+                (found.score, found.positions)
             };
-            Some((item, positions.unwrap_or_default(), score))
+            Some((item, positions, score))
         })
         .collect();
     found.sort_by_key(|(_, _, score)| std::cmp::Reverse(*score));
@@ -517,6 +514,7 @@ pub fn home(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::owned;
     use crate::model::{Snapshot, Workspace};
     use std::path::PathBuf;
 
@@ -548,29 +546,17 @@ mod tests {
             place: "atlas".into(),
             pane_id: None,
         }];
-        model.spaces = vec![Space {
-            workspace: Workspace {
-                workspace_id: "w1".into(),
-                label: "atlas".into(),
-                agent_status: Status::Working,
-                worktree: None,
-            },
-            folder: None,
-            checkout: None,
-        }];
+        model.spaces = vec![Space::sample(Workspace {
+            agent_status: Status::Working,
+            ..crate::sidebar::tests::workspace("w1", "atlas", None)
+        })];
         model
     }
 
     fn place(kind: Kind, label: &str, workspace: Option<&str>) -> Place {
         Place {
             kind,
-            label: label.into(),
-            project: label.into(),
-            folder: format!("/work/{label}").into(),
-            workspace_id: workspace.map(str::to_string),
-            workspace_label: workspace.map(|_| label.to_string()),
-            main: None,
-            tabs: Vec::new(),
+            ..Place::sample(label, workspace, None)
         }
     }
 
@@ -580,11 +566,11 @@ mod tests {
             folder: places::home_folder(),
             ..place(Kind::Folder, "~", None)
         };
-        let empty = Item::NewWorkspace(String::new());
+        let empty = Item::NewHomeWorkspace(String::new());
         assert_ne!(empty.key(), Item::Place(folder).key());
         assert_eq!(empty.name(), "new workspace…");
         assert_eq!(
-            Item::NewWorkspace("ville".into()).name(),
+            Item::NewHomeWorkspace("ville".into()).name(),
             "new workspace “ville”"
         );
     }
@@ -602,7 +588,7 @@ mod tests {
             actions,
             open: &[],
             project: None,
-            in_sidebar_order: false,
+            workspaces: &model.spaces.iter().collect::<Vec<_>>(),
             attention: true,
         };
         build(&sources, filter, query)
@@ -633,42 +619,47 @@ mod tests {
 
     #[test]
     fn the_filter_workspaces_shows_the_order_of_the_sidebar_with_move_workspaces() {
-        let mut model = Model::default();
-        use crate::order::tests::workspace;
-        let flat = vec![
-            workspace("w1", "atlas.fix", Some(("atlas", "atlas", true))),
-            workspace("w2", "pac", Some(("pac", "pac", false))),
-            workspace("w3", "atlas", Some(("atlas", "atlas", false))),
-        ];
-        model.flat_workspaces = flat.clone();
+        use crate::sidebar::tests::workspace;
+        let snapshot = crate::model::Snapshot {
+            workspaces: vec![
+                workspace("w1", "atlas.fix", Some(("atlas", "atlas", true))),
+                workspace("w2", "pac", Some(("pac", "pac", false))),
+                workspace("w3", "atlas", Some(("atlas", "atlas", false))),
+            ],
+            ..Default::default()
+        };
+        let mut model = Model::build(&snapshot, &std::collections::HashMap::new());
         // The model is in the order of use: w2 first.
-        model.spaces = ["w2", "w1", "w3"]
+        let by_use: Vec<Space> = ["w2", "w1", "w3"]
             .iter()
-            .map(|id| Space {
-                workspace: flat.iter().find(|w| w.workspace_id == *id).unwrap().clone(),
-                folder: None,
-                checkout: None,
+            .map(|id| {
+                let space = model
+                    .spaces
+                    .iter()
+                    .find(|space| space.workspace.workspace_id == *id);
+                space.unwrap().clone()
             })
             .collect();
-        let build_with = |in_sidebar_order| {
+        model.spaces = by_use;
+        let build_with = |workspaces: &[&Space]| {
             let sources = Sources {
                 model: &model,
                 others: &[],
                 actions: &[],
                 open: &[],
                 project: None,
-                in_sidebar_order,
+                workspaces,
                 attention: true,
             };
             build(&sources, Filter::Workspaces, "")
         };
         assert_eq!(
-            keys(&build_with(false)),
+            keys(&build_with(&model.spaces.iter().collect::<Vec<_>>())),
             ["workspace:w2", "workspace:w1", "workspace:w3"]
         );
         // The group atlas shows at its first member, w1: the main workspace w3 first.
         assert_eq!(
-            keys(&build_with(true)),
+            keys(&build_with(&crate::rank::in_sidebar_order(&model.spaces))),
             ["workspace:w3", "workspace:w1", "workspace:w2"]
         );
     }
@@ -715,7 +706,7 @@ mod tests {
             actions: &[],
             open: &open,
             project: Some(&atlas),
-            in_sidebar_order: false,
+            workspaces: &model.spaces.iter().collect::<Vec<_>>(),
             attention: true,
         };
         let lines = build(&sources, Filter::All, "");
@@ -753,7 +744,7 @@ mod tests {
             actions: &[],
             open: &open,
             project: Some(&atlas),
-            in_sidebar_order: false,
+            workspaces: &model.spaces.iter().collect::<Vec<_>>(),
             attention: true,
         };
         // In All, the workspace of a worktree of the current project is in the group of the
@@ -928,7 +919,7 @@ mod tests {
                 actions: &[],
                 open: &[],
                 project: None,
-                in_sidebar_order: false,
+                workspaces: &model.spaces.iter().collect::<Vec<_>>(),
                 attention,
             };
             titles(&build(&sources, Filter::Agents, ""))
@@ -942,15 +933,14 @@ mod tests {
 
     #[test]
     fn the_filters_follow_their_names_in_the_config() {
-        let names = |list: &[&str]| list.iter().map(|name| name.to_string()).collect::<Vec<_>>();
         assert_eq!(
-            filters(&names(&["agents", "panes", "nothing", "agents"])),
+            filters(&owned(&["agents", "panes", "nothing", "agents"])),
             [Filter::Agents, Filter::Panes]
         );
         // A list without a known name gives the default filters: Tab needs at least one filter.
-        assert_eq!(filters(&names(&[])), filters(&names(&DEFAULT_FILTERS)));
-        assert_eq!(filters(&names(&[])).len(), DEFAULT_FILTERS.len());
-        assert_eq!(filters(&names(&["nothing"]))[0], Filter::All);
+        assert_eq!(filters(&owned(&[])), filters(&owned(&DEFAULT_FILTERS)));
+        assert_eq!(filters(&owned(&[])).len(), DEFAULT_FILTERS.len());
+        assert_eq!(filters(&owned(&["nothing"]))[0], Filter::All);
     }
 
     #[test]

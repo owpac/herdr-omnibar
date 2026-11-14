@@ -11,9 +11,10 @@ use crate::create::{self, Choice, NAME_MISSING};
 use crate::filter::Filter;
 use crate::herdr;
 use crate::model::{AgentRow, Status};
-use crate::order;
+use crate::places;
 use crate::remove;
 use crate::rows::{self, Item, Line};
+use crate::sidebar;
 use crate::watch;
 
 use super::{App, Confirm, Create, Outcome, Rename, RenameTarget, Step};
@@ -26,9 +27,11 @@ impl App {
         };
         match (self.filter, item) {
             // The row "new workspace…": the typed text is the label, and ↵ creates it at once.
-            (_, Item::NewWorkspace(text)) => {
-                match create::new_workspace_plan(&text, &self.home_agent(), self.create.no_prompts)
-                {
+            // Without a text, the row asks for a name.
+            (_, Item::NewHomeWorkspace(text)) => {
+                let home = places::home_place();
+                let plan = self.plan(&home, &Choice::LabelledWorkspace, &text);
+                match plan.filter(|_| !text.trim().is_empty()) {
                     Some(plan) => Outcome::Create(plan),
                     None => {
                         self.message = Some(NAME_MISSING.to_string());
@@ -257,8 +260,8 @@ impl App {
             return;
         };
         let name = space.label();
-        let Some(plan) = order::plan_move(
-            &self.model.flat_workspaces,
+        let Some(plan) = sidebar::plan_move(
+            &self.model.flat_workspaces(),
             &space.workspace.workspace_id,
             delta,
         ) else {

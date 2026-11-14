@@ -44,7 +44,7 @@ pub(super) fn draw_preview(frame: &mut Frame, area: Rect, app: &mut App) {
             ..
         }) if !creating(app) => branch_lines(app, main, branch, worktree.as_ref(), width, height),
         Item::Create(name) => create_lines(app, name, width),
-        Item::NewWorkspace(_) => new_workspace_lines(app, width),
+        Item::NewHomeWorkspace(_) => new_workspace_lines(app, width),
         Item::Place(place) => place_lines(app, place, width),
         Item::Choice(choice) => choice_lines(app, choice, width),
     };
@@ -186,17 +186,27 @@ fn create_lines(app: &App, name: &str, width: usize) -> Vec<Line<'static>> {
     lines
 }
 
+/// The head of the preview of a place: the title, the pill of the place, its folder, then an empty
+/// line.
+fn place_head(
+    app: &App,
+    heading: &str,
+    pill: Span<'static>,
+    folder: &Path,
+    width: usize,
+) -> Vec<Line<'static>> {
+    vec![
+        title(heading),
+        Line::from(round(vec![pill], app)),
+        muted(fit(&rows::home(folder), width)),
+        Line::raw(""),
+    ]
+}
+
 /// A place of the step "where": its workspace and its tabs.
 fn place_lines(app: &App, place: &Place, width: usize) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        title("THE PLACE"),
-        Line::from(round(
-            vec![pill_span(place.kind == Kind::Workspace, &place.label)],
-            app,
-        )),
-        muted(fit(&rows::home(&place.folder), width)),
-        Line::raw(""),
-    ];
+    let pill = pill_span(place.kind == Kind::Workspace, &place.label);
+    let mut lines = place_head(app, "THE PLACE", pill, &place.folder, width);
     if place.tabs.is_empty() {
         lines.push(Line::from(Span::styled(
             "    no tab yet",
@@ -215,13 +225,8 @@ fn place_lines(app: &App, place: &Place, width: usize) -> Vec<Line<'static>> {
 
 /// The row "new workspace…": a workspace in ~, with the typed text as its label.
 fn new_workspace_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-    let folder = places::home_folder();
-    let mut lines = vec![
-        title("NEW WORKSPACE"),
-        Line::from(round(vec![pill_span(false, "~")], app)),
-        muted(fit(&rows::home(&folder), width)),
-        Line::raw(""),
-    ];
+    let pill = pill_span(false, "~");
+    let mut lines = place_head(app, "NEW WORKSPACE", pill, &places::home_folder(), width);
     lines.extend(help_lines(
         "↵ creates a workspace in ~. Its label is the text that you typed.",
         width,
@@ -248,9 +253,10 @@ fn choice_lines(app: &App, choice: &Choice, width: usize) -> Vec<Line<'static>> 
             );
             lines.extend(wrap(&text, width).into_iter().map(muted));
         }
-        (Choice::NewWorkspace, Some(place)) => {
-            // The names of the plan: at a place with a workspace, the typed name is the label.
-            let (label, first_tab) = create::new_workspace_names(place, name);
+        (Choice::NewWorkspace | Choice::LabelledWorkspace, Some(place)) => {
+            // The names of the plan: with a label, the typed name is the label.
+            let labelled = *choice == Choice::LabelledWorkspace;
+            let (label, first_tab) = create::new_workspace_names(place, name, labelled);
             let first_tab = if first_tab.is_empty() {
                 "(auto name)"
             } else {
@@ -422,7 +428,7 @@ fn project_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::tests::{app, place};
+    use crate::app::tests::app;
     use crate::app::Step;
     use crate::filter::Filter;
 
@@ -442,9 +448,9 @@ mod tests {
     fn the_preview_of_a_new_workspace_shows_the_typed_name_as_its_label() {
         let mut app = app(Filter::New);
         app.create.step = Step::What;
-        app.create.place = Some(place("atlas", Some("w1"), None));
+        app.create.place = Some(Place::sample("atlas", Some("w1"), None));
         app.create.name = "my label".into();
-        let lines = text(&choice_lines(&app, &Choice::NewWorkspace, 60));
+        let lines = text(&choice_lines(&app, &Choice::LabelledWorkspace, 60));
         // The pill holds the label, and the automatic titles name the first tab.
         assert!(
             lines.iter().any(|line| line.contains("my label")),
@@ -455,7 +461,7 @@ mod tests {
             "{lines:?}"
         );
         // A place without a workspace keeps the name for its first tab.
-        app.create.place = Some(place("prompts", None, Some("/work/prompts")));
+        app.create.place = Some(Place::sample("prompts", None, Some("/work/prompts")));
         let lines = text(&choice_lines(&app, &Choice::NewWorkspace, 60));
         assert!(
             lines.iter().any(|line| line.contains("prompts")),

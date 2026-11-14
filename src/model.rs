@@ -102,8 +102,38 @@ fn agent_names(kind: &str) -> impl Iterator<Item = &str> {
         .chain(Some(kind).filter(|kind| !kind.is_empty()))
 }
 
+/// The task that the terminal title of an agent tells, or None. A prompt, the name of the agent,
+/// the name of the folder, the herdr name of the agent (`name`) and the command line of the agent
+/// (`claude --name x`) tell nothing. Codex adds ` | <folder>` to its title: this part goes. The
+/// watcher and the names of the tabs in the list use this one rule.
+pub fn agent_task(
+    title: &str,
+    kind: &str,
+    name: Option<&str>,
+    folder: Option<&Path>,
+) -> Option<String> {
+    let folder_name = folder
+        .and_then(Path::file_name)
+        .map(|name| name.to_string_lossy().into_owned());
+    let mut title = title.trim();
+    if let (Some(name), Some((head, tail))) = (&folder_name, title.rsplit_once(" | ")) {
+        if tail.trim() == name {
+            title = head.trim();
+        }
+    }
+    if title.is_empty()
+        || is_prompt_title(title)
+        || is_agent_name(title, kind)
+        || folder_name.as_deref() == Some(title)
+        || is_agent_noise(title, kind, name)
+    {
+        return None;
+    }
+    Some(title.to_string())
+}
+
 /// True if the title is the name of the agent, in any case: `Claude Code`, `OpenCode`.
-pub fn is_agent_name(title: &str, kind: &str) -> bool {
+fn is_agent_name(title: &str, kind: &str) -> bool {
     agent_names(kind).any(|name| name.eq_ignore_ascii_case(title))
 }
 
@@ -111,7 +141,7 @@ pub fn is_agent_name(title: &str, kind: &str) -> bool {
 /// agent, or the command line of the agent (an agent name, a space, then an option:
 /// `claude --name x`). Claude Code writes its `--name` in the title for all the session. The
 /// comparisons ignore the case, as `is_agent_name` does.
-pub fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
+fn is_agent_noise(title: &str, kind: &str, name: Option<&str>) -> bool {
     let title = title.trim();
     if name.is_some_and(|name| name.eq_ignore_ascii_case(title)) {
         return true;
@@ -159,11 +189,16 @@ impl Workspace {
     pub fn user_label(&self) -> Option<&str> {
         let worktree = self.worktree.as_ref()?;
         let label = self.label.trim();
-        let folder = |path: &Option<PathBuf>| path.as_deref().map(file_name);
+        // The name of the folder, as `file_name` gives it, without a copy.
+        let is_folder = |path: &Option<PathBuf>| {
+            path.as_deref().is_some_and(|path| {
+                path.file_name().unwrap_or(path.as_os_str()) == std::ffi::OsStr::new(label)
+            })
+        };
         let is_default = label.is_empty()
             || label == worktree.repo_name
-            || folder(&worktree.checkout_path).is_some_and(|name| name == label)
-            || folder(&worktree.repo_root).is_some_and(|name| name == label);
+            || is_folder(&worktree.checkout_path)
+            || is_folder(&worktree.repo_root);
         (!is_default).then_some(label)
     }
 }
@@ -299,15 +334,32 @@ pub fn checkouts_of(folders: &[PathBuf]) -> HashMap<PathBuf, Option<Checkout>> {
     })
 }
 
-/// A workspace with its folder and its checkout.
+/// A workspace with its folder, its checkout, and its 2 positions in herdr.
 #[derive(Clone, Debug)]
 pub struct Space {
     pub workspace: Workspace,
     pub folder: Option<PathBuf>,
     pub checkout: Option<Checkout>,
+    /// The index of the workspace in the flat list of the snapshot: its number minus 1. A move of
+    /// the sidebar works on this list.
+    pub flat: usize,
+    /// The position of the workspace on the screen: the sidebar groups the worktrees.
+    pub screen: usize,
 }
 
 impl Space {
+    /// A workspace for the tests, without a folder and without a checkout.
+    #[cfg(test)]
+    pub fn sample(workspace: Workspace) -> Space {
+        Space {
+            workspace,
+            folder: None,
+            checkout: None,
+            flat: 0,
+            screen: 0,
+        }
+    }
+
     /// The project of the workspace: its git repository. For a linked worktree without a checkout,
     /// the repository that herdr gives: its label is the branch. Else the name that herdr gives to
     /// the workspace, else its folder.
@@ -424,23 +476,25 @@ pub struct Model {
     /// Each pane of each tab (filter Panes).
     pub panes: Vec<PaneRow>,
     pub focused_workspace_id: Option<String>,
-    /// The workspaces in the flat order of the snapshot: the sidebar order comes from it.
-    pub flat_workspaces: Vec<Workspace>,
-    /// The number of each tab in its workspace, by tab id: the order of herdr.
-    pub tab_numbers: HashMap<String, u32>,
-    /// The position of each pane in the snapshot, by pane id: the order of herdr.
-    pub pane_index: HashMap<String, usize>,
     /// The tabs of each workspace, by workspace id, in their order.
     pub workspace_tabs: HashMap<String, Vec<TabSummary>>,
 }
 
 impl Model {
     /// The model of a snapshot, with the checkouts of the folders of its workspaces.
+    ///
+    /// The rows come in the order of herdr: the workspace on the screen, then the number of the
+    /// tab, then the order of the pane in the snapshot. The sort of rank.rs is stable: it keeps
+    /// this order for the rows that its criteria do not separate.
     pub fn build(snapshot: &Snapshot, checkouts: &HashMap<PathBuf, Option<Checkout>>) -> Model {
+        let screen = crate::sidebar::screen_positions(&snapshot.workspaces);
+        let screen_of =
+            |workspace_id: &str| screen.get(workspace_id).copied().unwrap_or(usize::MAX);
         let spaces: Vec<Space> = snapshot
             .workspaces
             .iter()
-            .map(|workspace| {
+            .enumerate()
+            .map(|(flat, workspace)| {
                 let folder = folder_of(snapshot, &workspace.workspace_id);
                 let checkout = folder
                     .as_ref()
@@ -449,6 +503,8 @@ impl Model {
                     workspace: workspace.clone(),
                     folder,
                     checkout,
+                    flat,
+                    screen: screen_of(&workspace.workspace_id),
                 }
             })
             .collect();
@@ -461,31 +517,28 @@ impl Model {
         };
         // The name of a tab. herdr names a new tab with its number: then the title of the terminal
         // is a better name, because an agent writes its task there. The title of an idle shell
-        // is its prompt (user@host:folder): the name is then "shell".
-        let label_of = |tab_id: &str, title: Option<&str>, title_pane: Option<&str>| {
+        // is its prompt (user@host:folder): the name is then "shell". `pane` gives the title.
+        let label_of = |tab_id: &str, pane: Option<&Pane>| {
             let tab = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id);
             let label = tab.map(|tab| tab.label.clone()).unwrap_or_default();
             let numbered = tab.is_none_or(Tab::has_default_label);
-            // The pane of the title, if it holds an agent: the herdr name and the command of this
-            // agent are not a task.
-            let agent_pane = title_pane.and_then(|id| {
-                snapshot
-                    .panes
-                    .iter()
-                    .find(|pane| pane.pane_id == id && pane.agent.is_some())
-            });
-            let noise = |title: &str| {
-                agent_pane.is_some_and(|pane| {
-                    is_agent_noise(
-                        title,
-                        pane.agent.as_deref().unwrap_or_default(),
-                        snapshot.agent_name(&pane.pane_id),
-                    )
-                })
-            };
-            match title.map(str::trim).filter(|title| !title.is_empty()) {
-                Some(title) if numbered && is_prompt_title(title) => "shell".to_string(),
-                Some(title) if numbered && !noise(title) => title.to_string(),
+            let title = pane
+                .and_then(|pane| pane.terminal_title_stripped.as_deref())
+                .map(str::trim)
+                .filter(|title| !title.is_empty());
+            let agent = pane.and_then(|pane| Some((pane, pane.agent.as_deref()?)));
+            match (title, agent) {
+                (Some(title), _) if numbered && is_prompt_title(title) => "shell".to_string(),
+                // The title of an agent names the tab only if it tells the task, as for the
+                // watcher.
+                (Some(title), Some((pane, kind))) if numbered => agent_task(
+                    title,
+                    kind,
+                    snapshot.agent_name(&pane.pane_id),
+                    pane.cwd.as_deref(),
+                )
+                .unwrap_or(label),
+                (Some(title), None) if numbered => title.to_string(),
                 _ => label,
             }
         };
@@ -496,7 +549,7 @@ impl Model {
                 .or_insert(info.state_change_seq);
         }
         let seq_of = |pane_id: &str| seqs.get(pane_id).copied().flatten();
-        let agents: Vec<AgentRow> = snapshot
+        let mut agents: Vec<AgentRow> = snapshot
             .panes
             .iter()
             .filter_map(|pane| {
@@ -505,11 +558,7 @@ impl Model {
                     pane_id: pane.pane_id.clone(),
                     tab_id: pane.tab_id.clone(),
                     workspace_id: pane.workspace_id.clone(),
-                    name: label_of(
-                        &pane.tab_id,
-                        pane.terminal_title_stripped.as_deref(),
-                        Some(&pane.pane_id),
-                    ),
+                    name: label_of(&pane.tab_id, Some(pane)),
                     kind,
                     status: pane.agent_status,
                     place: place_of(&pane.workspace_id),
@@ -519,7 +568,7 @@ impl Model {
             })
             .collect();
 
-        let panes = snapshot
+        let mut panes: Vec<PaneRow> = snapshot
             .panes
             .iter()
             .map(|pane| {
@@ -545,11 +594,7 @@ impl Model {
                     tab_id: pane.tab_id.clone(),
                     workspace_id: pane.workspace_id.clone(),
                     name,
-                    tab: label_of(
-                        &pane.tab_id,
-                        pane.terminal_title_stripped.as_deref(),
-                        Some(&pane.pane_id),
-                    ),
+                    tab: label_of(&pane.tab_id, Some(pane)),
                     place: place_of(&pane.workspace_id),
                     agent: pane.agent.clone(),
                     status: pane.agent_status,
@@ -557,7 +602,7 @@ impl Model {
                 }
             })
             .collect();
-        let tabs = snapshot
+        let mut tabs: Vec<TabRow> = snapshot
             .tabs
             .iter()
             .filter(|tab| {
@@ -580,7 +625,7 @@ impl Model {
                 TabRow {
                     tab_id: tab.tab_id.clone(),
                     workspace_id: tab.workspace_id.clone(),
-                    name: label_of(&tab.tab_id, Some(&title), None),
+                    name: label_of(&tab.tab_id, first),
                     command,
                     place: place_of(&tab.workspace_id),
                     pane_id: first.map(|pane| pane.pane_id.clone()),
@@ -594,36 +639,58 @@ impl Model {
                 .iter()
                 .find(|pane| pane.tab_id == tab.tab_id && pane.agent.is_some());
             let first = snapshot.panes.iter().find(|pane| pane.tab_id == tab.tab_id);
-            let title = first.and_then(|pane| pane.terminal_title_stripped.as_deref());
             workspace_tabs
                 .entry(tab.workspace_id.clone())
                 .or_default()
                 .push(TabSummary {
-                    name: label_of(&tab.tab_id, title, first.map(|pane| pane.pane_id.as_str())),
+                    name: label_of(&tab.tab_id, first),
                     agent: agent_pane.and_then(|pane| pane.agent.clone()),
                     status: agent_pane.map(|pane| pane.agent_status).unwrap_or_default(),
                 });
         }
+        // The order of herdr. A tab without a number and an unknown pane go last.
+        let tab_numbers: HashMap<&str, u32> = snapshot
+            .tabs
+            .iter()
+            .filter_map(|tab| Some((tab.tab_id.as_str(), tab.number?)))
+            .collect();
+        let pane_index: HashMap<&str, usize> = snapshot
+            .panes
+            .iter()
+            .enumerate()
+            .map(|(index, pane)| (pane.pane_id.as_str(), index))
+            .collect();
+        let herdr = |workspace_id: &str, tab_id: &str, pane_id: &str| {
+            (
+                screen_of(workspace_id),
+                tab_numbers.get(tab_id).copied().unwrap_or(u32::MAX),
+                pane_index.get(pane_id).copied().unwrap_or(usize::MAX),
+            )
+        };
+        agents.sort_by_key(|row| herdr(&row.workspace_id, &row.tab_id, &row.pane_id));
+        panes.sort_by_key(|row| herdr(&row.workspace_id, &row.tab_id, &row.pane_id));
+        tabs.sort_by_key(|row| {
+            let pane_id = row.pane_id.as_deref().unwrap_or_default();
+            herdr(&row.workspace_id, &row.tab_id, pane_id)
+        });
         Model {
             spaces,
             agents,
             tabs,
             panes,
             focused_workspace_id: snapshot.focused_workspace_id.clone(),
-            flat_workspaces: snapshot.workspaces.clone(),
-            tab_numbers: snapshot
-                .tabs
-                .iter()
-                .filter_map(|tab| Some((tab.tab_id.clone(), tab.number?)))
-                .collect(),
-            pane_index: snapshot
-                .panes
-                .iter()
-                .enumerate()
-                .map(|(index, pane)| (pane.pane_id.clone(), index))
-                .collect(),
             workspace_tabs,
         }
+    }
+
+    /// The workspaces in the flat order of the snapshot, for a move of the sidebar.
+    pub fn flat_workspaces(&self) -> Vec<Workspace> {
+        let mut spaces: Vec<&Space> = self.spaces.iter().collect();
+        spaces.sort_by_key(|space| space.flat);
+        spaces
+            .into_iter()
+            .map(|space| space.workspace.clone())
+            .collect()
     }
 }
 
@@ -739,8 +806,8 @@ mod tests {
     #[test]
     fn the_agents_that_need_the_user_come_first() {
         let mut model = Model::build(&snapshot(), &checkouts());
-        let order: Vec<String> = ["attention"].iter().map(|s| s.to_string()).collect();
-        crate::rank::Ranker::new(&model, &order, &HashMap::new(), None, None).sort(&mut model);
+        let order = crate::config::owned(&["attention"]);
+        crate::rank::Ranker::sort(&mut model, &order, &HashMap::new(), None, None);
         let agents: Vec<(&str, &str, &str)> = model
             .agents
             .iter()
@@ -798,19 +865,14 @@ mod tests {
         );
     }
 
+    /// A workspace of the repository /work/atlas, with its checkout.
     fn git_workspace(label: &str, linked: bool, checkout: &str) -> Workspace {
-        serde_json::from_value(serde_json::json!({
-            "workspace_id": "w9",
-            "label": label,
-            "worktree": {
-                "repo_key": "/work/atlas/.git",
-                "repo_name": "atlas",
-                "repo_root": "/work/atlas",
-                "checkout_path": checkout,
-                "is_linked_worktree": linked
-            }
-        }))
-        .unwrap()
+        let mut workspace =
+            crate::sidebar::tests::project("w9", label, "atlas", "/work/atlas", linked);
+        if let Some(worktree) = workspace.worktree.as_mut() {
+            worktree.checkout_path = Some(checkout.into());
+        }
+        workspace
     }
 
     #[test]
@@ -828,8 +890,7 @@ mod tests {
             Some("billing")
         );
         // A workspace outside git has no worktree data: no user label.
-        let plain: Workspace =
-            serde_json::from_str(r#"{"workspace_id": "w1", "label": "notes"}"#).unwrap();
+        let plain = crate::sidebar::tests::workspace("w1", "notes", None);
         assert_eq!(plain.user_label(), None);
     }
 
@@ -841,9 +902,8 @@ mod tests {
             branch: Some(branch.into()),
         };
         let space = |workspace, checkout| Space {
-            workspace,
-            folder: None,
             checkout: Some(checkout),
+            ..Space::sample(workspace)
         };
         let main = space(
             git_workspace("billing", false, "/work/atlas"),
@@ -865,21 +925,13 @@ mod tests {
 
     #[test]
     fn a_linked_worktree_without_a_checkout_takes_the_repository_of_herdr_as_its_project() {
-        let space = |label| Space {
-            workspace: git_workspace(label, true, "/work/atlas.fix"),
-            folder: None,
-            checkout: None,
-        };
+        let space = |label| Space::sample(git_workspace(label, true, "/work/atlas.fix"));
         assert_eq!(space("atlas.fix").project(), "atlas");
         assert_eq!(space("atlas.fix").label(), "atlas ▸ atlas.fix");
         assert_eq!(space("my fix").label(), "atlas ▸ my fix");
         // A main workspace without a checkout keeps its herdr label: 2 checkouts of one repository
         // keep 2 names.
-        let main = Space {
-            workspace: git_workspace("atlas-2", false, "/work/atlas-2"),
-            folder: None,
-            checkout: None,
-        };
+        let main = Space::sample(git_workspace("atlas-2", false, "/work/atlas-2"));
         assert_eq!(main.project(), "atlas-2");
     }
 
@@ -894,6 +946,83 @@ mod tests {
             .find(|pane| pane.pane_id == "w1:p2")
             .unwrap();
         assert_eq!(pane.name, "logs");
+    }
+
+    #[test]
+    fn a_title_without_the_task_is_not_useful() {
+        let folder = Some(Path::new("/work/atlas"));
+        assert_eq!(agent_task("  ", "claude", None, folder), None);
+        assert_eq!(agent_task("OpenCode", "opencode", None, folder), None);
+        assert_eq!(agent_task("Claude Code", "claude", None, folder), None);
+        assert_eq!(agent_task("atlas", "claude", None, folder), None);
+        assert_eq!(
+            agent_task("thomas@mac:~/work", "claude", None, folder),
+            None
+        );
+        assert_eq!(
+            agent_task("Fix the login | atlas", "codex", None, folder).as_deref(),
+            Some("Fix the login")
+        );
+        assert_eq!(
+            agent_task("A | B", "codex", None, folder).as_deref(),
+            Some("A | B")
+        );
+    }
+
+    #[test]
+    fn the_herdr_name_and_the_command_line_of_an_agent_are_not_titles() {
+        let folder = Some(Path::new("/work/atlas"));
+        let named = Some("task-a2p");
+        assert_eq!(agent_task("task-a2p", "claude", named, folder), None);
+        assert_eq!(agent_task("Task-A2P", "claude", named, folder), None);
+        assert_eq!(
+            agent_task(
+                "claude --model \"opus[1m]\" --permission-mode auto --name task-a2p --model",
+                "claude",
+                named,
+                folder
+            ),
+            None
+        );
+        assert_eq!(
+            agent_task("codex --model gpt abc", "codex", None, folder),
+            None
+        );
+        assert_eq!(
+            agent_task("opencode -c --port 1", "opencode", None, folder),
+            None
+        );
+        // The command line is noise in any case.
+        assert_eq!(
+            agent_task("Claude --resume abc", "claude", None, folder),
+            None
+        );
+        assert_eq!(
+            agent_task("OpenCode -c --port 1", "opencode", None, folder),
+            None
+        );
+        // A title is a command line only if an option follows the command.
+        assert_eq!(
+            agent_task("Amp up the cache", "amp", None, folder).as_deref(),
+            Some("Amp up the cache")
+        );
+        assert_eq!(
+            agent_task("opencode run", "opencode", None, folder).as_deref(),
+            Some("opencode run")
+        );
+        // The kind of the agent and the known names are not titles, in any case.
+        assert_eq!(agent_task("AMP", "amp", None, folder), None);
+        assert_eq!(agent_task("CLAUDE code", "amp", None, folder), None);
+        // The same text is a title for another agent without this name.
+        assert_eq!(
+            agent_task("task-a2p", "claude", None, folder).as_deref(),
+            Some("task-a2p")
+        );
+        // A task that only starts with the same letters is a title.
+        assert_eq!(
+            agent_task("Claudette login", "claude", None, folder).as_deref(),
+            Some("Claudette login")
+        );
     }
 
     #[test]

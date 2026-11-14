@@ -111,7 +111,7 @@ fn hints(app: &App) -> Vec<Hint> {
         ],
         selected => {
             let primary = match selected {
-                Some(Item::NewWorkspace(_)) => "create",
+                Some(Item::NewHomeWorkspace(_)) => "create",
                 Some(Item::Place(_)) => "create in",
                 Some(Item::Action(_)) => "run",
                 Some(Item::Create(_)) => "create…",

@@ -18,10 +18,11 @@ use crate::filter::Filter;
 use crate::herdr;
 use crate::model::{self, Checkout};
 use crate::places;
-use crate::recent;
+use crate::rank::Criterion;
 use crate::rows::Item;
 use crate::times::Times;
 use crate::ui;
+use crate::visits::{self, Visits};
 
 use super::{App, Outcome};
 
@@ -53,12 +54,12 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
     );
     app.focused_pane = context.focused_pane_id.clone();
     // The order of use (criterion visit): the tab of the popup gets the time now.
-    if app.config.orders_by_visit() {
-        let recent = recent::open(&config::state_dir(), context.tab_id.as_deref());
-        app.use_recent(recent, context.tab_id.clone());
+    let visits = if app.config.orders_by(Criterion::Visit) {
+        visits::open(&config::state_dir(), context.tab_id.as_deref())
     } else {
-        app.use_current_tab(context.tab_id.clone());
-    }
+        Visits::new()
+    };
+    app.use_visits(visits, context.tab_id.clone());
     if app.config.has("running_time") {
         app.times = Some(Times::start());
         app.ask_times();
@@ -158,6 +159,6 @@ fn go(item: &Item) -> Result<(), herdr::Error> {
         | Item::Choice(_)
         | Item::Action(_)
         | Item::Create(_)
-        | Item::NewWorkspace(_) => Ok(()),
+        | Item::NewHomeWorkspace(_) => Ok(()),
     }
 }

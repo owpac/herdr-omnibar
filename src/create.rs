@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::herdr;
-use crate::places::{self, Branch, Place};
+use crate::places::{Branch, Place};
 
 /// A choice of the step "what". The name is the text of the step.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,8 +35,11 @@ pub enum Choice {
     NewTab,
     /// A new pane next to the focused pane of the current workspace: a split.
     NewSplit { pane_id: String },
-    /// A new workspace for a place without one, with its first tab.
+    /// A new workspace for a place without one: the typed name is the name of its first tab.
     NewWorkspace,
+    /// A new workspace in the folder of a place that has a workspace: the typed name is the label
+    /// of the new workspace, and the automatic titles name its first tab.
+    LabelledWorkspace,
     /// Go back to the step "where".
     AnotherPlace,
 }
@@ -87,8 +90,8 @@ pub fn choices(
             }),
         }
     }
-    // A place with a workspace gets a tab, a split and a new workspace in its folder. A place
-    // without a workspace gets the new workspace.
+    // A place with a workspace gets a tab, a split and a new workspace with a label in its folder.
+    // A place without a workspace gets the new workspace.
     if place.workspace_id.is_some() {
         out.push(Choice::NewTab);
     }
@@ -97,7 +100,11 @@ pub fn choices(
             pane_id: pane_id.to_string(),
         });
     }
-    out.push(Choice::NewWorkspace);
+    out.push(if place.workspace_id.is_some() {
+        Choice::LabelledWorkspace
+    } else {
+        Choice::NewWorkspace
+    });
     out.push(Choice::AnotherPlace);
     out
 }
@@ -175,8 +182,9 @@ pub fn plan(
             workspace_id: place.workspace_id.clone()?,
             folder: place.folder.clone(),
         },
-        Choice::NewWorkspace => {
-            let (label, first_tab) = new_workspace_names(place, &name);
+        Choice::NewWorkspace | Choice::LabelledWorkspace => {
+            let labelled = *choice == Choice::LabelledWorkspace;
+            let (label, first_tab) = new_workspace_names(place, &name, labelled);
             name = first_tab;
             Action::NewWorkspace {
                 folder: place.folder.clone(),
@@ -195,14 +203,14 @@ pub fn plan(
 
 /// The label of a new workspace at a place, and the name of its first tab, for a typed name.
 ///
-/// - At a place with a workspace, the typed name is the label, and the automatic titles name the
-///   first tab. Without a name, the label is the herdr label of the workspace of the place: the
-///   label of the place in the list can hold a `▸`.
-/// - At a place without a workspace, the label is the label of the place, and the typed name is
-///   the name of the first tab.
-pub fn new_workspace_names(place: &Place, name: &str) -> (String, String) {
+/// - `labelled` (Choice::LabelledWorkspace): the typed name is the label, and the automatic
+///   titles name the first tab. Without a name, the label is the herdr label of the workspace of
+///   the place: the label of the place in the list can hold a `▸`.
+/// - Else (Choice::NewWorkspace): the label is the label of the place, and the typed name is the
+///   name of the first tab.
+pub fn new_workspace_names(place: &Place, name: &str, labelled: bool) -> (String, String) {
     let name = name.trim();
-    if !place.labels_new_workspace() {
+    if !labelled {
         return (place.label.clone(), name.to_string());
     }
     let label = if name.is_empty() {
@@ -219,26 +227,6 @@ pub fn new_workspace_names(place: &Place, name: &str) -> (String, String) {
 
 /// The message of the row "new workspace…" when no text is typed.
 pub const NAME_MISSING: &str = "type the name of the new workspace";
-
-/// The plan of the row "new workspace “text”": a workspace in ~, with the text as its label. No
-/// plan without a text.
-pub fn new_workspace_plan(label: &str, agent: &str, no_prompts: bool) -> Option<Plan> {
-    let label = label.trim();
-    if label.is_empty() {
-        return None;
-    }
-    let folder = places::home_folder();
-    Some(Plan {
-        action: Action::NewWorkspace {
-            folder: folder.clone(),
-            label: label.to_string(),
-        },
-        name: String::new(),
-        agent: agent.to_string(),
-        no_prompts,
-        folder,
-    })
-}
 
 /// The agents on the PATH, then "shell".
 pub fn installed_agents() -> Vec<String> {
@@ -529,18 +517,13 @@ fn remember_agent(folder: &Path, agent: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::places;
     use crate::places::Kind;
 
     fn workspace(label: &str, folder: &str, id: &str, main: Option<&str>) -> Place {
         Place {
-            kind: Kind::Workspace,
-            label: label.into(),
-            project: label.into(),
             folder: folder.into(),
-            workspace_id: Some(id.into()),
-            workspace_label: Some(label.into()),
-            main: main.map(PathBuf::from),
-            tabs: Vec::new(),
+            ..Place::sample(label, Some(id), main)
         }
     }
 
@@ -584,7 +567,7 @@ mod tests {
                     branch: "notes".into()
                 },
                 Choice::NewTab,
-                Choice::NewWorkspace,
+                Choice::LabelledWorkspace,
                 Choice::AnotherPlace
             ]
         );
@@ -643,13 +626,8 @@ mod tests {
     fn a_folder_outside_git_gets_a_workspace_and_no_worktree() {
         let notes = Place {
             kind: Kind::Folder,
-            label: "notes".into(),
-            project: "notes".into(),
             folder: "/notes".into(),
-            workspace_id: None,
-            workspace_label: None,
-            main: None,
-            tabs: Vec::new(),
+            ..Place::sample("notes", None, None)
         };
         assert_eq!(
             choices(&notes, "draft", &[], &[], None),
@@ -660,7 +638,8 @@ mod tests {
     #[test]
     fn a_new_workspace_in_a_place_with_a_workspace_takes_the_typed_name_as_its_label() {
         let notes = workspace("~", "/home/u", "w1", None);
-        let make = |name: &str| plan(&notes, &Choice::NewWorkspace, name, "claude", false).unwrap();
+        let make =
+            |name: &str| plan(&notes, &Choice::LabelledWorkspace, name, "claude", false).unwrap();
         // The typed name is the label. The automatic titles name the first tab.
         let named = make("ville france");
         assert_eq!(
@@ -704,7 +683,7 @@ mod tests {
             workspace_label: Some("atlas.fix".into()),
             ..workspace("atlas ▸ fix", "/work/atlas.fix", "w2", Some("/work/atlas"))
         };
-        let plan = plan(&fix, &Choice::NewWorkspace, "  ", "claude", false).unwrap();
+        let plan = plan(&fix, &Choice::LabelledWorkspace, "  ", "claude", false).unwrap();
         assert_eq!(
             plan.action,
             Action::NewWorkspace {
@@ -718,20 +697,26 @@ mod tests {
             workspace_label: Some(String::new()),
             ..fix.clone()
         };
-        assert_eq!(new_workspace_names(&unlabelled, "").0, "atlas ▸ fix");
+        assert_eq!(new_workspace_names(&unlabelled, "", true).0, "atlas ▸ fix");
         // The preview reads the same names.
         assert_eq!(
-            new_workspace_names(&fix, "my fix"),
+            new_workspace_names(&fix, "my fix", true),
             ("my fix".to_string(), String::new())
         );
     }
 
     #[test]
     fn the_row_new_workspace_makes_a_workspace_in_home_with_its_text_as_label() {
-        // Without a text: no plan.
-        assert!(new_workspace_plan("  ", "claude", false).is_none());
-        // With a text: the label, and no name for the first tab.
-        let plan = new_workspace_plan(" ville france ", "claude", true).unwrap();
+        // The label is the text, and the first tab has no name. The app asks for a text first.
+        let home = places::home_place();
+        let plan = plan(
+            &home,
+            &Choice::LabelledWorkspace,
+            " ville france ",
+            "claude",
+            true,
+        );
+        let plan = plan.unwrap();
         assert_eq!(plan.name, "");
         assert!(plan.no_prompts);
         assert_eq!(
@@ -754,7 +739,7 @@ mod tests {
                 Choice::NewSplit {
                     pane_id: "w1:p2".into()
                 },
-                Choice::NewWorkspace,
+                Choice::LabelledWorkspace,
                 Choice::AnotherPlace
             ]
         );
@@ -804,7 +789,15 @@ mod tests {
 
     #[test]
     fn the_agent_name_of_a_new_workspace_comes_from_its_label() {
-        let plan = new_workspace_plan("Ville France", "claude", false).unwrap();
+        let home = places::home_place();
+        let plan = plan(
+            &home,
+            &Choice::LabelledWorkspace,
+            "Ville France",
+            "claude",
+            false,
+        );
+        let plan = plan.unwrap();
         let name = agent_name(&plan);
         assert!(name.starts_with("claude-ville-france-"), "{name}");
     }

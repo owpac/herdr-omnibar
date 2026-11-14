@@ -533,14 +533,8 @@ mod tests {
 
     fn workspace(label: &str, folder: &str, id: &str, main: Option<&str>) -> Place {
         Place {
-            kind: Kind::Workspace,
-            label: label.into(),
-            project: label.into(),
             folder: folder.into(),
-            workspace_id: Some(id.into()),
-            workspace_label: Some(label.into()),
-            main: main.map(PathBuf::from),
-            tabs: Vec::new(),
+            ..Place::sample(label, Some(id), main)
         }
     }
 
@@ -643,13 +637,8 @@ mod tests {
     fn a_folder_outside_git_gets_a_workspace_and_no_worktree() {
         let notes = Place {
             kind: Kind::Folder,
-            label: "notes".into(),
-            project: "notes".into(),
             folder: "/notes".into(),
-            workspace_id: None,
-            workspace_label: None,
-            main: None,
-            tabs: Vec::new(),
+            ..Place::sample("notes", None, None)
         };
         assert_eq!(
             choices(&notes, "draft", &[], &[], None),

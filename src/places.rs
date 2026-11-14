@@ -55,6 +55,25 @@ impl Place {
         self.workspace_id.is_some()
     }
 
+    /// A place in /work/<label> for the tests: a workspace if `workspace` is given, else a project.
+    #[cfg(test)]
+    pub fn sample(label: &str, workspace: Option<&str>, main: Option<&str>) -> Place {
+        Place {
+            kind: if workspace.is_some() {
+                Kind::Workspace
+            } else {
+                Kind::Project
+            },
+            label: label.into(),
+            project: label.into(),
+            folder: format!("/work/{label}").into(),
+            workspace_id: workspace.map(str::to_string),
+            workspace_label: workspace.map(|_| label.to_string()),
+            main: main.map(PathBuf::from),
+            tabs: Vec::new(),
+        }
+    }
+
     /// A key that stays the same between 2 refreshes.
     pub fn key(&self) -> String {
         match &self.workspace_id {

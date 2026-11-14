@@ -980,27 +980,9 @@ pub(crate) mod tests {
     use super::input::{delete_word, key_of_hint};
     use super::*;
     use crate::model::{AgentRow, Status};
-    use crate::places::Kind;
     use ratatui::crossterm::event::{
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
-
-    pub(crate) fn place(label: &str, workspace: Option<&str>, main: Option<&str>) -> Place {
-        Place {
-            kind: if workspace.is_some() {
-                Kind::Workspace
-            } else {
-                Kind::Project
-            },
-            label: label.into(),
-            project: label.into(),
-            folder: format!("/work/{label}").into(),
-            workspace_id: workspace.map(str::to_string),
-            workspace_label: workspace.map(|_| label.to_string()),
-            main: main.map(PathBuf::from),
-            tabs: Vec::new(),
-        }
-    }
 
     pub(crate) fn app(filter: Filter) -> App {
         let agents = ["fix the login", "omnibar design", "release notes"]
@@ -1024,14 +1006,14 @@ pub(crate) mod tests {
         let mut app = App::new(
             model,
             filter,
-            vec![place("prompts", None, Some("/work/prompts"))],
+            vec![Place::sample("prompts", None, Some("/work/prompts"))],
             Some("w1".into()),
             vec!["claude".into(), "codex".into(), "shell".into()],
             Config::default(),
         );
         app.open = vec![
-            place("atlas", Some("w1"), None),
-            place("pac", Some("w2"), None),
+            Place::sample("atlas", Some("w1"), None),
+            Place::sample("pac", Some("w2"), None),
         ];
         app.rebuild(None);
         app
@@ -1334,11 +1316,9 @@ pub(crate) mod tests {
     #[test]
     fn ctrl_r_renames_a_workspace_with_its_herdr_label_and_a_pane_with_its_name() {
         let mut app = app(Filter::Workspaces);
-        app.model.spaces = vec![crate::model::Space {
-            workspace: serde_json::from_str(r#"{"workspace_id": "w1", "label": "atlas"}"#).unwrap(),
-            folder: None,
-            checkout: None,
-        }];
+        app.model.spaces = vec![crate::model::Space::sample(
+            crate::sidebar::tests::workspace("w1", "atlas", None),
+        )];
         app.rebuild(None);
         app.on_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
         let rename = app.rename.clone().expect("a rename");
@@ -1386,11 +1366,9 @@ pub(crate) mod tests {
     #[test]
     fn alt_up_and_down_move_a_workspace_only_with_the_feature_in_the_filter_workspaces() {
         let mut app = app(Filter::Workspaces);
-        app.model.spaces = vec![crate::model::Space {
-            workspace: crate::sidebar::tests::workspace("w1", "atlas", None),
-            folder: None,
-            checkout: None,
-        }];
+        app.model.spaces = vec![crate::model::Space::sample(
+            crate::sidebar::tests::workspace("w1", "atlas", None),
+        )];
         app.rebuild(None);
         assert!(!app.moves_workspace());
         app.config.features.push("move_workspaces".to_string());
@@ -1474,16 +1452,16 @@ pub(crate) mod tests {
     #[test]
     fn a_new_order_of_the_same_workspaces_keeps_the_other_projects() {
         let space = |id: &str, main: &str, agent_status: Status| crate::model::Space {
-            workspace: crate::model::Workspace {
-                agent_status,
-                ..crate::sidebar::tests::workspace(id, id, None)
-            },
             folder: Some(main.into()),
             checkout: Some(crate::model::Checkout {
                 root: main.into(),
                 common: PathBuf::from(main).join(".git"),
                 branch: Some("main".into()),
             }),
+            ..crate::model::Space::sample(crate::model::Workspace {
+                agent_status,
+                ..crate::sidebar::tests::workspace(id, id, None)
+            })
         };
         let model = |first: Status, second: Status| Model {
             spaces: vec![

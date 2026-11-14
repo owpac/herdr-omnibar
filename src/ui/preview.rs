@@ -422,7 +422,7 @@ fn project_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::tests::{app, place};
+    use crate::app::tests::app;
     use crate::app::Step;
     use crate::filter::Filter;
 
@@ -442,7 +442,7 @@ mod tests {
     fn the_preview_of_a_new_workspace_shows_the_typed_name_as_its_label() {
         let mut app = app(Filter::New);
         app.create.step = Step::What;
-        app.create.place = Some(place("atlas", Some("w1"), None));
+        app.create.place = Some(Place::sample("atlas", Some("w1"), None));
         app.create.name = "my label".into();
         let lines = text(&choice_lines(&app, &Choice::NewWorkspace, 60));
         // The pill holds the label, and the automatic titles name the first tab.
@@ -455,7 +455,7 @@ mod tests {
             "{lines:?}"
         );
         // A place without a workspace keeps the name for its first tab.
-        app.create.place = Some(place("prompts", None, Some("/work/prompts")));
+        app.create.place = Some(Place::sample("prompts", None, Some("/work/prompts")));
         let lines = text(&choice_lines(&app, &Choice::NewWorkspace, 60));
         assert!(
             lines.iter().any(|line| line.contains("prompts")),

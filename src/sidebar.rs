@@ -179,6 +179,18 @@ pub(crate) mod tests {
         .unwrap()
     }
 
+    /// A git workspace with its repository root.
+    pub fn project(id: &str, label: &str, name: &str, root: &str, linked: bool) -> Workspace {
+        serde_json::from_value(serde_json::json!({
+            "workspace_id": id, "label": label,
+            "worktree": {
+                "repo_key": format!("{root}/.git"), "repo_name": name,
+                "repo_root": root, "is_linked_worktree": linked
+            }
+        }))
+        .unwrap()
+    }
+
     /// The example of herdr: test.test (number 6) and test (number 10) show together at 6.
     pub fn flat() -> Vec<Workspace> {
         vec![
@@ -219,7 +231,7 @@ pub(crate) mod tests {
 
     fn mv(ids: &[&str], before: &str) -> Option<Move> {
         Some(Move {
-            ids: ids.iter().map(|id| id.to_string()).collect(),
+            ids: crate::config::owned(ids),
             before: before.into(),
         })
     }

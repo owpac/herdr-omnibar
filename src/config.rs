@@ -140,8 +140,8 @@ impl Default for Config {
     }
 }
 
-/// A list of the defaults, as the strings of the config.
-fn owned(list: &[&str]) -> Vec<String> {
+/// A list of texts, as the strings of the config.
+pub(crate) fn owned(list: &[&str]) -> Vec<String> {
     list.iter().map(|item| item.to_string()).collect()
 }
 

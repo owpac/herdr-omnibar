@@ -513,6 +513,7 @@ pub fn home(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::owned;
     use crate::model::{Snapshot, Workspace};
     use std::path::PathBuf;
 
@@ -544,29 +545,17 @@ mod tests {
             place: "atlas".into(),
             pane_id: None,
         }];
-        model.spaces = vec![Space {
-            workspace: Workspace {
-                workspace_id: "w1".into(),
-                label: "atlas".into(),
-                agent_status: Status::Working,
-                worktree: None,
-            },
-            folder: None,
-            checkout: None,
-        }];
+        model.spaces = vec![Space::sample(Workspace {
+            agent_status: Status::Working,
+            ..crate::sidebar::tests::workspace("w1", "atlas", None)
+        })];
         model
     }
 
     fn place(kind: Kind, label: &str, workspace: Option<&str>) -> Place {
         Place {
             kind,
-            label: label.into(),
-            project: label.into(),
-            folder: format!("/work/{label}").into(),
-            workspace_id: workspace.map(str::to_string),
-            workspace_label: workspace.map(|_| label.to_string()),
-            main: None,
-            tabs: Vec::new(),
+            ..Place::sample(label, workspace, None)
         }
     }
 
@@ -640,11 +629,7 @@ mod tests {
         // The model is in the order of use: w2 first.
         model.spaces = ["w2", "w1", "w3"]
             .iter()
-            .map(|id| Space {
-                workspace: flat.iter().find(|w| w.workspace_id == *id).unwrap().clone(),
-                folder: None,
-                checkout: None,
-            })
+            .map(|id| Space::sample(flat.iter().find(|w| w.workspace_id == *id).unwrap().clone()))
             .collect();
         let build_with = |in_sidebar_order| {
             let sources = Sources {
@@ -938,15 +923,14 @@ mod tests {
 
     #[test]
     fn the_filters_follow_their_names_in_the_config() {
-        let names = |list: &[&str]| list.iter().map(|name| name.to_string()).collect::<Vec<_>>();
         assert_eq!(
-            filters(&names(&["agents", "panes", "nothing", "agents"])),
+            filters(&owned(&["agents", "panes", "nothing", "agents"])),
             [Filter::Agents, Filter::Panes]
         );
         // A list without a known name gives the default filters: Tab needs at least one filter.
-        assert_eq!(filters(&names(&[])), filters(&names(&DEFAULT_FILTERS)));
-        assert_eq!(filters(&names(&[])).len(), DEFAULT_FILTERS.len());
-        assert_eq!(filters(&names(&["nothing"]))[0], Filter::All);
+        assert_eq!(filters(&owned(&[])), filters(&owned(&DEFAULT_FILTERS)));
+        assert_eq!(filters(&owned(&[])).len(), DEFAULT_FILTERS.len());
+        assert_eq!(filters(&owned(&["nothing"]))[0], Filter::All);
     }
 
     #[test]

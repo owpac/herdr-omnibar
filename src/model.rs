@@ -313,6 +313,16 @@ pub struct Space {
 }
 
 impl Space {
+    /// A workspace for the tests, without a folder and without a checkout.
+    #[cfg(test)]
+    pub fn sample(workspace: Workspace) -> Space {
+        Space {
+            workspace,
+            folder: None,
+            checkout: None,
+        }
+    }
+
     /// The project of the workspace: its git repository. For a linked worktree without a checkout,
     /// the repository that herdr gives: its label is the branch. Else the name that herdr gives to
     /// the workspace, else its folder.
@@ -728,7 +738,7 @@ mod tests {
     #[test]
     fn the_agents_that_need_the_user_come_first() {
         let mut model = Model::build(&snapshot(), &checkouts());
-        let order: Vec<String> = ["attention"].iter().map(|s| s.to_string()).collect();
+        let order = crate::config::owned(&["attention"]);
         crate::rank::Ranker::sort(&mut model, &order, &HashMap::new(), None, None);
         let agents: Vec<(&str, &str, &str)> = model
             .agents
@@ -787,19 +797,14 @@ mod tests {
         );
     }
 
+    /// A workspace of the repository /work/atlas, with its checkout.
     fn git_workspace(label: &str, linked: bool, checkout: &str) -> Workspace {
-        serde_json::from_value(serde_json::json!({
-            "workspace_id": "w9",
-            "label": label,
-            "worktree": {
-                "repo_key": "/work/atlas/.git",
-                "repo_name": "atlas",
-                "repo_root": "/work/atlas",
-                "checkout_path": checkout,
-                "is_linked_worktree": linked
-            }
-        }))
-        .unwrap()
+        let mut workspace =
+            crate::sidebar::tests::project("w9", label, "atlas", "/work/atlas", linked);
+        if let Some(worktree) = workspace.worktree.as_mut() {
+            worktree.checkout_path = Some(checkout.into());
+        }
+        workspace
     }
 
     #[test]
@@ -817,8 +822,7 @@ mod tests {
             Some("billing")
         );
         // A workspace outside git has no worktree data: no user label.
-        let plain: Workspace =
-            serde_json::from_str(r#"{"workspace_id": "w1", "label": "notes"}"#).unwrap();
+        let plain = crate::sidebar::tests::workspace("w1", "notes", None);
         assert_eq!(plain.user_label(), None);
     }
 
@@ -830,9 +834,8 @@ mod tests {
             branch: Some(branch.into()),
         };
         let space = |workspace, checkout| Space {
-            workspace,
-            folder: None,
             checkout: Some(checkout),
+            ..Space::sample(workspace)
         };
         let main = space(
             git_workspace("billing", false, "/work/atlas"),
@@ -854,21 +857,13 @@ mod tests {
 
     #[test]
     fn a_linked_worktree_without_a_checkout_takes_the_repository_of_herdr_as_its_project() {
-        let space = |label| Space {
-            workspace: git_workspace(label, true, "/work/atlas.fix"),
-            folder: None,
-            checkout: None,
-        };
+        let space = |label| Space::sample(git_workspace(label, true, "/work/atlas.fix"));
         assert_eq!(space("atlas.fix").project(), "atlas");
         assert_eq!(space("atlas.fix").label(), "atlas ▸ atlas.fix");
         assert_eq!(space("my fix").label(), "atlas ▸ my fix");
         // A main workspace without a checkout keeps its herdr label: 2 checkouts of one repository
         // keep 2 names.
-        let main = Space {
-            workspace: git_workspace("atlas-2", false, "/work/atlas-2"),
-            folder: None,
-            checkout: None,
-        };
+        let main = Space::sample(git_workspace("atlas-2", false, "/work/atlas-2"));
         assert_eq!(main.project(), "atlas-2");
     }
 

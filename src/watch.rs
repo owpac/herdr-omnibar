@@ -541,24 +541,27 @@ impl Log {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn ids(ids: &[&str]) -> Vec<String> {
-        ids.iter().map(|id| id.to_string()).collect()
-    }
+    use crate::config::owned;
 
     #[test]
     fn the_watcher_sorts_at_its_start_and_when_the_set_of_ids_changes() {
         // At the start: no previous ids.
-        assert!(should_sort(None, &ids(&["w1", "w2"])));
+        assert!(should_sort(None, &owned(&["w1", "w2"])));
         // A workspace opens or closes.
         assert!(should_sort(
-            Some(&ids(&["w1", "w2"])),
-            &ids(&["w1", "w2", "w3"])
+            Some(&owned(&["w1", "w2"])),
+            &owned(&["w1", "w2", "w3"])
         ));
-        assert!(should_sort(Some(&ids(&["w1", "w2"])), &ids(&["w1"])));
+        assert!(should_sort(Some(&owned(&["w1", "w2"])), &owned(&["w1"])));
         // A move of the user changes the order, not the set.
-        assert!(!should_sort(Some(&ids(&["w1", "w2"])), &ids(&["w2", "w1"])));
-        assert!(!should_sort(Some(&ids(&["w1", "w2"])), &ids(&["w1", "w2"])));
+        assert!(!should_sort(
+            Some(&owned(&["w1", "w2"])),
+            &owned(&["w2", "w1"])
+        ));
+        assert!(!should_sort(
+            Some(&owned(&["w1", "w2"])),
+            &owned(&["w1", "w2"])
+        ));
     }
 
     /// A binary that the watcher can run: an execute bit, and no change for 1 minute.

@@ -295,11 +295,8 @@ impl Ranker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::owned;
     use crate::model::{Snapshot, Workspace};
-
-    fn order(names: &[&str]) -> Vec<String> {
-        names.iter().map(|name| name.to_string()).collect()
-    }
 
     fn row(name: &str, status: Status, seq: Option<u64>, tab: &str, pane: &str) -> AgentRow {
         AgentRow {
@@ -345,7 +342,7 @@ mod tests {
 
     fn sorted(order_list: &[&str], visits: &Visits, current: Option<&str>) -> Vec<String> {
         let mut model = model();
-        Ranker::sort(&mut model, &order(order_list), visits, current, None);
+        Ranker::sort(&mut model, &owned(order_list), visits, current, None);
         names(&model).into_iter().map(str::to_string).collect()
     }
 
@@ -353,22 +350,22 @@ mod tests {
     fn the_criteria_ignore_an_unknown_entry_and_a_duplicate_and_end_with_herdr() {
         use Criterion::*;
         assert_eq!(
-            criteria(&order(&["visit", "nothing", "visit", "attention"])),
+            criteria(&owned(&["visit", "nothing", "visit", "attention"])),
             [Visit, Attention, Herdr]
         );
-        assert_eq!(criteria(&order(&["herdr", "activity"])), [Activity, Herdr]);
+        assert_eq!(criteria(&owned(&["herdr", "activity"])), [Activity, Herdr]);
         // An empty list gives the order herdr.
         assert_eq!(criteria(&[]), [Herdr]);
-        assert_eq!(criteria(&order(&["nothing"])), [Herdr]);
+        assert_eq!(criteria(&owned(&["nothing"])), [Herdr]);
     }
 
     #[test]
     fn the_group_needs_you_needs_attention_as_the_first_criterion() {
-        assert!(attention_first(&order(&["attention", "activity"])));
+        assert!(attention_first(&owned(&["attention", "activity"])));
         // An unknown entry and a duplicate do nothing.
-        assert!(attention_first(&order(&["nothing", "attention", "visit"])));
-        assert!(!attention_first(&order(&["visit", "attention"])));
-        assert!(!attention_first(&order(&["herdr"])));
+        assert!(attention_first(&owned(&["nothing", "attention", "visit"])));
+        assert!(!attention_first(&owned(&["visit", "attention"])));
+        assert!(!attention_first(&owned(&["herdr"])));
         assert!(!attention_first(&[]));
     }
 
@@ -476,7 +473,7 @@ mod tests {
         let mut sorted = Model::build(&snapshot, &HashMap::new());
         let ranker = Ranker::sort(
             &mut sorted,
-            &order(&["attention"]),
+            &owned(&["attention"]),
             &Visits::new(),
             None,
             None,
@@ -492,14 +489,8 @@ mod tests {
         let places: Vec<Place> = [("a", "w1"), ("b", "w2"), ("c", "w3"), ("d", "none")]
             .iter()
             .map(|(name, id)| Place {
-                kind: crate::places::Kind::Workspace,
-                label: name.to_string(),
-                project: name.to_string(),
-                folder: format!("/work/{name}").into(),
-                workspace_id: Some(id.to_string()),
-                workspace_label: Some(name.to_string()),
                 main: Some(format!("/work/{name}").into()),
-                tabs: Vec::new(),
+                ..Place::sample(name, Some(id), None)
             })
             .collect();
         let projects = [project("a"), project("b"), project("c"), project("d")];

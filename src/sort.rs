@@ -175,27 +175,15 @@ pub fn run(print_only: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sidebar::tests::{flat, workspace};
+    use crate::config::owned;
+    use crate::sidebar::tests::{flat, project, workspace};
 
     fn sorted_by_default(workspaces: &[Workspace]) -> Vec<String> {
         by(&DEFAULT_SIDEBAR_ORDER, workspaces)
     }
 
-    /// A git workspace with its repository root.
-    fn project(id: &str, label: &str, name: &str, root: &str, linked: bool) -> Workspace {
-        serde_json::from_value(serde_json::json!({
-            "workspace_id": id, "label": label,
-            "worktree": {
-                "repo_key": format!("{root}/.git"), "repo_name": name,
-                "repo_root": root, "is_linked_worktree": linked
-            }
-        }))
-        .unwrap()
-    }
-
     fn by(spec: &[&str], workspaces: &[Workspace]) -> Vec<String> {
-        let spec: Vec<String> = spec.iter().map(|e| e.to_string()).collect();
-        sorted(workspaces, &spec, Path::new("/home/u"))
+        sorted(workspaces, &owned(spec), Path::new("/home/u"))
     }
 
     fn tree() -> Vec<Workspace> {

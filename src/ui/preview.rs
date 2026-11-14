@@ -186,17 +186,27 @@ fn create_lines(app: &App, name: &str, width: usize) -> Vec<Line<'static>> {
     lines
 }
 
+/// The head of the preview of a place: the title, the pill of the place, its folder, then an empty
+/// line.
+fn place_head(
+    app: &App,
+    heading: &str,
+    pill: Span<'static>,
+    folder: &Path,
+    width: usize,
+) -> Vec<Line<'static>> {
+    vec![
+        title(heading),
+        Line::from(round(vec![pill], app)),
+        muted(fit(&rows::home(folder), width)),
+        Line::raw(""),
+    ]
+}
+
 /// A place of the step "where": its workspace and its tabs.
 fn place_lines(app: &App, place: &Place, width: usize) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        title("THE PLACE"),
-        Line::from(round(
-            vec![pill_span(place.kind == Kind::Workspace, &place.label)],
-            app,
-        )),
-        muted(fit(&rows::home(&place.folder), width)),
-        Line::raw(""),
-    ];
+    let pill = pill_span(place.kind == Kind::Workspace, &place.label);
+    let mut lines = place_head(app, "THE PLACE", pill, &place.folder, width);
     if place.tabs.is_empty() {
         lines.push(Line::from(Span::styled(
             "    no tab yet",
@@ -215,13 +225,8 @@ fn place_lines(app: &App, place: &Place, width: usize) -> Vec<Line<'static>> {
 
 /// The row "new workspace…": a workspace in ~, with the typed text as its label.
 fn new_workspace_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-    let folder = places::home_folder();
-    let mut lines = vec![
-        title("NEW WORKSPACE"),
-        Line::from(round(vec![pill_span(false, "~")], app)),
-        muted(fit(&rows::home(&folder), width)),
-        Line::raw(""),
-    ];
+    let pill = pill_span(false, "~");
+    let mut lines = place_head(app, "NEW WORKSPACE", pill, &places::home_folder(), width);
     lines.extend(help_lines(
         "↵ creates a workspace in ~. Its label is the text that you typed.",
         width,

@@ -55,12 +55,12 @@ const HERDR_BAR: &str = "herdr-bar";
 ///
 /// `written` gives the last title that the watcher wrote on each tab. A tab changes only if:
 /// - it has one agent, with a useful title,
-/// - its name is its number, or the last title of the watcher,
+/// - its name is its position, or the last title of the watcher,
 /// - its name is not already this title.
 pub fn decide(snapshot: &Snapshot, written: &HashMap<String, String>) -> Vec<(String, String)> {
     let mut renames = Vec::new();
     for tab in &snapshot.tabs {
-        let owned = tab.has_default_label() || written.get(&tab.tab_id) == Some(&tab.label);
+        let owned = snapshot.has_default_label(tab) || written.get(&tab.tab_id) == Some(&tab.label);
         if !owned {
             continue;
         }
@@ -276,11 +276,11 @@ fn rename(snapshot: &Snapshot, written: &mut HashMap<String, String>, state_dir:
     }
 }
 
-/// Give a tab back to the watcher: rename it to its number, the name that herdr gives. The
+/// Give a tab back to the watcher: rename it to its position, the name that herdr gives. The
 /// watcher then writes the title of its agent at its next read (2 seconds). Start the watcher if
 /// it is stopped. Return the automatic title, or None if the tab has none: then the name stays.
 pub fn give_back(tab_id: &str) -> Result<Option<String>, String> {
-    // If another plugin writes the titles, the watcher waits: the tab then keeps its number.
+    // If another plugin writes the titles, the watcher waits: the tab then keeps its name.
     let plugins = herdr::plugins().map_err(|error| error.to_string())?;
     if let Some(reason) = other_writer(&plugins, bar_config().as_deref()) {
         return Err(reason);
@@ -289,13 +289,10 @@ pub fn give_back(tab_id: &str) -> Result<Option<String>, String> {
     let Some(title) = auto_title(&snapshot, tab_id) else {
         return Ok(None);
     };
-    let number = snapshot
-        .tabs
-        .iter()
-        .find(|tab| tab.tab_id == tab_id)
-        .and_then(|tab| tab.number)
+    let position = snapshot
+        .tab_position(tab_id)
         .ok_or_else(|| format!("no tab {tab_id}"))?;
-    herdr::rename_tab(tab_id, &number.to_string()).map_err(|error| error.to_string())?;
+    herdr::rename_tab(tab_id, &position.to_string()).map_err(|error| error.to_string())?;
     start()?;
     Ok(Some(title))
 }
@@ -709,6 +706,38 @@ mod tests {
         );
         let model = model::Model::build(&shell, &HashMap::new());
         assert_eq!(model.tabs[0].name, "cargo watch");
+    }
+
+    #[test]
+    fn a_tab_after_a_closed_tab_has_its_position_as_default_name() {
+        // The tab "5" has the creation counter 31: its position is 5.
+        let tabs = [
+            tab("w1:t1", "1", 1),
+            tab("w1:t9", "2", 9),
+            tab("w1:tA", "3", 10),
+            tab("w1:tY", "4", 30),
+            tab("w1:tZ", "5", 31),
+        ]
+        .join(",");
+        let snapshot = snapshot(
+            &tabs,
+            &pane("w1:p1", "w1:tZ", Some("claude"), "Fix the login"),
+        );
+        assert_eq!(snapshot.tab_position("w1:tZ"), Some(5));
+        assert_eq!(
+            decide(&snapshot, &HashMap::new()),
+            [("w1:tZ".to_string(), "Fix the login".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_label_equal_to_the_counter_is_a_name_of_the_user() {
+        let tabs = [tab("w1:t1", "1", 1), tab("w1:t2", "31", 31)].join(",");
+        let snapshot = snapshot(
+            &tabs,
+            &pane("w1:p1", "w1:t2", Some("claude"), "Fix the login"),
+        );
+        assert!(decide(&snapshot, &HashMap::new()).is_empty());
     }
 
     #[test]

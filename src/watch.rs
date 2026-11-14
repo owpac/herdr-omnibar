@@ -750,6 +750,15 @@ mod tests {
             useful_title("opencode -c --port 1", "opencode", None, folder),
             None
         );
+        // The command line is noise in any case.
+        assert_eq!(
+            useful_title("Claude --resume abc", "claude", None, folder),
+            None
+        );
+        assert_eq!(
+            useful_title("OpenCode -c --port 1", "opencode", None, folder),
+            None
+        );
         // A title is a command line only if an option follows the command.
         assert_eq!(
             useful_title("Amp up the cache", "amp", None, folder).as_deref(),

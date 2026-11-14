@@ -407,25 +407,13 @@ impl App {
         matches!(self.selected_item(), Some(Item::NewHomeWorkspace(text)) if !text.is_empty())
     }
 
-    /// The row that a new list selects: the first row. In the step "where" with a filter text, the
-    /// row "new workspace…" stays first, but the selection goes to the first place that matches
-    /// the text: the user types a name, then ↵ chooses the place.
+    /// The row that a new list selects: the first row that is not a fallback (Item::is_fallback),
+    /// else the first row.
     fn first_row(&self, rows: &[usize]) -> Option<usize> {
-        let typed = self.filter == Filter::New
-            && self.create.step == Step::Where
-            && !self.create.filter.trim().is_empty();
-        let is_new_workspace = |index: &usize| {
-            matches!(
-                &self.lines[*index],
-                Line::Row {
-                    item: Item::NewHomeWorkspace(_),
-                    ..
-                }
-            )
-        };
+        let is_fallback = |index: &usize| matches!(&self.lines[*index], Line::Row { item, .. } if item.is_fallback());
         rows.iter()
             .copied()
-            .find(|index| !typed || !is_new_workspace(index))
+            .find(|index| !is_fallback(index))
             .or_else(|| rows.first().copied())
     }
 

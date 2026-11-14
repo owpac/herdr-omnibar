@@ -84,6 +84,12 @@ impl Item {
         }
     }
 
+    /// True if a new list selects this row only when it has no other row. The row "new workspace
+    /// “text”" stays first, but a typed name selects the first place that matches.
+    pub fn is_fallback(&self) -> bool {
+        matches!(self, Item::NewHomeWorkspace(text) if !text.is_empty())
+    }
+
     /// A key that stays the same between 2 refreshes: the selection follows it.
     pub fn key(&self) -> String {
         match self {

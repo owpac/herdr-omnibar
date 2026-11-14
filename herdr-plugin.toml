@@ -1,7 +1,7 @@
 id = "herdr-omnibar"
 name = "Omnibar"
 # The version of the last release: YYYY.M.N. 0.0.0 until the first release.
-version = "2026.11.6"
+version = "2026.11.7"
 min_herdr_version = "0.9.0"
 description = "One bar to go to an agent, a tab or a workspace, and to create a tab or a worktree"
 platforms = ["linux", "macos"]

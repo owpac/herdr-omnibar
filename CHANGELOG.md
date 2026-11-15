@@ -2,6 +2,12 @@
 
 The changes of each release of herdr-omnibar. The workflow release-pr writes this file.
 
+## [2026.11.11](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.11) - 2026-11-15
+
+### Features
+
+- the herdr shortcuts of the omnibar work in the open popup ([#31](https://github.com/owpac/herdr-omnibar/pull/31))
+
 ## [2026.11.10](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.10) - 2026-11-14
 
 ### Bug fixes

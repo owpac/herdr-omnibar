@@ -720,7 +720,7 @@ fn resolve(text: &str, host_is_dark: impl FnOnce() -> bool) -> Theme {
 
 /// The config file of herdr: HERDR_CONFIG_PATH, else config.toml in the config folder of herdr
 /// (XDG_CONFIG_HOME, else ~/.config).
-fn config_path() -> PathBuf {
+pub fn config_path() -> PathBuf {
     let set = |name: &str| env::var_os(name).filter(|value| !value.is_empty());
     if let Some(path) = set("HERDR_CONFIG_PATH") {
         return PathBuf::from(path);

@@ -23,6 +23,7 @@ mod pulls;
 mod rank;
 mod remove;
 mod rows;
+mod shortcuts;
 mod sidebar;
 mod sort;
 mod theme;

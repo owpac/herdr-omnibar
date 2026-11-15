@@ -25,6 +25,7 @@ use crate::places::{self, Place, Project};
 use crate::pulls::{Lookup, Pulls};
 use crate::rank::Ranker;
 use crate::rows::{self, Item, Line};
+use crate::shortcuts::Shortcuts;
 use crate::times::{self, Times};
 use crate::visits::Visits;
 
@@ -226,6 +227,10 @@ pub struct App {
     /// The last agent of each folder (agents.json), read one time when the popup opens. Empty in
     /// the tests: they do not read the state of the machine.
     remembered: HashMap<String, String>,
+    /// The herdr shortcuts of the omnibar actions. Empty in the tests, until a test sets them.
+    pub shortcuts: Shortcuts,
+    /// A prefix key of herdr came, and the next key decides.
+    prefix_pending: bool,
 }
 
 /// What a key asks for.
@@ -295,6 +300,8 @@ impl App {
             current_tab: None,
             ranker: Ranker::default(),
             focused_pane: None,
+            shortcuts: Shortcuts::default(),
+            prefix_pending: false,
         };
         app.rebuild(None);
         app
@@ -1163,6 +1170,65 @@ pub(crate) mod tests {
         // Without the filter panes in the config, % is a character of the text.
         press(&mut app, KeyCode::Char('%'));
         assert_eq!((app.filter, app.query.as_str()), (Filter::All, "%"));
+    }
+
+    fn with_shortcuts(filter: Filter) -> App {
+        let mut app = app(filter);
+        app.shortcuts = Shortcuts::parse(
+            r#"
+[keys]
+prefix = "ctrl+space"
+[[keys.command]]
+key = "prefix+k"
+type = "plugin_action"
+command = "herdr-omnibar.actions"
+[[keys.command]]
+key = "prefix+p"
+type = "plugin_action"
+command = "herdr-omnibar.open"
+"#,
+        );
+        app
+    }
+
+    fn prefix(app: &mut App) -> Outcome {
+        app.on_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL))
+    }
+
+    #[test]
+    fn the_shortcut_of_the_current_filter_closes_the_popup() {
+        let mut app = with_shortcuts(Filter::Actions);
+        assert!(matches!(prefix(&mut app), Outcome::Continue));
+        assert!(matches!(press(&mut app, KeyCode::Char('k')), Outcome::Quit));
+    }
+
+    #[test]
+    fn the_shortcut_of_another_filter_switches_to_it() {
+        let mut app = with_shortcuts(Filter::Actions);
+        prefix(&mut app);
+        assert!(matches!(
+            press(&mut app, KeyCode::Char('p')),
+            Outcome::Continue
+        ));
+        assert_eq!((app.filter, app.query.as_str()), (Filter::All, ""));
+    }
+
+    #[test]
+    fn an_unknown_key_after_the_prefix_is_ignored_with_the_prefix() {
+        let mut app = with_shortcuts(Filter::All);
+        prefix(&mut app);
+        press(&mut app, KeyCode::Char('z'));
+        assert_eq!((app.filter, app.query.as_str()), (Filter::All, ""));
+        // The prefix is spent: k is now a character of the text.
+        press(&mut app, KeyCode::Char('k'));
+        assert_eq!(app.query, "k");
+    }
+
+    #[test]
+    fn without_a_prefix_the_key_of_a_shortcut_is_a_character() {
+        let mut app = with_shortcuts(Filter::All);
+        press(&mut app, KeyCode::Char('p'));
+        assert_eq!((app.filter, app.query.as_str()), (Filter::All, "p"));
     }
 
     #[test]

@@ -85,6 +85,17 @@ command = "herdr-omnibar.new"
 
 The mouse works too: a click selects a row, a double click runs it, and the wheel moves the selection. A click on a chip opens its filter, and a click on a key of the footer runs this key.
 
+### Shortcuts of herdr in the open popup
+
+herdr sends all the keys to an open popup, the prefix included. So the omnibar reads your herdr config (`HERDR_CONFIG_PATH`, else `~/.config/herdr/config.toml`) and runs your shortcuts itself:
+
+- The prefix keys are `[keys] prefix` and `extra_prefixes`. Without them, the prefix is `ctrl+b`, like herdr.
+- A shortcut is a `[[keys.command]]` with `type = "plugin_action"`, a key `prefix+<key>` and a command `herdr-omnibar.<action>`. The action `open` gives the filter All. The other actions give the filter of the same name. `sort` and `keys` have no filter.
+- After a prefix key, the key of the action of the current filter closes the popup, like `esc`. The key of the action of another filter switches to this filter, like `⇥`.
+- After a prefix key, another key is ignored with the prefix. The popup does not type them in the text.
+
+For example, with `prefix+k` on `herdr-omnibar.actions` and `prefix+p` on `herdr-omnibar.open`, `prefix+k` closes the filter Actions, and `prefix+p` goes from Actions to All. The popup reads the config at each opening. A missing or wrong config gives no shortcut.
+
 The omnibar remembers the last agent of each folder, in `agents.json` of its state folder.
 
 ## Remove a worktree

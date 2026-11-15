@@ -24,6 +24,8 @@ use crate::times::Times;
 use crate::ui;
 use crate::visits::{self, Visits};
 
+use crate::shortcuts::Shortcuts;
+
 use super::{App, Outcome};
 
 /// The time between 2 reads of the herdr snapshot.
@@ -52,6 +54,7 @@ pub fn run(filter: Filter, context: Context) -> Result<(), String> {
         create::installed_agents(),
         config,
     );
+    app.shortcuts = Shortcuts::load();
     app.focused_pane = context.focused_pane_id.clone();
     // The order of use (criterion visit): the tab of the popup gets the time now.
     let visits = if app.config.orders_by(Criterion::Visit) {

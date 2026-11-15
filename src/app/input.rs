@@ -376,6 +376,9 @@ impl App {
     }
 
     pub fn on_key(&mut self, key: KeyEvent) -> Outcome {
+        if let Some(outcome) = self.on_herdr_shortcut(key) {
+            return outcome;
+        }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
         let creating = self.filter == Filter::New;
@@ -462,6 +465,31 @@ impl App {
             _ => {}
         }
         Outcome::Continue
+    }
+}
+
+impl App {
+    /// A herdr shortcut in the open popup: a prefix key, then the key of an omnibar action. The
+    /// key of the current filter closes the popup, the key of another filter opens it. Another key
+    /// after the prefix is ignored with the prefix. None: the key is not part of a shortcut.
+    fn on_herdr_shortcut(&mut self, key: KeyEvent) -> Option<Outcome> {
+        if std::mem::take(&mut self.prefix_pending) {
+            let busy = self.confirm.is_some() || self.rename.is_some();
+            return Some(match self.shortcuts.filter_of(&key) {
+                Some(filter) if !busy && filter == self.filter => Outcome::Quit,
+                Some(filter) if !busy => {
+                    self.help = false;
+                    self.set_filter(filter);
+                    Outcome::Continue
+                }
+                _ => Outcome::Continue,
+            });
+        }
+        if self.shortcuts.is_prefix(&key) {
+            self.prefix_pending = true;
+            return Some(Outcome::Continue);
+        }
+        None
     }
 }
 

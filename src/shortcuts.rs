@@ -48,9 +48,7 @@ impl Shortcuts {
                 }
             }
         }
-        if keys
-            .is_none_or(|keys| !keys.contains_key("prefix") && !keys.contains_key("extra_prefixes"))
-        {
+        if prefixes.is_empty() {
             prefixes.extend(parse_combo(DEFAULT_PREFIX));
         }
         let mut commands = Vec::new();
@@ -77,7 +75,7 @@ impl Shortcuts {
 
     /// True if the key is a prefix of herdr.
     pub fn is_prefix(&self, key: &KeyEvent) -> bool {
-        self.prefixes.contains(&normalize(key.code, key.modifiers))
+        !self.commands.is_empty() && self.prefixes.contains(&normalize(key.code, key.modifiers))
     }
 
     /// The filter of the omnibar action that a key runs after a prefix.
@@ -121,6 +119,11 @@ fn normalize(code: KeyCode, modifiers: KeyModifiers) -> Combo {
         KeyCode::Char(character) if character.is_uppercase() => {
             modifiers |= KeyModifiers::SHIFT;
             KeyCode::Char(character.to_lowercase().next().unwrap_or(character))
+        }
+        // A symbol such as ? or ! has no shift in the herdr label, but a terminal can add it.
+        KeyCode::Char(character) if !character.is_alphabetic() => {
+            modifiers.remove(KeyModifiers::SHIFT);
+            code
         }
         KeyCode::Tab if modifiers.contains(KeyModifiers::SHIFT) => {
             modifiers.remove(KeyModifiers::SHIFT);
@@ -270,6 +273,31 @@ command = "herdr-omnibar.actions"
         let event = key(KeyCode::Char('G'), KeyModifiers::SHIFT);
         assert_eq!(shortcuts.filter_of(&event), Some(Filter::Worktrees));
         assert_eq!(shortcuts.filter_of(&plain('g')), None);
+    }
+
+    #[test]
+    fn a_symbol_matches_with_or_without_shift() {
+        let shortcuts = Shortcuts::parse(
+            "[[keys.command]]\nkey = \"prefix+?\"\ntype = \"plugin_action\"\ncommand = \"herdr-omnibar.agents\"\n",
+        );
+        for modifiers in [KeyModifiers::NONE, KeyModifiers::SHIFT] {
+            let event = key(KeyCode::Char('?'), modifiers);
+            assert_eq!(shortcuts.filter_of(&event), Some(Filter::Agents));
+        }
+    }
+
+    #[test]
+    fn a_wrong_prefix_gives_the_prefix_of_herdr() {
+        let shortcuts = Shortcuts::parse(
+            "[keys]\nprefix = \"nonsense+\"\n[[keys.command]]\nkey = \"prefix+k\"\ntype = \"plugin_action\"\ncommand = \"herdr-omnibar.actions\"\n",
+        );
+        assert!(shortcuts.is_prefix(&key(KeyCode::Char('b'), KeyModifiers::CONTROL)));
+    }
+
+    #[test]
+    fn a_config_without_command_takes_no_prefix() {
+        let shortcuts = Shortcuts::parse("[keys]\nprefix = \"ctrl+a\"\n");
+        assert!(!shortcuts.is_prefix(&key(KeyCode::Char('a'), KeyModifiers::CONTROL)));
     }
 
     #[test]

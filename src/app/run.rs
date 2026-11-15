@@ -20,11 +20,10 @@ use crate::model::{self, Checkout};
 use crate::places;
 use crate::rank::Criterion;
 use crate::rows::Item;
+use crate::shortcuts::Shortcuts;
 use crate::times::Times;
 use crate::ui;
 use crate::visits::{self, Visits};
-
-use crate::shortcuts::Shortcuts;
 
 use super::{App, Outcome};
 

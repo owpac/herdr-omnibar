@@ -319,6 +319,7 @@ impl App {
 
     /// A click selects a row, a double click runs it, the wheel moves the selection.
     pub fn on_mouse(&mut self, mouse: MouseEvent) -> Outcome {
+        self.prefix_pending = false;
         match mouse.kind {
             MouseEventKind::ScrollDown => self.move_by(1),
             MouseEventKind::ScrollUp => self.move_by(-1),

@@ -85,7 +85,8 @@ impl Item {
     }
 
     /// True if a new list selects this row only when it has no other row. The row "new workspace
-    /// “text”" stays first, but a typed name selects the first place that matches.
+    /// “text”" comes before the projects and the folders, but a typed name selects the first place
+    /// that matches.
     pub fn is_fallback(&self) -> bool {
         matches!(self, Item::NewHomeWorkspace(text) if !text.is_empty())
     }
@@ -335,9 +336,10 @@ pub fn worktree_lines(
     lines
 }
 
-/// The lines of the step "where": the current place, the open workspaces, the projects without a
-/// workspace, the folders. The places match by their name, not by their folder: almost each text
-/// matches a folder under ~/Workspace. A query that starts with ~, / or . lists the real folders.
+/// The lines of the step "where": the current place, the open workspaces, the row of a new
+/// workspace, the projects without a workspace, the folders. The places match by their name, not
+/// by their folder: almost each text matches a folder under ~/Workspace. A query that starts with
+/// ~, / or . lists the real folders.
 pub fn where_lines(
     open: &[Place],
     others: &[Place],
@@ -349,12 +351,6 @@ pub fn where_lines(
     }
     let query = query.trim();
     let mut lines = Vec::new();
-    // The first row makes a new workspace in ~, with the typed text as its label.
-    group(
-        &mut lines,
-        "New",
-        vec![(Item::NewHomeWorkspace(query.to_string()), Vec::new())],
-    );
     let (here, rest): (Vec<Place>, Vec<Place>) = open
         .iter()
         .cloned()
@@ -368,6 +364,12 @@ pub fn where_lines(
         &mut lines,
         "Open workspaces",
         matches_by_name(rest.into_iter().map(Item::Place).collect(), query),
+    );
+    // This row makes a new workspace in ~, with the typed text as its label.
+    group(
+        &mut lines,
+        "New",
+        vec![(Item::NewHomeWorkspace(query.to_string()), Vec::new())],
     );
     let (projects, folders): (Vec<_>, Vec<_>) = others
         .iter()
@@ -825,12 +827,12 @@ mod tests {
         assert_eq!(
             titles(&where_lines(&open, &others, Some("w1"), "")),
             [
-                "# New",
-                "new workspace…",
                 "# Current place",
                 "atlas",
                 "# Open workspaces",
                 "pac",
+                "# New",
+                "new workspace…",
                 "# Projects without a workspace",
                 "prompts",
                 "# Folders",
@@ -860,8 +862,8 @@ mod tests {
         // Only the row of the new workspace is left: no place has "Recettes" in its name.
         assert_eq!(names("Recettes"), ["new workspace “Recettes”"]);
         assert_eq!(names("pac"), ["new workspace “pac”"]);
-        // A name that matches lists the place.
-        assert_eq!(names("atl"), ["new workspace “atl”", "atlas"]);
+        // A name that matches lists the place, before the row of the new workspace.
+        assert_eq!(names("atl"), ["atlas", "new workspace “atl”"]);
     }
 
     #[test]

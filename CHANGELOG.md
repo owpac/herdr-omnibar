@@ -2,6 +2,12 @@
 
 The changes of each release of herdr-omnibar. The workflow release-pr writes this file.
 
+## [2026.11.12](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.12) - 2026-11-21
+
+### Features
+
+- the row new workspace comes after the open workspaces ([#33](https://github.com/owpac/herdr-omnibar/pull/33))
+
 ## [2026.11.11](https://github.com/owpac/herdr-omnibar/releases/tag/2026.11.11) - 2026-11-15
 
 ### Features

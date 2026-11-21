@@ -1268,9 +1268,8 @@ command = "herdr-omnibar.open"
     fn the_creation_starts_at_the_current_place_then_keeps_the_name() {
         let mut app = app(Filter::New);
         assert_eq!(app.create.step, Step::Where);
-        // The first row makes a new workspace in ~. The current place comes next.
-        assert_eq!(selected_name(&app), "new workspace…");
-        press(&mut app, KeyCode::Down);
+        // The current place is the first row. The row of a new workspace in ~ comes after the
+        // open workspaces.
         assert_eq!(selected_name(&app), "atlas");
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.create.step, Step::What);
@@ -1299,7 +1298,6 @@ command = "herdr-omnibar.open"
     #[test]
     fn tab_changes_the_agent_in_the_step_what_and_enter_gives_the_plan() {
         let mut app = app(Filter::New);
-        press(&mut app, KeyCode::Down);
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.agent(), "claude");
         press(&mut app, KeyCode::Tab);
@@ -1326,7 +1324,10 @@ command = "herdr-omnibar.open"
     #[test]
     fn the_row_new_workspace_creates_a_workspace_in_ps_at_once_with_the_typed_text() {
         let mut app = app(Filter::New);
-        // Without a text: the row asks for a name, and the step stays.
+        // Without a text: the row asks for a name, and the step stays. The row comes after the
+        // current place (atlas) and the open workspace pac.
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Down);
         assert_eq!(selected_name(&app), "new workspace…");
         assert!(matches!(press(&mut app, KeyCode::Enter), Outcome::Continue));
         assert_eq!(app.create.step, Step::Where);
@@ -1349,22 +1350,26 @@ command = "herdr-omnibar.open"
     }
 
     #[test]
-    fn the_row_stays_first_and_the_selection_goes_to_the_first_place_that_matches() {
-        let mut app = app(Filter::New);
-        type_text(&mut app, "pac");
-        let first = app
-            .lines
-            .iter()
-            .find_map(|line| match line {
-                Line::Row { item, .. } => Some(item.name()),
-                _ => None,
-            })
-            .unwrap();
-        assert_eq!(first, "new workspace “pac”");
-        assert_eq!(selected_name(&app), "pac");
+    fn the_row_comes_after_the_open_workspaces_and_the_selection_goes_to_the_first_place() {
+        let row_names = |app: &App| -> Vec<String> {
+            app.lines
+                .iter()
+                .filter_map(|line| match line {
+                    Line::Row { item, .. } => Some(item.name()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let mut open = app(Filter::New);
+        type_text(&mut open, "pac");
         // The places match by their name: the current place (atlas) does not match, it is hidden.
-        assert!(!app.lines.iter().any(|line| matches!(line,
-            Line::Row { item, .. } if item.name() == "atlas")));
+        assert_eq!(row_names(&open), ["pac", "new workspace “pac”"]);
+        assert_eq!(selected_name(&open), "pac");
+        // The row comes before the projects without a workspace, but the selection skips it.
+        let mut project = app(Filter::New);
+        type_text(&mut project, "prompts");
+        assert_eq!(row_names(&project), ["new workspace “prompts”", "prompts"]);
+        assert_eq!(selected_name(&project), "prompts");
     }
 
     #[test]
